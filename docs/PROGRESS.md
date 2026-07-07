@@ -14,7 +14,7 @@ the project owner's plan file; the milestone list below is self-contained.
 - [ ] **M4** SearchIndexKit: IndexingService actor, contentHash (SHA-256 of first 128 KiB + size), FTS5 `page_fts`, snippet queries, `pdfindex` CLI
 
 ### Phase B — macOS app (requires Xcode; license must be accepted: `sudo xcodebuild -license accept`)
-- [ ] **M5** Minimal viewer: Xcode project (synchronized folders), open panel → ReaderPDFView, one window
+- [x] **M5** Minimal viewer: Xcode project (synchronized folders), open panel → PDFKitView, one window (`--open <path>` launch arg as automation hook)
 - [ ] **M6** Tabs + memory model: tab bar, DocumentProvider LRU (~3), destroy PDFView on tab switch, verify with footprint/Instruments
 - [ ] **M7** Links + history: mouseDown interception (GoTo/Named/RemoteGoTo/bare destination), NavigationHistory integration, ⌘-click → new tab, ⌘[/⌘]
 - [ ] **M8** Outline sidebar (PDFOutline), page thumbnails, in-PDF find bar (beginFindString + highlightedSelections)
@@ -32,7 +32,8 @@ the project owner's plan file; the milestone list below is self-contained.
 - [ ] **M18** OSS polish, settings window, v0.1 tag
 
 ## Environment notes
-- Xcode 26 installed at /Applications/Xcode.app and selected, but **license not yet accepted** — `git`/`swift` shims fail until `sudo xcodebuild -license accept` is run. Workarounds in use: `scripts/test-clt.sh` for `swift test` (CLT lacks auto-wiring for Swift Testing framework paths), `/Library/Developer/CommandLineTools/usr/bin/git` for git, `DEVELOPER_DIR=/Library/Developer/CommandLineTools` for builds.
+- Xcode 26.6 installed, license accepted — plain `git`/`swift`/`xcodebuild` all work. (`scripts/test-clt.sh` remains for CLT-only environments but is no longer required.)
+- App builds: `xcodebuild -project App/PDFReader.xcodeproj -scheme PDFReader -configuration Debug -derivedDataPath .build/DerivedData build`. The pbxproj is hand-authored (objectVersion 77, synchronized folder groups) — adding files under App/macOS/ requires no pbxproj edits.
 - Owner's Calibre library: `~/Library/Mobile Documents/com~apple~CloudDocs/Documents/Calibre` (read-only source; files may be iCloud-evicted).
 - Apple Developer account: not yet enrolled (blocks M15 CloudKit + iOS device deploys).
 
