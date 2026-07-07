@@ -18,14 +18,23 @@ public struct LibraryView: View {
     public init() {}
 
     public var body: some View {
-        NavigationSplitView {
-            sidebar
-        } detail: {
-            grid
+        Group {
+            if model.needsSetup {
+                LibrarySetupView(model: model)
+            } else {
+                NavigationSplitView {
+                    sidebar
+                } detail: {
+                    grid
+                }
+            }
         }
         .frame(minWidth: 720, minHeight: 460)
         .navigationTitle("Library")
         .searchable(text: $model.searchText, prompt: "Title, author, or tag")
+        .onChange(of: model.searchText) { _, _ in
+            model.searchTextChanged()
+        }
         .toolbar {
             ToolbarItemGroup {
                 if let progress = model.indexingProgress {
@@ -39,7 +48,16 @@ public struct LibraryView: View {
                 Button("Reload", systemImage: "arrow.clockwise") {
                     Task { await model.reload() }
                 }
-                .disabled(model.calibreRoot == nil)
+                Menu {
+                    Button("Change Calibre Folder…") { model.chooseCalibreFolder() }
+                    if model.calibreRoot != nil {
+                        Button("Detach Calibre Library", role: .destructive) {
+                            model.detachCalibreFolder()
+                        }
+                    }
+                } label: {
+                    Image(systemName: "gearshape")
+                }
             }
         }
         .task { await model.reload() }
@@ -135,13 +153,15 @@ public struct LibraryView: View {
     @ViewBuilder
     private var grid: some View {
         Group {
-            if model.calibreRoot == nil {
+            if model.items.isEmpty, !model.isLoading, model.loadError == nil {
                 ContentUnavailableView {
-                    Label("No Library Attached", systemImage: "books.vertical")
+                    Label("No Books Yet", systemImage: "books.vertical")
                 } description: {
-                    Text("Attach your Calibre folder to browse your books.")
+                    Text(model.calibreRoot == nil
+                        ? "Import PDFs, or attach a Calibre folder in the ⚙ menu."
+                        : "No PDF books found in the Calibre library.")
                 } actions: {
-                    Button("Choose Calibre Folder…") { model.chooseCalibreFolder() }
+                    Button("Import PDFs…") { model.importPDFs() }
                 }
             } else if model.isLoading && model.items.isEmpty {
                 ProgressView("Reading library…")
@@ -183,7 +203,7 @@ public struct LibraryView: View {
     /// searching. Clicking a hit opens the book at that page.
     @ViewBuilder
     private var fullTextResults: some View {
-        let hits = Array(model.fullTextHits().prefix(20))
+        let hits = Array(model.textHits.prefix(20))
         if !hits.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
                 Text("In Book Text")
@@ -268,6 +288,64 @@ public struct LibraryView: View {
     }
 }
 
+/// First-run setup: an explicit choice about the Calibre folder — offered,
+/// never silently applied.
+private struct LibrarySetupView: View {
+    unowned let model: LibraryModel
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "books.vertical")
+                .font(.system(size: 44))
+                .foregroundStyle(.tint)
+            Text("Set Up Your Library")
+                .font(.title2.weight(.semibold))
+            Text("PDF Reader can browse an existing Calibre library alongside PDFs you import directly. Calibre stays in charge of its own files — this app never modifies them.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+
+            VStack(spacing: 10) {
+                if let candidate = model.detectedCalibreCandidate {
+                    Button {
+                        model.completeSetup(calibreFolder: candidate)
+                    } label: {
+                        VStack(spacing: 2) {
+                            Text("Use Detected Calibre Library")
+                            Text(candidate.path)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        .frame(maxWidth: 380)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                }
+                Button("Choose a Calibre Folder…") {
+                    let panel = NSOpenPanel()
+                    panel.canChooseDirectories = true
+                    panel.canChooseFiles = false
+                    panel.message = "Choose your Calibre library folder (contains metadata.db)."
+                    if panel.runModal() == .OK, let url = panel.url {
+                        model.completeSetup(calibreFolder: url)
+                    }
+                }
+                .controlSize(.large)
+                Button("Skip — Import PDFs Only") {
+                    model.completeSetup(calibreFolder: nil)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(40)
+    }
+}
+
 /// TagNode's children are non-optional; OutlineGroup wants nil for leaves.
 extension TagNode {
     var optionalChildren: [TagNode]? {
@@ -323,11 +401,13 @@ private struct BookCell<TagMenu: View, CollectionMenu: View>: View {
     @ViewBuilder let tagMenu: () -> TagMenu
     @ViewBuilder let collectionMenu: () -> CollectionMenu
 
+    @State private var cover: NSImage?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack {
-                if let coverURL = item.coverURL, let image = NSImage(contentsOf: coverURL) {
-                    Image(nsImage: image)
+                if let cover {
+                    Image(nsImage: cover)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                 } else {
@@ -348,6 +428,10 @@ private struct BookCell<TagMenu: View, CollectionMenu: View>: View {
             .frame(height: 190)
             .frame(maxWidth: .infinity)
             .shadow(radius: 2, y: 1)
+            .task(id: item.coverURL) {
+                guard let coverURL = item.coverURL else { return }
+                cover = await CoverImageLoader.thumbnail(for: coverURL)
+            }
 
             Text(item.title)
                 .font(.callout.weight(.medium))

@@ -134,6 +134,37 @@ public final class LibraryStore: Sendable {
         }
     }
 
+    /// Batch upsert for library scans: one transaction instead of one per
+    /// book (the per-row fsync cost dominates first-open time otherwise).
+    /// Returns book-row id per calibre uuid.
+    public func upsertCalibreBooks(_ books: [(uuid: String, title: String)]) throws -> [String: Int64] {
+        let ts = now()
+        return try dbQueue.write { db in
+            var ids: [String: Int64] = [:]
+            for (uuid, title) in books {
+                try db.execute(
+                    sql: """
+                        INSERT INTO book (calibre_uuid, title, modified_at, deleted_at)
+                        VALUES (?, ?, ?, NULL)
+                        ON CONFLICT(calibre_uuid) DO UPDATE SET
+                            title = excluded.title,
+                            modified_at = CASE WHEN book.title <> excluded.title
+                                               OR book.deleted_at IS NOT NULL
+                                          THEN excluded.modified_at ELSE book.modified_at END,
+                            deleted_at = NULL
+                        """,
+                    arguments: [uuid, title, ts]
+                )
+                if let id = try Int64.fetchOne(
+                    db, sql: "SELECT id FROM book WHERE calibre_uuid = ?", arguments: [uuid]
+                ) {
+                    ids[uuid] = id
+                }
+            }
+            return ids
+        }
+    }
+
     public func allBooks(includeDeleted: Bool = false) throws -> [BookRecord] {
         try dbQueue.read { db in
             var request = BookRecord.order(Column("title"))

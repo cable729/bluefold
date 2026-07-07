@@ -71,9 +71,18 @@ public final class LibraryModel {
     public private(set) var itemTags: [String: [TagRecord]] = [:]
 
     private static let calibrePathKey = "CalibreLibraryPath"
+    private static let setupDoneKey = "CalibreSetupDone"
 
     public private(set) var calibreRoot: URL?
+    /// True until the user has made an explicit Calibre choice (use a
+    /// folder, or skip). Drives the first-run setup screen.
+    public private(set) var needsSetup: Bool
     let store: LibraryStore?
+
+    /// Full-text hits for the current search, recomputed on a debounce —
+    /// never queried from a view body (that ran an FTS query per frame).
+    public private(set) var textHits: [BookSearchHit] = []
+    @ObservationIgnored private var textHitsTask: Task<Void, Never>?
 
     // Full-text search index (M13). The service actor owns all PDFKit/Vision
     // work; the store is safe to query directly from the main actor.
@@ -113,19 +122,55 @@ public final class LibraryModel {
         loadError = openError
 
         if injected != nil {
+            needsSetup = false
             return  // tests: no Calibre auto-detect, no UserDefaults
         }
-        if let stored = UserDefaults.standard.string(forKey: Self.calibrePathKey) {
+        needsSetup = !UserDefaults.standard.bool(forKey: Self.setupDoneKey)
+        if !needsSetup, let stored = UserDefaults.standard.string(forKey: Self.calibrePathKey) {
             calibreRoot = URL(fileURLWithPath: stored, isDirectory: true)
-        } else {
-            // Auto-detect the conventional iCloud Calibre location.
-            let candidate = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs/Documents/Calibre")
-            if FileManager.default.fileExists(atPath: candidate.appendingPathComponent("metadata.db").path) {
-                calibreRoot = candidate
-                UserDefaults.standard.set(candidate.path, forKey: Self.calibrePathKey)
+        }
+    }
+
+    // MARK: - Setup
+
+    /// A Calibre library at the conventional iCloud location, if one exists —
+    /// offered (never silently applied) during setup.
+    public var detectedCalibreCandidate: URL? {
+        let stored = UserDefaults.standard.string(forKey: Self.calibrePathKey)
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+        let conventional = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs/Documents/Calibre")
+        for candidate in [stored, conventional].compactMap({ $0 }) {
+            if FileManager.default.fileExists(
+                atPath: candidate.appendingPathComponent("metadata.db").path
+            ) {
+                return candidate
             }
         }
+        return nil
+    }
+
+    /// Completes setup: a folder to sync from, or nil for "no Calibre —
+    /// imported PDFs only".
+    public func completeSetup(calibreFolder url: URL?) {
+        UserDefaults.standard.set(true, forKey: Self.setupDoneKey)
+        needsSetup = false
+        if let url {
+            attachCalibreFolder(url)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.calibrePathKey)
+            calibreRoot = nil
+            Task { await reload() }
+        }
+    }
+
+    /// Detaches Calibre (imported PDFs remain); the grid empties of Calibre
+    /// books on the next reload.
+    public func detachCalibreFolder() {
+        UserDefaults.standard.removeObject(forKey: Self.calibrePathKey)
+        calibreRoot = nil
+        items.removeAll { $0.source != .imported }
+        Task { await reload() }
     }
 
     public var filteredItems: [LibraryItem] {
@@ -179,7 +224,14 @@ public final class LibraryModel {
     }
 
     public func reload() async {
-        guard let calibreRoot else { return }
+        guard let calibreRoot else {
+            // No Calibre attached: the library is just the app's imports.
+            items = []
+            appendImportedItems()
+            reloadOverlay()
+            startBackgroundIndexing()
+            return
+        }
         isLoading = true
         loadError = nil
         defer { isLoading = false }
@@ -210,12 +262,19 @@ public final class LibraryModel {
             }
 
             // Mirror Calibre books into the overlay DB so app tags can
-            // attach to them; Calibre stays the metadata source.
+            // attach to them; Calibre stays the metadata source. One batch
+            // transaction, off the main actor — per-book writes made first
+            // open take seconds.
             if let store {
+                let pairs = items.compactMap { item -> (uuid: String, title: String)? in
+                    guard case .calibre(let uuid) = item.source else { return nil }
+                    return (uuid, item.title)
+                }
+                let mapping = try await Task.detached(priority: .userInitiated) {
+                    try store.upsertCalibreBooks(pairs)
+                }.value
                 for item in items {
-                    if case .calibre(let uuid) = item.source,
-                       let record = try? store.upsertCalibreBook(uuid: uuid, title: item.title),
-                       let rowID = record.id {
+                    if case .calibre(let uuid) = item.source, let rowID = mapping[uuid] {
                         bookRowIDs[item.id] = rowID
                     }
                 }
@@ -225,6 +284,22 @@ public final class LibraryModel {
             startBackgroundIndexing()
         } catch {
             loadError = error.localizedDescription
+        }
+    }
+
+    /// Debounced full-text query — called by the view when searchText
+    /// changes; results land in `textHits`.
+    public func searchTextChanged() {
+        textHitsTask?.cancel()
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else {
+            textHits = []
+            return
+        }
+        textHitsTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled, let self else { return }
+            self.textHits = self.fullTextHits()
         }
     }
 
