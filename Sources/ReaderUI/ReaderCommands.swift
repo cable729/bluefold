@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import ReaderCore
 import SwiftUI
 
 /// Browser-style File menu: ⌘N window, ⌘T tab, ⌘W closes the tab (falling
@@ -22,6 +23,15 @@ public struct ReaderCommands: Commands {
             }
             .keyboardShortcut("t", modifiers: .command)
             .disabled(model == nil)
+        }
+
+        CommandGroup(after: .toolbar) {
+            Picker("Theme", selection: Bindable(ThemeManager.shared).current) {
+                Text("Light").tag(AppTheme.light)
+                Text("Dark").tag(AppTheme.dark)
+                Text("Sepia").tag(AppTheme.sepia)
+            }
+            .pickerStyle(.inline)
         }
 
         CommandGroup(replacing: .saveItem) {

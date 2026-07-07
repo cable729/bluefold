@@ -73,6 +73,7 @@ public struct ReaderWindowView: View {
             }
         }
         .navigationTitle(activeTitle)
+        .preferredColorScheme(ThemeManager.shared.current == .dark ? .dark : .light)
         .background(WindowAccessor(model: model))
         .focusedSceneValue(\.readerWindowModel, model)
         .onAppear {
@@ -98,8 +99,10 @@ public struct ReaderWindowView: View {
     private var content: some View {
         if let tab = model.activeTab {
             if let document = activeDocument {
+                // Keyed on theme too: a theme switch rebuilds the PDFView so
+                // every tile re-renders through the new page filter.
                 ActivePDFView(tab: tab, document: document, model: model)
-                    .id(tab.id)
+                    .id("\(tab.id)-\(ThemeManager.shared.current.rawValue)")
             } else {
                 ContentUnavailableView {
                     Label("File Not Available", systemImage: "questionmark.folder")

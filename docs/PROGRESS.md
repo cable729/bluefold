@@ -19,7 +19,7 @@ the project owner's plan file; the milestone list below is self-contained.
 - [x] **M7** Links + history: ReaderPDFView mouseDown interception (GoTo/RemoteGoTo/bare destination), NavigationHistory wiring, ⌘-click → new tab at destination, ⌘[/⌘] toolbar back/forward
 - [x] **M8** Outline sidebar (PDFOutline tree, jumps push history), lazy page thumbnails, ⌘F find bar (beginFindString + highlightedSelections, ⌘G/⇧⌘G cycling)
 - [x] **M9** Multi-window: WindowGroup(id:for:UUID), WindowAccessor (.moveToActiveSpace, tabbingMode=.disallowed, isRestorable=false, frame persistence), SessionCoordinator with debounced session.json (PDFREADER_SESSION_DIR env override for tests), full relaunch restore, ⌘N/⌘T/⌘W/⇧⌘W commands. Verified: 2-book session survives quit+bare relaunch
-- [ ] **M10** Theming: light/dark/sepia chrome + ThemedPDFPage draw-override page filtering
+- [x] **M10** Theming: light/dark/sepia (Claude tan #F5EDE1) — ThemedPDFPage draw-override page filtering (difference-invert / multiply-tan, iOS-compatible), pdfView background, preferredColorScheme, View > Theme menu, UserDefaults persistence
 - [ ] **M11** Library browser: attach Calibre folder, covers/authors/tags, open→tab, iCloud dataless download-on-open
 - [ ] **M12** Own imports + overlay tags/collections UI
 - [ ] **M13** Library-wide FTS search UI + background auto-indexing

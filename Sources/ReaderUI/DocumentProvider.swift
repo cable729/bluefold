@@ -39,6 +39,8 @@ public final class DocumentProvider {
         guard let document = PDFDocument(url: URL(fileURLWithPath: path)) else {
             return nil
         }
+        // Before any page materializes: themed page class for all pages.
+        document.delegate = PageClassProvider.shared
         cache.append((path, document))
         evictIfNeeded()
         return document

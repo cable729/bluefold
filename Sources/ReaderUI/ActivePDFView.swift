@@ -23,6 +23,7 @@ struct ActivePDFView: NSViewRepresentable {
         view.document = document
         view.displayMode = PDFDisplayMode(rawValue: tab.displayModeRaw) ?? .singlePageContinuous
         view.displaysPageBreaks = true
+        view.backgroundColor = ThemeManager.shared.pdfBackground
         view.autoScales = tab.autoScales
         if !tab.autoScales {
             view.scaleFactor = tab.scaleFactor
