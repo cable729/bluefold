@@ -28,6 +28,11 @@ public struct LibraryView: View {
         .searchable(text: $model.searchText, prompt: "Title, author, or tag")
         .toolbar {
             ToolbarItemGroup {
+                if let progress = model.indexingProgress {
+                    Text("Indexing \(progress.done)/\(progress.total)…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Button("Import PDFs…", systemImage: "square.and.arrow.down") {
                     model.importPDFs()
                 }
@@ -151,22 +156,79 @@ public struct LibraryView: View {
                 }
             } else {
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: 24) {
-                        ForEach(model.filteredItems) { item in
-                            BookCell(
-                                item: item,
-                                overlayTags: model.itemTags[item.id] ?? [],
-                                isDownloading: model.downloading.contains(item.id),
-                                open: { open(item) },
-                                tagMenu: { tagMenu(for: item) },
-                                collectionMenu: { collectionMenu(for: item) }
-                            )
+                    VStack(alignment: .leading, spacing: 0) {
+                        if !model.searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                            fullTextResults
                         }
+                        LazyVGrid(columns: columns, spacing: 24) {
+                            ForEach(model.filteredItems) { item in
+                                BookCell(
+                                    item: item,
+                                    overlayTags: model.itemTags[item.id] ?? [],
+                                    isDownloading: model.downloading.contains(item.id),
+                                    open: { open(item) },
+                                    tagMenu: { tagMenu(for: item) },
+                                    collectionMenu: { collectionMenu(for: item) }
+                                )
+                            }
+                        }
+                        .padding(20)
                     }
-                    .padding(20)
                 }
             }
         }
+    }
+
+    /// Full-text matches inside book content, shown above the grid while
+    /// searching. Clicking a hit opens the book at that page.
+    @ViewBuilder
+    private var fullTextResults: some View {
+        let hits = Array(model.fullTextHits().prefix(20))
+        if !hits.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("In Book Text")
+                    .font(.headline)
+                    .padding(.bottom, 4)
+                ForEach(hits) { hit in
+                    Button {
+                        open(hit)
+                    } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(hit.title)
+                                .font(.callout.weight(.medium))
+                                .lineLimit(1)
+                            Text("p.\(hit.page)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                            Text(plainSnippet(hit.snippet))
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, 2)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            Divider()
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+        }
+    }
+
+    /// Snippets carry «» FTS highlight markers; render them plain.
+    private func plainSnippet(_ snippet: String) -> String {
+        snippet
+            .replacingOccurrences(of: "«", with: "")
+            .replacingOccurrences(of: "»", with: "")
+    }
+
+    private func open(_ hit: BookSearchHit) {
+        guard let item = model.items.first(where: { $0.id == hit.itemID }) else { return }
+        open(item, at: NavEntry(pageIndex: hit.page - 1))
     }
 
     @ViewBuilder
@@ -193,10 +255,10 @@ public struct LibraryView: View {
         Button("New Collection…") { newCollectionName = "" }
     }
 
-    private func open(_ item: LibraryItem) {
+    private func open(_ item: LibraryItem, at entry: NavEntry? = nil) {
         Task {
             do {
-                if let newWindowID = try await model.openItem(item) {
+                if let newWindowID = try await model.openItem(item, at: entry) {
                     openWindow(id: "reader", value: newWindowID)
                 }
             } catch {
