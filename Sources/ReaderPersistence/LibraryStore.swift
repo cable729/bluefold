@@ -283,6 +283,16 @@ public final class LibraryStore: Sendable {
     // MARK: - Collections
 
     @discardableResult
+    public func collections(includeDeleted: Bool = false) throws -> [CollectionRecord] {
+        try dbQueue.read { db in
+            var request = CollectionRecord.order(Column("name"))
+            if !includeDeleted {
+                request = request.filter(Column("deleted_at") == nil)
+            }
+            return try request.fetchAll(db)
+        }
+    }
+
     public func createCollection(name: String, kind: String = "course") throws -> CollectionRecord {
         let ts = now()
         return try dbQueue.write { db in
