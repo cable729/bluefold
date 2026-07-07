@@ -260,12 +260,61 @@ public final class ReaderWindowModel {
     public var canGoBack: Bool { activeTab?.history.canGoBack ?? false }
     public var canGoForward: Bool { activeTab?.history.canGoForward ?? false }
 
-    public func goBack() {
-        traverseHistory { history, current in history.goBack(from: current) }
+    /// Back stack, most recent target first (for the history menu).
+    public var backEntries: [NavEntry] { (activeTab?.history.back ?? []).reversed() }
+    /// Forward stack, nearest target first (for the history menu).
+    public var forwardEntries: [NavEntry] { (activeTab?.history.forward ?? []).reversed() }
+
+    public func goBack(count: Int = 1) {
+        for _ in 0..<count {
+            traverseHistory { history, current in history.goBack(from: current) }
+        }
     }
 
-    public func goForward() {
-        traverseHistory { history, current in history.goForward(from: current) }
+    public func goForward(count: Int = 1) {
+        for _ in 0..<count {
+            traverseHistory { history, current in history.goForward(from: current) }
+        }
+    }
+
+    /// Continuous position update as the user scrolls/pages — keeps restore
+    /// crash-safe and the sidebar's current-section highlight live. Not a
+    /// history event.
+    public func noteCurrentPage(tabID: UUID, pageIndex: Int) {
+        guard
+            let index = tabs.firstIndex(where: { $0.id == tabID }),
+            tabs[index].pageIndex != pageIndex
+        else { return }
+        tabs[index].pageIndex = pageIndex
+        if tabID == activeTabID {
+            persistReadingState(for: tabs[index])
+        }
+        onMutation?()
+    }
+
+    // MARK: - Cross-window tab transfer
+
+    /// Detaches a tab, preserving its full state. The shared document stays
+    /// in the provider (the receiving window uses the same one).
+    func detachTab(id: UUID) -> TabState? {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return nil }
+        let tab = tabs.remove(at: index)
+        if activeTabID == id {
+            let successor = tabs.indices.contains(index) ? tabs[index] : tabs.last
+            activeTabID = successor?.id
+        }
+        refreshPins()
+        refreshBookmarks()
+        onMutation?()
+        return tab
+    }
+
+    /// Adopts a tab detached from another window, keeping its position,
+    /// zoom, and history intact.
+    func adoptTab(_ tab: TabState) {
+        tabs.append(tab)
+        selectTab(id: tab.id)
+        onMutation?()
     }
 
     private func traverseHistory(

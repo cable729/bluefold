@@ -131,6 +131,19 @@ public final class SessionCoordinator {
         return newID
     }
 
+    /// Moves a tab between windows (tab-strip drag & drop), preserving its
+    /// reading position, zoom, and history.
+    public func moveTab(_ tabID: UUID, from sourceWindowID: UUID, to targetWindowID: UUID) {
+        guard
+            sourceWindowID != targetWindowID,
+            let source = models[sourceWindowID],
+            let target = models[targetWindowID],
+            let tab = source.detachTab(id: tabID)
+        else { return }
+        target.adoptTab(tab)
+        scheduleSave()
+    }
+
     // MARK: - Persistence
 
     func snapshot() -> SessionSnapshot {

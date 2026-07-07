@@ -46,6 +46,7 @@ struct ActivePDFView: NSViewRepresentable {
         }
 
         context.coordinator.view = view
+        context.coordinator.observePageChanges(of: view)
         model.activeController = context.coordinator
         return view
     }
@@ -66,10 +67,39 @@ struct ActivePDFView: NSViewRepresentable {
         let tabID: UUID
         weak var model: ReaderWindowModel?
         weak var view: ReaderPDFView?
+        // nonisolated(unsafe): written on main; read in deinit.
+        private nonisolated(unsafe) var pageObserver: NSObjectProtocol?
 
         init(tabID: UUID, model: ReaderWindowModel) {
             self.tabID = tabID
             self.model = model
+        }
+
+        deinit {
+            if let pageObserver {
+                NotificationCenter.default.removeObserver(pageObserver)
+            }
+        }
+
+        /// Streams page turns into the tab state (crash-safe restore,
+        /// sidebar current-section highlight). Never a history event.
+        func observePageChanges(of view: ReaderPDFView) {
+            pageObserver = NotificationCenter.default.addObserver(
+                forName: .PDFViewPageChanged, object: view, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard
+                        let self,
+                        let view = self.view,
+                        let document = view.document,
+                        let page = view.currentPage
+                    else { return }
+                    self.model?.noteCurrentPage(
+                        tabID: self.tabID,
+                        pageIndex: document.index(for: page)
+                    )
+                }
+            }
         }
 
         // MARK: ActivePDFControlling

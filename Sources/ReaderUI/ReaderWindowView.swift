@@ -12,7 +12,8 @@ public struct ReaderWindowView: View {
 
     @State private var find = FindController()
     @State private var showSidebar = false
-    @State private var showFindBar = false
+    @State private var sidebarMode: SidebarMode = .outline
+    @State private var searchFocusToken = 0
     @Environment(\.openWindow) private var openWindow
 
     public init(windowID: UUID) {
@@ -29,27 +30,24 @@ public struct ReaderWindowView: View {
                 TabBarView(model: model, onNewTab: openPanel)
                 Divider()
             }
-            if showFindBar, let document = activeDocument {
-                FindBarView(document: document, model: model, find: find) {
-                    showFindBar = false
-                }
-                Divider()
-            }
             HSplitView {
                 if showSidebar, let document = activeDocument {
                     SidebarView(
+                        mode: $sidebarMode,
                         outline: OutlineNode.tree(from: document),
                         document: document,
-                        bookmarks: model.activeBookmarks,
-                        onJump: { model.jump(to: $0) },
-                        onAddBookmark: { model.addBookmarkAtCurrentPosition() },
-                        onDeleteBookmark: { model.deleteBookmark(id: $0) }
+                        currentPageIndex: model.activeTab?.pageIndex ?? 0,
+                        model: model,
+                        find: find,
+                        searchFocusToken: searchFocusToken
                     )
-                    .frame(minWidth: 180, idealWidth: 230, maxWidth: 340)
+                    .frame(minWidth: 200, idealWidth: 250, maxWidth: 360)
+                    .frame(maxHeight: .infinity)
                 }
                 content
                     .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 500, minHeight: 400)
         .toolbar {
@@ -57,17 +55,33 @@ public struct ReaderWindowView: View {
                 Button("Sidebar", systemImage: "sidebar.left") { showSidebar.toggle() }
                     .keyboardShortcut("s", modifiers: [.control, .command])
                     .help("Show or hide the sidebar (⌃⌘S)")
-                Button("Back", systemImage: "chevron.left") { model.goBack() }
-                    .keyboardShortcut("[", modifiers: .command)
-                    .disabled(!model.canGoBack)
-                    .help("Back (⌘[)")
-                Button("Forward", systemImage: "chevron.right") { model.goForward() }
-                    .keyboardShortcut("]", modifiers: .command)
-                    .disabled(!model.canGoForward)
-                    .help("Forward (⌘])")
+                // Click = go back/forward one step; the menu lists the whole
+                // stack, browser-style. Shortcuts ⌘[ / ⌘] live in ReaderCommands.
+                Menu {
+                    ForEach(Array(model.backEntries.enumerated()), id: \.offset) { index, entry in
+                        Button("Page \(entry.pageIndex + 1)") { model.goBack(count: index + 1) }
+                    }
+                } label: {
+                    Label("Back", systemImage: "chevron.left")
+                } primaryAction: {
+                    model.goBack()
+                }
+                .disabled(!model.canGoBack)
+                .help("Back (⌘[) — hold for history")
+                Menu {
+                    ForEach(Array(model.forwardEntries.enumerated()), id: \.offset) { index, entry in
+                        Button("Page \(entry.pageIndex + 1)") { model.goForward(count: index + 1) }
+                    }
+                } label: {
+                    Label("Forward", systemImage: "chevron.right")
+                } primaryAction: {
+                    model.goForward()
+                }
+                .disabled(!model.canGoForward)
+                .help("Forward (⌘]) — hold for history")
             }
             ToolbarItemGroup {
-                Button("Find", systemImage: "magnifyingglass") { toggleFindBar() }
+                Button("Find", systemImage: "magnifyingglass") { openSearchSidebar() }
                     .keyboardShortcut("f", modifiers: .command)
                     .disabled(activeDocument == nil)
                     .help("Find in document (⌘F)")
@@ -89,8 +103,13 @@ public struct ReaderWindowView: View {
         .onChange(of: model.activeTabID) { _, _ in
             // Find state is per-document; a tab switch invalidates it.
             find.cancel()
-            showFindBar = false
         }
+    }
+
+    private func openSearchSidebar() {
+        showSidebar = true
+        sidebarMode = .search
+        searchFocusToken += 1
     }
 
     private var activeDocument: PDFDocument? {
@@ -129,14 +148,6 @@ public struct ReaderWindowView: View {
         return URL(fileURLWithPath: tab.pathHint)
             .deletingPathExtension()
             .lastPathComponent
-    }
-
-    private func toggleFindBar() {
-        if showFindBar {
-            find.cancel()
-            model.activeController?.showFindResults([], current: nil)
-        }
-        showFindBar.toggle()
     }
 
     private func openPanel() {

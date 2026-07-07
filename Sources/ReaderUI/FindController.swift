@@ -80,6 +80,12 @@ public final class FindController {
         didSearch = false
     }
 
+    /// Explicit selection of a match (e.g. clicking a result row).
+    public func select(_ index: Int) {
+        guard matches.indices.contains(index) else { return }
+        currentIndex = index
+    }
+
     public func advance(by step: Int) {
         guard !matches.isEmpty else { return }
         let count = matches.count

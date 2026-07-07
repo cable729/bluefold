@@ -33,6 +33,15 @@ public struct ReaderCommands: Commands {
             .disabled(model == nil)
         }
 
+        CommandMenu("History") {
+            Button("Back") { model?.goBack() }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(model?.canGoBack != true)
+            Button("Forward") { model?.goForward() }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(model?.canGoForward != true)
+        }
+
         CommandGroup(after: .toolbar) {
             Picker("Theme", selection: Bindable(ThemeManager.shared).current) {
                 Text("Light").tag(AppTheme.light)
