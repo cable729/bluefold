@@ -81,12 +81,17 @@ public struct ReaderWindowView: View {
                 .help("Forward (⌘]) — hold for history")
             }
             ToolbarItemGroup {
+                Button("Library", systemImage: "books.vertical") {
+                    openWindow(id: "library")
+                }
+                .help("Open the library (⇧⌘L)")
                 Button("Find", systemImage: "magnifyingglass") { openSearchSidebar() }
                     .keyboardShortcut("f", modifiers: .command)
                     .disabled(activeDocument == nil)
                     .help("Find in document (⌘F)")
                 Button("Open…", systemImage: "folder") { openPanel() }
                     .keyboardShortcut("o", modifiers: .command)
+                    .help("Open a PDF file (⌘O)")
             }
         }
         .navigationTitle(activeTitle)
@@ -136,9 +141,11 @@ public struct ReaderWindowView: View {
             ContentUnavailableView {
                 Label("No PDF Open", systemImage: "book.closed")
             } description: {
-                Text("Open a PDF to start reading.")
+                Text("Browse your library or open a PDF file.")
             } actions: {
-                Button("Open PDF…") { openPanel() }
+                Button("Open Library") { openWindow(id: "library") }
+                    .buttonStyle(.borderedProminent)
+                Button("Open PDF File…") { openPanel() }
             }
         }
     }
