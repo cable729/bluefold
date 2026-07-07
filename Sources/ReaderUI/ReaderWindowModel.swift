@@ -10,12 +10,25 @@ import ReaderCore
 /// scarce resources: it pins the active tab's document in the
 /// `DocumentProvider` and receives position captures when a tab's view is
 /// torn down.
+/// The live view of the active tab, as the model sees it: enough to read the
+/// current position and to command a jump. Implemented by ActivePDFView's
+/// coordinator; faked in tests.
+@MainActor
+public protocol ActivePDFControlling: AnyObject {
+    var liveNavEntry: NavEntry? { get }
+    func execute(_ entry: NavEntry)
+}
+
 @Observable
 @MainActor
 public final class ReaderWindowModel {
     public private(set) var tabs: [TabState] = []
     public private(set) var activeTabID: UUID?
     public let provider: DocumentProvider
+
+    /// The active tab's live view; registered on creation, dropped on teardown.
+    @ObservationIgnored
+    public weak var activeController: ActivePDFControlling?
 
     public init(provider: DocumentProvider = DocumentProvider()) {
         self.provider = provider
@@ -30,14 +43,14 @@ public final class ReaderWindowModel {
         URL(fileURLWithPath: tab.pathHint)
     }
 
-    /// Opens a new tab for the file. The same file may be open in any number
-    /// of tabs; they share one live document.
+    /// Opens a new tab for the file, optionally at a specific position. The
+    /// same file may be open in any number of tabs; they share one document.
     @discardableResult
-    public func openTab(fileURL: URL, activate: Bool = true, at pageIndex: Int = 0) -> UUID {
-        let tab = TabState(
-            pathHint: DocumentProvider.canonicalPath(for: fileURL),
-            pageIndex: pageIndex
-        )
+    public func openTab(fileURL: URL, activate: Bool = true, at entry: NavEntry? = nil) -> UUID {
+        var tab = TabState(pathHint: DocumentProvider.canonicalPath(for: fileURL))
+        if let entry {
+            tab.apply(entry)
+        }
         tabs.append(tab)
         if activate || activeTabID == nil {
             selectTab(id: tab.id)
@@ -87,6 +100,68 @@ public final class ReaderWindowModel {
     public func updateTab(id: UUID, _ mutate: (inout TabState) -> Void) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         mutate(&tabs[index])
+    }
+
+    // MARK: - Navigation (single source of truth: ReaderCore.NavigationHistory)
+
+    /// Handles an activated internal link for the active tab.
+    ///
+    /// Same-document, plain click: push `current` onto history, jump in place.
+    /// ⌘-click (or a link into another PDF file): open a new tab at the
+    /// target — the originating tab doesn't move, matching browser behavior.
+    public func linkActivated(target entry: NavEntry, remoteFileURL: URL?, current: NavEntry, inNewTab: Bool) {
+        guard let activeTab else { return }
+
+        let fileURL = remoteFileURL ?? url(for: activeTab)
+        if inNewTab || remoteFileURL != nil {
+            openTab(fileURL: fileURL, at: entry)
+        } else {
+            updateTab(id: activeTab.id) { tab in
+                tab.history.push(current)
+                tab.apply(entry)
+            }
+            activeController?.execute(entry)
+        }
+    }
+
+    /// Records a jump initiated by chrome (outline click, thumbnail, search
+    /// hit): history push + in-place navigation.
+    public func jump(to entry: NavEntry) {
+        guard let activeTab, let controller = activeController else { return }
+        let current = controller.liveNavEntry ?? activeTab.currentNavEntry
+        updateTab(id: activeTab.id) { tab in
+            tab.history.push(current)
+            tab.apply(entry)
+        }
+        controller.execute(entry)
+    }
+
+    public var canGoBack: Bool { activeTab?.history.canGoBack ?? false }
+    public var canGoForward: Bool { activeTab?.history.canGoForward ?? false }
+
+    public func goBack() {
+        traverseHistory { history, current in history.goBack(from: current) }
+    }
+
+    public func goForward() {
+        traverseHistory { history, current in history.goForward(from: current) }
+    }
+
+    private func traverseHistory(
+        _ move: (inout NavigationHistory, NavEntry) -> NavEntry?
+    ) {
+        guard let activeTab, let controller = activeController else { return }
+        let current = controller.liveNavEntry ?? activeTab.currentNavEntry
+        var target: NavEntry?
+        updateTab(id: activeTab.id) { tab in
+            target = move(&tab.history, current)
+            if let target {
+                tab.apply(target)
+            }
+        }
+        if let target {
+            controller.execute(target)
+        }
     }
 
     /// Pins exactly the active tab's document so LRU eviction can never

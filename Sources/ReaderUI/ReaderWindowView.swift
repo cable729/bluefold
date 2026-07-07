@@ -19,6 +19,16 @@ public struct ReaderWindowView: View {
         }
         .frame(minWidth: 500, minHeight: 400)
         .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                Button("Back", systemImage: "chevron.left") { model.goBack() }
+                    .keyboardShortcut("[", modifiers: .command)
+                    .disabled(!model.canGoBack)
+                    .help("Back (⌘[)")
+                Button("Forward", systemImage: "chevron.right") { model.goForward() }
+                    .keyboardShortcut("]", modifiers: .command)
+                    .disabled(!model.canGoForward)
+                    .help("Forward (⌘])")
+            }
             ToolbarItem {
                 Button("Open…", systemImage: "folder") { openPanel() }
                     .keyboardShortcut("o", modifiers: .command)
@@ -32,7 +42,7 @@ public struct ReaderWindowView: View {
     private var content: some View {
         if let tab = model.activeTab {
             if let document = model.provider.document(for: model.url(for: tab)) {
-                ActivePDFView(tab: tab, document: document, onCapture: model.capture)
+                ActivePDFView(tab: tab, document: document, model: model)
                     .id(tab.id)
             } else {
                 ContentUnavailableView {

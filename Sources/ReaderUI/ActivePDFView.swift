@@ -12,14 +12,14 @@ import SwiftUI
 struct ActivePDFView: NSViewRepresentable {
     let tab: TabState
     let document: PDFDocument
-    let onCapture: (_ tabID: UUID, _ entry: NavEntry, _ autoScales: Bool, _ displayModeRaw: Int) -> Void
+    unowned let model: ReaderWindowModel
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(tabID: tab.id, onCapture: onCapture)
+        Coordinator(tabID: tab.id, model: model)
     }
 
-    func makeNSView(context: Context) -> PDFView {
-        let view = PDFView()
+    func makeNSView(context: Context) -> ReaderPDFView {
+        let view = ReaderPDFView()
         view.document = document
         view.displayMode = PDFDisplayMode(rawValue: tab.displayModeRaw) ?? .singlePageContinuous
         view.displaysPageBreaks = true
@@ -28,55 +28,69 @@ struct ActivePDFView: NSViewRepresentable {
             view.scaleFactor = tab.scaleFactor
         }
 
-        if let page = document.page(at: min(tab.pageIndex, max(0, document.pageCount - 1))) {
-            let point = tab.destinationPoint ?? CGPoint(
-                x: kPDFDestinationUnspecifiedValue,
-                y: kPDFDestinationUnspecifiedValue
+        view.onLinkActivated = { [weak model] target, current, inNewTab in
+            model?.linkActivated(
+                target: target.entry,
+                remoteFileURL: target.remoteFileURL,
+                current: current,
+                inNewTab: inNewTab
             )
-            let destination = PDFDestination(page: page, at: point)
-            // Defer until after the view has a size, or the point lands wrong.
-            DispatchQueue.main.async { [weak view] in
-                view?.go(to: destination)
-            }
+        }
+
+        let restore = tab.currentNavEntry
+        // Defer until after the view has a size, or the point lands wrong.
+        DispatchQueue.main.async { [weak view] in
+            guard let view, let document = view.document else { return }
+            view.go(to: restore, in: document)
         }
 
         context.coordinator.view = view
+        model.activeController = context.coordinator
         return view
     }
 
-    func updateNSView(_ view: PDFView, context: Context) {}
+    func updateNSView(_ view: ReaderPDFView, context: Context) {}
 
-    static func dismantleNSView(_ view: PDFView, coordinator: Coordinator) {
+    static func dismantleNSView(_ view: ReaderPDFView, coordinator: Coordinator) {
         coordinator.captureNow()
-        // Break the strongest retain cycles explicitly; the view is gone.
+        if coordinator.model?.activeController === coordinator {
+            coordinator.model?.activeController = nil
+        }
+        view.onLinkActivated = nil
         view.document = nil
     }
 
     @MainActor
-    final class Coordinator {
+    final class Coordinator: ActivePDFControlling {
         let tabID: UUID
-        let onCapture: (UUID, NavEntry, Bool, Int) -> Void
-        weak var view: PDFView?
+        weak var model: ReaderWindowModel?
+        weak var view: ReaderPDFView?
 
-        init(tabID: UUID, onCapture: @escaping (UUID, NavEntry, Bool, Int) -> Void) {
+        init(tabID: UUID, model: ReaderWindowModel) {
             self.tabID = tabID
-            self.onCapture = onCapture
+            self.model = model
         }
 
-        func captureNow() {
-            guard
-                let view,
-                let document = view.document,
-                let destination = view.currentDestination,
-                let page = destination.page
-            else { return }
+        // MARK: ActivePDFControlling
 
-            let entry = NavEntry(
-                pageIndex: document.index(for: page),
-                point: destination.point,
-                scaleFactor: view.scaleFactor
+        var liveNavEntry: NavEntry? {
+            view?.currentNavEntry()
+        }
+
+        func execute(_ entry: NavEntry) {
+            guard let view, let document = view.document else { return }
+            view.go(to: entry, in: document)
+        }
+
+        /// Persists the exact reading position back into the tab.
+        func captureNow() {
+            guard let view, let entry = liveNavEntry else { return }
+            model?.capture(
+                tabID: tabID,
+                entry: entry,
+                autoScales: view.autoScales,
+                displayModeRaw: view.displayMode.rawValue
             )
-            onCapture(tabID, entry, view.autoScales, view.displayMode.rawValue)
         }
     }
 }

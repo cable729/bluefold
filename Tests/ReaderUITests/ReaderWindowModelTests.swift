@@ -32,7 +32,7 @@ struct ReaderWindowModelTests {
         let model = makeModel()
         let url = URL(fileURLWithPath: "/tmp/a.pdf")
         let first = model.openTab(fileURL: url)
-        let second = model.openTab(fileURL: url, at: 100)
+        let second = model.openTab(fileURL: url, at: NavEntry(pageIndex: 100))
         #expect(first != second)
         #expect(model.tabs.count == 2)
         #expect(model.tabs[1].pageIndex == 100)

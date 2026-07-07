@@ -16,7 +16,7 @@ the project owner's plan file; the milestone list below is self-contained.
 ### Phase B — macOS app (requires Xcode; license must be accepted: `sudo xcodebuild -license accept`)
 - [x] **M5** Minimal viewer: Xcode project (synchronized folders), open panel → PDFKitView, one window (`--open <path>` launch arg as automation hook)
 - [x] **M6** Tabs + memory model: tab bar, DocumentProvider LRU (~3, pinned active), destroy PDFView on tab switch. Verified: 10 textbooks open = 66 MB footprint
-- [ ] **M7** Links + history: mouseDown interception (GoTo/Named/RemoteGoTo/bare destination), NavigationHistory integration, ⌘-click → new tab, ⌘[/⌘]
+- [x] **M7** Links + history: ReaderPDFView mouseDown interception (GoTo/RemoteGoTo/bare destination), NavigationHistory wiring, ⌘-click → new tab at destination, ⌘[/⌘] toolbar back/forward
 - [ ] **M8** Outline sidebar (PDFOutline), page thumbnails, in-PDF find bar (beginFindString + highlightedSelections)
 - [ ] **M9** Multi-window: WindowGroup(id:for:), WindowAccessor (.moveToActiveSpace, tabbingMode=.disallowed, isRestorable=false), debounced session.json, full relaunch restore
 - [ ] **M10** Theming: light/dark/sepia chrome + ThemedPDFPage draw-override page filtering
