@@ -18,7 +18,7 @@ the project owner's plan file; the milestone list below is self-contained.
 - [x] **M6** Tabs + memory model: tab bar, DocumentProvider LRU (~3, pinned active), destroy PDFView on tab switch. Verified: 10 textbooks open = 66 MB footprint
 - [x] **M7** Links + history: ReaderPDFView mouseDown interception (GoTo/RemoteGoTo/bare destination), NavigationHistory wiring, ⌘-click → new tab at destination, ⌘[/⌘] toolbar back/forward
 - [x] **M8** Outline sidebar (PDFOutline tree, jumps push history), lazy page thumbnails, ⌘F find bar (beginFindString + highlightedSelections, ⌘G/⇧⌘G cycling)
-- [ ] **M9** Multi-window: WindowGroup(id:for:), WindowAccessor (.moveToActiveSpace, tabbingMode=.disallowed, isRestorable=false), debounced session.json, full relaunch restore
+- [x] **M9** Multi-window: WindowGroup(id:for:UUID), WindowAccessor (.moveToActiveSpace, tabbingMode=.disallowed, isRestorable=false, frame persistence), SessionCoordinator with debounced session.json (PDFREADER_SESSION_DIR env override for tests), full relaunch restore, ⌘N/⌘T/⌘W/⇧⌘W commands. Verified: 2-book session survives quit+bare relaunch
 - [ ] **M10** Theming: light/dark/sepia chrome + ThemedPDFPage draw-override page filtering
 - [ ] **M11** Library browser: attach Calibre folder, covers/authors/tags, open→tab, iCloud dataless download-on-open
 - [ ] **M12** Own imports + overlay tags/collections UI
@@ -47,4 +47,4 @@ the project owner's plan file; the milestone list below is self-contained.
 - All synced tables carry modified_at + soft-delete tombstones.
 
 ## Next step
-M2/M3/M4 in parallel (worktree agents); Package.swift already defines all targets so parallel work never edits it. After merging: Phase B (needs Xcode license accepted).
+M10 theming, then M11–M14 (library browser, tags/collections UI, search UI + OCR, bookmarks/reading state). M15 CloudKit after the owner adds his dev account in Xcode's GUI.

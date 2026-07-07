@@ -27,13 +27,52 @@ public final class ReaderWindowModel {
     public private(set) var tabs: [TabState] = []
     public private(set) var activeTabID: UUID?
     public let provider: DocumentProvider
+    public let windowID: UUID
+
+    /// Last known window frame in screen coordinates (persisted for restore).
+    public private(set) var windowFrame: CGRect?
+    /// Frame to apply when the NSWindow first appears (from restored state).
+    public private(set) var pendingFrame: CGRect?
+
+    /// Fired after any persistable mutation; the session coordinator hangs
+    /// its debounced save here.
+    @ObservationIgnored
+    public var onMutation: (() -> Void)?
 
     /// The active tab's live view; registered on creation, dropped on teardown.
     @ObservationIgnored
     public weak var activeController: ActivePDFControlling?
 
-    public init(provider: DocumentProvider = DocumentProvider()) {
+    public init(
+        provider: DocumentProvider = DocumentProvider(),
+        windowID: UUID = UUID(),
+        restoring state: WindowState? = nil
+    ) {
         self.provider = provider
+        self.windowID = windowID
+        if let state {
+            tabs = state.tabs
+            activeTabID = state.activeTabID ?? state.tabs.first?.id
+            pendingFrame = state.frame
+            windowFrame = state.frame
+            refreshPins()
+        }
+    }
+
+    /// This window's state for the session snapshot.
+    public var stateSnapshot: WindowState {
+        WindowState(id: windowID, frame: windowFrame, tabs: tabs, activeTabID: activeTabID)
+    }
+
+    public func setWindowFrame(_ frame: CGRect) {
+        guard frame != windowFrame else { return }
+        windowFrame = frame
+        onMutation?()
+    }
+
+    public func consumePendingFrame() -> CGRect? {
+        defer { pendingFrame = nil }
+        return pendingFrame
     }
 
     public var activeTab: TabState? {
@@ -57,6 +96,7 @@ public final class ReaderWindowModel {
         if activate || activeTabID == nil {
             selectTab(id: tab.id)
         }
+        onMutation?()
         return tab.id
     }
 
@@ -64,6 +104,7 @@ public final class ReaderWindowModel {
         guard tabs.contains(where: { $0.id == id }) else { return }
         activeTabID = id
         refreshPins()
+        onMutation?()
     }
 
     public func closeTab(id: UUID) {
@@ -82,6 +123,7 @@ public final class ReaderWindowModel {
         if !tabs.contains(where: { $0.pathHint == closed.pathHint }) {
             provider.evict(path: closed.pathHint)
         }
+        onMutation?()
     }
 
     /// Called by the view layer when a tab's PDFView is torn down, persisting
@@ -102,6 +144,27 @@ public final class ReaderWindowModel {
     public func updateTab(id: UUID, _ mutate: (inout TabState) -> Void) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         mutate(&tabs[index])
+        onMutation?()
+    }
+
+    /// Closes the active tab; returns false when there is none (caller may
+    /// close the window instead, browser-style).
+    @discardableResult
+    public func closeActiveTab() -> Bool {
+        guard let activeTabID else { return false }
+        closeTab(id: activeTabID)
+        return true
+    }
+
+    /// Standard open panel; each chosen PDF becomes a tab in this window.
+    public func openTabViaPanel() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.allowsMultipleSelection = true
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls {
+            openTab(fileURL: url)
+        }
     }
 
     // MARK: - Navigation (single source of truth: ReaderCore.NavigationHistory)

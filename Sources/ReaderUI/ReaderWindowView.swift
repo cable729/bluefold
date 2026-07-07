@@ -5,14 +5,23 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// One reader window: tab strip on top, optional sidebar + find bar, and the
-/// active tab's PDF.
+/// active tab's PDF. State lives in the session coordinator so it survives
+/// the window and lands in session.json.
 public struct ReaderWindowView: View {
-    @State private var model = ReaderWindowModel()
+    let windowID: UUID
+
     @State private var find = FindController()
     @State private var showSidebar = false
     @State private var showFindBar = false
+    @Environment(\.openWindow) private var openWindow
 
-    public init() {}
+    public init(windowID: UUID) {
+        self.windowID = windowID
+    }
+
+    private var model: ReaderWindowModel {
+        SessionCoordinator.shared.model(for: windowID)
+    }
 
     public var body: some View {
         VStack(spacing: 0) {
@@ -64,7 +73,15 @@ public struct ReaderWindowView: View {
             }
         }
         .navigationTitle(activeTitle)
-        .onAppear(perform: openFromLaunchArguments)
+        .background(WindowAccessor(model: model))
+        .focusedSceneValue(\.readerWindowModel, model)
+        .onAppear {
+            openFromLaunchArguments()
+            // The launch scene fans out the rest of the restored session.
+            for id in SessionCoordinator.shared.takeRemainingRestoreIDs() {
+                openWindow(id: "reader", value: id)
+            }
+        }
         .onChange(of: model.activeTabID) { _, _ in
             // Find state is per-document; a tab switch invalidates it.
             find.cancel()
@@ -117,18 +134,14 @@ public struct ReaderWindowView: View {
     }
 
     private func openPanel() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.pdf]
-        panel.allowsMultipleSelection = true
-        guard panel.runModal() == .OK else { return }
-        for url in panel.urls {
-            model.openTab(fileURL: url)
-        }
+        model.openTabViaPanel()
     }
 
     /// Test/automation hook: `PDFReader --open <path> [--open <path> …]`
-    /// opens each file in its own tab.
+    /// opens each file in its own tab (in the launch window, once).
     private func openFromLaunchArguments() {
+        guard !SessionCoordinator.shared.launchArgumentsConsumed else { return }
+        SessionCoordinator.shared.launchArgumentsConsumed = true
         let arguments = ProcessInfo.processInfo.arguments
         var index = arguments.startIndex
         while let flagIndex = arguments[index...].firstIndex(of: "--open"),
@@ -137,5 +150,10 @@ public struct ReaderWindowView: View {
             index = flagIndex + 2
         }
     }
+}
+
+public extension FocusedValues {
+    /// The key window's reader model, for menu commands.
+    @Entry var readerWindowModel: ReaderWindowModel?
 }
 #endif
