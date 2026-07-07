@@ -22,8 +22,8 @@ the project owner's plan file; the milestone list below is self-contained.
 - [x] **M10** Theming: light/dark/sepia (Claude tan #F5EDE1) — ThemedPDFPage draw-override page filtering (difference-invert / multiply-tan, iOS-compatible), pdfView background, preferredColorScheme, View > Theme menu, UserDefaults persistence
 - [x] **M11** Library browser: Library window (⇧⌘L), Calibre auto-detect + folder picker, cover grid with authors/tags, searchable, double-click opens in last-focused reader window (or stages a new one), iCloud dataless download-on-open with progress overlay; Calibre books mirrored into overlay DB (upsertCalibreBook)
 - [x] **M12** Own imports + overlay tags/collections UI: library sidebar (All Books / hierarchical Tags / Collections) with scope filtering (descendant tags included), Import PDFs… (contentHash identity), per-book Tags/Collections context menus with toggles, New Tag nests under selected tag, overlay tags shown in accent + searchable
-- [ ] **M13** Library-wide FTS search UI + background auto-indexing
-- [ ] **M13b** OCR indexing for scanned PDFs (Vision VNRecognizeTextRequest when a page has no text layer; bump extractor_version to re-index; find-in-scanned-doc falls back to index hits at page granularity — store OCR word boxes later for real highlights)
+- [x] **M13** Library-wide FTS search UI + background auto-indexing: LibraryModel owns index.db (IndexStore + IndexingService), reload() kicks a cancellable utility-priority pass that indexes local files only (never triggers iCloud downloads), `indexingProgress` toolbar readout, "In Book Text" hit list above the grid (title / p.N / plain snippet), click opens the book at that page via `openItem(_:at:)` → `openInReader(fileURL:at:)`
+- [x] **M13b** OCR indexing for scanned PDFs (Vision VNRecognizeTextRequest when a page has no text layer; bump extractor_version to re-index; find-in-scanned-doc falls back to index hits at page granularity — store OCR word boxes later for real highlights): extractor v2, ~200 DPI CGBitmapContext render inside the IndexingService actor, `.indexed` now reports ocrPages, `.notSearchable` = no text layer AND OCR found nothing; `IndexingService(store:ocrEnabled:)` opt-out
 - [ ] **M14** User bookmarks + reading state ("Continue reading")
 - [ ] **M15** CloudKit sync via CKSyncEngine (dev account enrolled; owner must add it in Xcode > Settings > Accounts first)
 
@@ -47,4 +47,4 @@ the project owner's plan file; the milestone list below is self-contained.
 - All synced tables carry modified_at + soft-delete tombstones.
 
 ## Next step
-M10 theming, then M11–M14 (library browser, tags/collections UI, search UI + OCR, bookmarks/reading state). M15 CloudKit after the owner adds his dev account in Xcode's GUI.
+M14 bookmarks + reading state ("Continue reading"). M15 CloudKit after the owner adds his dev account in Xcode's GUI.

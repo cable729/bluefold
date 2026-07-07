@@ -35,11 +35,14 @@ do {
     switch result {
     case .alreadyIndexed:
         break
-    case .indexed(let pages, let nonEmptyPages):
-        FileHandle.standardError.write(
-            Data("pdfindex: indexed \(nonEmptyPages)/\(pages) pages\n".utf8))
+    case .indexed(let pages, let nonEmptyPages, let ocrPages):
+        var note = "pdfindex: indexed \(nonEmptyPages)/\(pages) pages"
+        if ocrPages > 0 {
+            note += " (\(ocrPages) via OCR)"
+        }
+        FileHandle.standardError.write(Data((note + "\n").utf8))
     case .notSearchable:
-        fail("no extractable text in \(pdfURL.path) (scanned document?)")
+        fail("no extractable text in \(pdfURL.path), and OCR found none (blank scan?)")
     }
 
     // search spans the whole index; keep only hits from this document.

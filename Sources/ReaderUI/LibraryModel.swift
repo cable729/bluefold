@@ -3,6 +3,7 @@ import AppKit
 import CalibreKit
 import Foundation
 import Observation
+import ReaderCore
 import ReaderPersistence
 import SearchIndexKit
 import UniformTypeIdentifiers
@@ -23,6 +24,20 @@ public struct LibraryItem: Identifiable, Equatable, Sendable {
     public var coverURL: URL?
 }
 
+/// One full-text search match in a library book (M13 "In Book Text").
+public struct BookSearchHit: Identifiable, Equatable, Sendable {
+    /// `"<contentHash>-<page>"` — stable across searches.
+    public let id: String
+    /// The `LibraryItem.id` the hit belongs to.
+    public let itemID: String
+    /// Book title, for display.
+    public let title: String
+    /// 1-based page number, as stored in the index.
+    public let page: Int
+    /// Matched text with «…» highlight markers.
+    public let snippet: String
+}
+
 /// What the grid is currently scoped to (sidebar selection).
 public enum LibraryFilter: Hashable {
     case all
@@ -41,6 +56,8 @@ public final class LibraryModel {
     public private(set) var loadError: String?
     /// Books currently being pulled down from iCloud.
     public private(set) var downloading: Set<String> = []
+    /// Progress of the background full-text indexing pass; nil when idle.
+    public private(set) var indexingProgress: (done: Int, total: Int)?
 
     public var searchText = ""
     public var filter: LibraryFilter = .all
@@ -58,21 +75,42 @@ public final class LibraryModel {
     public private(set) var calibreRoot: URL?
     let store: LibraryStore?
 
+    // Full-text search index (M13). The service actor owns all PDFKit/Vision
+    // work; the store is safe to query directly from the main actor.
+    let indexStore: IndexStore?
+    private let indexingService: IndexingService?
+    /// Content hash per LibraryItem id, recorded as books get indexed —
+    /// the join between index hits and library items.
+    private(set) var contentHashByItemID: [String: String] = [:]
+    @ObservationIgnored private var indexingTask: Task<Void, Never>?
+    /// Guards `indexingProgress` against a cancelled pass clobbering the
+    /// progress of the pass that replaced it.
+    @ObservationIgnored private var indexingGeneration = 0
+
     /// Pass a store to use (tests inject an in-memory one); nil opens the
-    /// app's library.db.
-    public init(store injected: LibraryStore? = nil) {
+    /// app's library.db. Same for `indexStore` (tests inject an in-memory
+    /// index; nil opens the app's index.db when the library store is owned).
+    public init(store injected: LibraryStore? = nil, indexStore injectedIndex: IndexStore? = nil) {
+        var openError: String?
         if let injected {
             store = injected
+            indexStore = injectedIndex
         } else {
+            var library: LibraryStore?
+            var index: IndexStore?
             do {
                 let dir = AppDataDirectory.url()
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                store = try LibraryStore(path: dir.appendingPathComponent("library.db").path)
+                library = try LibraryStore(path: dir.appendingPathComponent("library.db").path)
+                index = try IndexStore(path: dir.appendingPathComponent("index.db").path)
             } catch {
-                store = nil
-                loadError = "Library database unavailable: \(error.localizedDescription)"
+                openError = "Library database unavailable: \(error.localizedDescription)"
             }
+            store = library
+            indexStore = index
         }
+        indexingService = indexStore.map { IndexingService(store: $0) }
+        loadError = openError
 
         if injected != nil {
             return  // tests: no Calibre auto-detect, no UserDefaults
@@ -184,8 +222,89 @@ public final class LibraryModel {
             }
             appendImportedItems()
             reloadOverlay()
+            startBackgroundIndexing()
         } catch {
             loadError = error.localizedDescription
+        }
+    }
+
+    // MARK: - Full-text indexing (M13)
+
+    /// Cancels any in-flight indexing pass and starts a fresh one in the
+    /// background. Called after every successful reload().
+    private func startBackgroundIndexing() {
+        guard indexingService != nil else { return }
+        indexingTask?.cancel()
+        indexingTask = Task(priority: .utility) { [weak self] in
+            await self?.indexLibrary()
+        }
+    }
+
+    /// Indexes every local book sequentially, recording content hashes as it
+    /// goes. Skips iCloud-evicted files (indexing must never trigger
+    /// downloads). Internal so tests can await a full pass directly.
+    func indexLibrary() async {
+        guard let indexingService else { return }
+        indexingGeneration += 1
+        let generation = indexingGeneration
+        // Snapshot: reload() replaces `items` wholesale; a stale pass keeps
+        // its own list and the restart takes care of the rest.
+        let candidates = items.filter { FileAvailability.isLocal($0.fileURL) }
+        indexingProgress = (done: 0, total: candidates.count)
+        defer {
+            if generation == indexingGeneration {
+                indexingProgress = nil
+            }
+        }
+
+        var done = 0
+        for item in candidates {
+            if Task.isCancelled { return }
+            do {
+                let hash = try ContentHash.compute(for: item.fileURL)
+                _ = try await indexingService.indexDocument(at: item.fileURL, contentHash: hash)
+                contentHashByItemID[item.id] = hash
+            } catch {
+                // Unreadable/corrupt PDFs are skipped; search simply won't
+                // cover them.
+            }
+            done += 1
+            if generation == indexingGeneration {
+                indexingProgress = (done: done, total: candidates.count)
+            }
+        }
+    }
+
+    /// Full-text matches for the current search text, mapped back to library
+    /// items. Hits whose content hash doesn't belong to a known (indexed,
+    /// local) item are dropped.
+    public func fullTextHits() -> [BookSearchHit] {
+        guard let indexStore else { return [] }
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return [] }
+
+        let itemIDByHash = Dictionary(
+            contentHashByItemID.map { ($1, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let itemsByID = Dictionary(
+            items.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        let hits = (try? indexStore.search(query, limit: 60)) ?? []
+        return hits.compactMap { hit in
+            guard
+                let itemID = itemIDByHash[hit.contentHash],
+                let item = itemsByID[itemID]
+            else { return nil }
+            return BookSearchHit(
+                id: "\(hit.contentHash)-\(hit.page)",
+                itemID: itemID,
+                title: item.title,
+                page: hit.page,
+                snippet: hit.snippet
+            )
         }
     }
 
@@ -323,13 +442,14 @@ public final class LibraryModel {
     }
 
     /// Ensures the file is local (downloading from iCloud if evicted), then
-    /// stages it in a reader window. Returns a new window ID if one must be
-    /// opened by the caller.
-    public func openItem(_ item: LibraryItem) async throws -> UUID? {
+    /// stages it in a reader window, optionally at a position (full-text
+    /// search hits open at their page). Returns a new window ID if one must
+    /// be opened by the caller.
+    public func openItem(_ item: LibraryItem, at entry: NavEntry? = nil) async throws -> UUID? {
         downloading.insert(item.id)
         defer { downloading.remove(item.id) }
         try await FileAvailability.ensureLocal(item.fileURL)
-        return SessionCoordinator.shared.openInReader(fileURL: item.fileURL)
+        return SessionCoordinator.shared.openInReader(fileURL: item.fileURL, at: entry)
     }
 }
 #endif

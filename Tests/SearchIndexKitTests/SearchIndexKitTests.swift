@@ -43,6 +43,70 @@ private func makePDF(at url: URL, pageTexts: [String]) throws {
     context.closePDF()
 }
 
+/// Creates a "scanned-style" PDF: each page contains ONLY a bitmap image of
+/// rendered text (no text layer at all), like a scanned book without OCR.
+private func makeScannedPDF(at url: URL, pageTexts: [String]) throws {
+    var mediaBox = CGRect(x: 0, y: 0, width: 612, height: 792)
+    guard
+        let consumer = CGDataConsumer(url: url as CFURL),
+        let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil)
+    else {
+        throw FixtureError.cannotCreatePDFContext
+    }
+
+    for text in pageTexts {
+        context.beginPDFPage(nil)
+        if let image = try? renderTextImage(text, pageSize: mediaBox.size) {
+            context.draw(image, in: mediaBox)
+        }
+        context.endPDFPage()
+    }
+    context.closePDF()
+}
+
+/// Renders text into a CGBitmapContext image (2x page size, white background,
+/// large Helvetica) so Vision can OCR it reliably.
+private func renderTextImage(_ text: String, pageSize: CGSize) throws -> CGImage {
+    let scale: CGFloat = 2
+    let width = Int(pageSize.width * scale)
+    let height = Int(pageSize.height * scale)
+    guard
+        let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        )
+    else {
+        throw FixtureError.cannotCreatePDFContext
+    }
+    context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+
+    if !text.isEmpty {
+        // 28 pt at page scale = 56 px in this 2x bitmap.
+        let font = CTFontCreateWithName("Helvetica" as CFString, 28 * scale, nil)
+        let attributed = NSAttributedString(
+            string: text,
+            attributes: [
+                kCTFontAttributeName as NSAttributedString.Key: font,
+                kCTForegroundColorAttributeName as NSAttributedString.Key:
+                    CGColor(red: 0, green: 0, blue: 0, alpha: 1),
+            ]
+        )
+        context.textPosition = CGPoint(x: 72 * scale, y: 600 * scale)
+        CTLineDraw(CTLineCreateWithAttributedString(attributed), context)
+    }
+
+    guard let image = context.makeImage() else {
+        throw FixtureError.cannotCreatePDFContext
+    }
+    return image
+}
+
 /// A unique temp directory, removed when the value is deinitialized.
 private final class TempDir {
     let url: URL
@@ -113,7 +177,7 @@ private let standardPageTexts = [
     let store = try IndexStore.inMemory()
     let service = IndexingService(store: store)
     let result = try await service.indexDocument(at: file)
-    #expect(result == .indexed(pages: 3, nonEmptyPages: 2))
+    #expect(result == .indexed(pages: 3, nonEmptyPages: 2, ocrPages: 0))
 
     let xyzzyHits = try store.search("xyzzy", limit: 10)
     #expect(xyzzyHits.count == 1)
@@ -149,7 +213,7 @@ private let standardPageTexts = [
     let service = IndexingService(store: store)
 
     let first = try await service.indexDocument(at: file)
-    #expect(first == .indexed(pages: 3, nonEmptyPages: 2))
+    #expect(first == .indexed(pages: 3, nonEmptyPages: 2, ocrPages: 0))
     #expect(try store.isIndexed(contentHash: hash, extractorVersion: IndexingService.extractorVersion))
 
     let second = try await service.indexDocument(at: file)
@@ -160,7 +224,7 @@ private let standardPageTexts = [
     #expect(try store.search("xyzzy", limit: 10).isEmpty)
 
     let third = try await service.indexDocument(at: file)
-    #expect(third == .indexed(pages: 3, nonEmptyPages: 2))
+    #expect(third == .indexed(pages: 3, nonEmptyPages: 2, ocrPages: 0))
     #expect(try store.search("xyzzy", limit: 10).count == 1)
 }
 
@@ -215,13 +279,69 @@ private let standardPageTexts = [
     let store = try IndexStore.inMemory()
     let service = IndexingService(store: store)
     let result = try await service.indexDocument(at: file)
-    #expect(result == .indexed(pages: 1, nonEmptyPages: 1))
+    #expect(result == .indexed(pages: 1, nonEmptyPages: 1, ocrPages: 0))
 
     let accented = try store.search("Kähler manifold", limit: 10)
     #expect(accented.first?.page == 1)
 
     let plain = try store.search("Kahler", limit: 10)
     #expect(plain.first?.page == 1)
+}
+
+// MARK: - OCR fallback (M13b)
+
+@Test func scannedPDFIsNotSearchableWithOCRDisabled() async throws {
+    let dir = try TempDir()
+    let file = dir.file("scanned.pdf")
+    try makeScannedPDF(at: file, pageTexts: ["scanned page with token qwjzxv"])
+
+    let store = try IndexStore.inMemory()
+    let service = IndexingService(store: store, ocrEnabled: false)
+    let result = try await service.indexDocument(at: file)
+    #expect(result == .notSearchable)
+}
+
+@Test func scannedPDFIsIndexedViaOCR() async throws {
+    let dir = try TempDir()
+    let file = dir.file("scanned.pdf")
+    try makeScannedPDF(at: file, pageTexts: ["scanned page with token qwjzxv"])
+
+    let store = try IndexStore.inMemory()
+    let service = IndexingService(store: store)
+    let result = try await service.indexDocument(at: file)
+    #expect(result == .indexed(pages: 1, nonEmptyPages: 1, ocrPages: 1))
+
+    let hits = try store.search("qwjzxv", limit: 10)
+    #expect(hits.count == 1)
+    #expect(hits.first?.page == 1)
+    #expect(hits.first?.contentHash == (try ContentHash.compute(for: file)))
+}
+
+@Test func extractorVersionBumpTriggersReindex() async throws {
+    let dir = try TempDir()
+    let file = dir.file("doc.pdf")
+    try makePDF(at: file, pageTexts: standardPageTexts)
+    let hash = try ContentHash.compute(for: file)
+
+    let store = try IndexStore.inMemory()
+    // Simulate a document indexed by the v1 extractor.
+    try store.insertPages(
+        contentHash: hash,
+        pageCount: 3,
+        extractorVersion: 1,
+        pages: [(page: 1, text: "stale v1 extraction")]
+    )
+    #expect(try store.isIndexed(contentHash: hash, extractorVersion: 1))
+    #expect(!(try store.isIndexed(contentHash: hash, extractorVersion: IndexingService.extractorVersion)))
+
+    // Not .alreadyIndexed: the version mismatch forces a re-index that
+    // replaces the stale rows.
+    let service = IndexingService(store: store)
+    let result = try await service.indexDocument(at: file)
+    #expect(result == .indexed(pages: 3, nonEmptyPages: 2, ocrPages: 0))
+    #expect(try store.isIndexed(contentHash: hash, extractorVersion: IndexingService.extractorVersion))
+    #expect(try store.search("stale", limit: 10).isEmpty)
+    #expect(try store.search("xyzzy", limit: 10).count == 1)
 }
 
 // MARK: - Query sanitizer
