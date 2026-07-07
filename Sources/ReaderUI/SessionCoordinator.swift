@@ -114,19 +114,20 @@ public final class SessionCoordinator {
         lastFocusedWindowID = windowID
     }
 
-    /// Opens a file as a tab in the most recently focused reader window.
+    /// Opens a file as a tab in the most recently focused reader window,
+    /// optionally at a position (library search hits, "continue reading").
     /// Returns nil on success, or a fresh window ID the caller must open via
     /// `openWindow(id: "reader", value:)` when no reader window exists —
     /// the tab is already staged in that window's model.
-    public func openInReader(fileURL: URL) -> UUID? {
+    public func openInReader(fileURL: URL, at entry: NavEntry? = nil) -> UUID? {
         let targetID = lastFocusedWindowID.flatMap { models[$0] != nil ? $0 : nil }
             ?? windowOrder.last
         if let targetID, let target = models[targetID] {
-            target.openTab(fileURL: fileURL)
+            target.openTab(fileURL: fileURL, at: entry)
             return nil
         }
         let newID = UUID()
-        model(for: newID).openTab(fileURL: fileURL)
+        model(for: newID).openTab(fileURL: fileURL, at: entry)
         return newID
     }
 
