@@ -40,7 +40,10 @@ public struct ReaderWindowView: View {
                     SidebarView(
                         outline: OutlineNode.tree(from: document),
                         document: document,
-                        onJump: { model.jump(to: $0) }
+                        bookmarks: model.activeBookmarks,
+                        onJump: { model.jump(to: $0) },
+                        onAddBookmark: { model.addBookmarkAtCurrentPosition() },
+                        onDeleteBookmark: { model.deleteBookmark(id: $0) }
                     )
                     .frame(minWidth: 180, idealWidth: 230, maxWidth: 340)
                 }

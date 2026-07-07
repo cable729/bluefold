@@ -25,6 +25,14 @@ public struct ReaderCommands: Commands {
             .disabled(model == nil)
         }
 
+        CommandGroup(after: .pasteboard) {
+            Button("Bookmark This Page") {
+                model?.addBookmarkAtCurrentPosition()
+            }
+            .keyboardShortcut("d", modifiers: .command)
+            .disabled(model == nil)
+        }
+
         CommandGroup(after: .toolbar) {
             Picker("Theme", selection: Bindable(ThemeManager.shared).current) {
                 Text("Light").tag(AppTheme.light)

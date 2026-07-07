@@ -3,6 +3,7 @@ import Foundation
 import Observation
 import PDFKit
 import ReaderCore
+import ReaderPersistence
 
 /// State of one reader window: its tab strip and the active tab.
 ///
@@ -43,13 +44,24 @@ public final class ReaderWindowModel {
     @ObservationIgnored
     public weak var activeController: ActivePDFControlling?
 
+    /// Overlay DB for bookmarks/reading state; nil disables both.
+    @ObservationIgnored
+    let store: LibraryStore?
+    /// Book row per tab pathHint, resolved lazily.
+    @ObservationIgnored
+    private var bookRowIDCache: [String: Int64] = [:]
+    /// Bookmarks of the active tab's book, refreshed on switch/add/delete.
+    public private(set) var activeBookmarks: [UserBookmarkRecord] = []
+
     public init(
         provider: DocumentProvider = DocumentProvider(),
         windowID: UUID = UUID(),
-        restoring state: WindowState? = nil
+        restoring state: WindowState? = nil,
+        store: LibraryStore? = AppStores.library
     ) {
         self.provider = provider
         self.windowID = windowID
+        self.store = store
         if let state {
             tabs = state.tabs
             activeTabID = state.activeTabID ?? state.tabs.first?.id
@@ -104,6 +116,7 @@ public final class ReaderWindowModel {
         guard tabs.contains(where: { $0.id == id }) else { return }
         activeTabID = id
         refreshPins()
+        refreshBookmarks()
         onMutation?()
     }
 
@@ -139,6 +152,49 @@ public final class ReaderWindowModel {
             tab.autoScales = autoScales
             tab.displayModeRaw = displayModeRaw
         }
+        if let tab = tabs.first(where: { $0.id == tabID }) {
+            persistReadingState(for: tab)
+        }
+    }
+
+    // MARK: - Reading state & bookmarks (overlay DB)
+
+    static let deviceName = Host.current().localizedName ?? "Mac"
+
+    func bookRowID(for tab: TabState) -> Int64? {
+        if let cached = bookRowIDCache[tab.pathHint] { return cached }
+        guard let store else { return nil }
+        guard let id = BookResolver.resolveBookID(
+            forFileAt: URL(fileURLWithPath: tab.pathHint), store: store
+        ) else { return nil }
+        bookRowIDCache[tab.pathHint] = id
+        return id
+    }
+
+    func persistReadingState(for tab: TabState) {
+        guard let store, let bookID = bookRowID(for: tab) else { return }
+        try? store.setReadingState(bookID: bookID, page: tab.pageIndex, device: Self.deviceName)
+    }
+
+    public func refreshBookmarks() {
+        guard let store, let activeTab, let bookID = bookRowID(for: activeTab) else {
+            activeBookmarks = []
+            return
+        }
+        activeBookmarks = (try? store.bookmarks(forBook: bookID)) ?? []
+    }
+
+    /// Bookmarks the active tab's current live page (⌘D).
+    public func addBookmarkAtCurrentPosition() {
+        guard let store, let activeTab, let bookID = bookRowID(for: activeTab) else { return }
+        let page = activeController?.liveNavEntry?.pageIndex ?? activeTab.pageIndex
+        _ = try? store.addBookmark(bookID: bookID, page: page)
+        refreshBookmarks()
+    }
+
+    public func deleteBookmark(id: Int64) {
+        try? store?.softDeleteBookmark(id: id)
+        refreshBookmarks()
     }
 
     public func updateTab(id: UUID, _ mutate: (inout TabState) -> Void) {

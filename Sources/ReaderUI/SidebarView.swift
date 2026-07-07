@@ -1,18 +1,24 @@
 #if os(macOS)
 import PDFKit
 import ReaderCore
+import ReaderPersistence
 import SwiftUI
 
-/// Left sidebar: table of contents or page thumbnails for the active tab.
+/// Left sidebar: table of contents, page thumbnails, or bookmarks for the
+/// active tab.
 struct SidebarView: View {
     enum Mode: String, CaseIterable {
         case outline = "Contents"
         case thumbnails = "Pages"
+        case bookmarks = "Bookmarks"
     }
 
     let outline: [OutlineNode]
     let document: PDFDocument
+    let bookmarks: [UserBookmarkRecord]
     let onJump: (NavEntry) -> Void
+    let onAddBookmark: () -> Void
+    let onDeleteBookmark: (Int64) -> Void
 
     @State private var mode: Mode = .outline
 
@@ -62,7 +68,59 @@ struct SidebarView: View {
                     }
                     .padding(.vertical, 8)
                 }
+            case .bookmarks:
+                bookmarksList
             }
+        }
+    }
+
+    @ViewBuilder
+    private var bookmarksList: some View {
+        VStack(spacing: 0) {
+            if bookmarks.isEmpty {
+                ContentUnavailableView(
+                    "No Bookmarks",
+                    systemImage: "bookmark",
+                    description: Text("Press ⌘D to bookmark the current page.")
+                )
+            } else {
+                List(bookmarks, id: \.id) { bookmark in
+                    Button {
+                        onJump(NavEntry(pageIndex: bookmark.page))
+                    } label: {
+                        HStack {
+                            Image(systemName: "bookmark.fill")
+                                .foregroundStyle(.tint)
+                                .font(.caption)
+                            Text(bookmark.label ?? "Page \(bookmark.page + 1)")
+                                .lineLimit(1)
+                            Spacer()
+                            Text("p.\(bookmark.page + 1)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button("Remove Bookmark", role: .destructive) {
+                            if let id = bookmark.id {
+                                onDeleteBookmark(id)
+                            }
+                        }
+                    }
+                }
+                .listStyle(.sidebar)
+            }
+            Divider()
+            Button {
+                onAddBookmark()
+            } label: {
+                Label("Bookmark Current Page", systemImage: "bookmark.badge.plus")
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(8)
         }
     }
 }

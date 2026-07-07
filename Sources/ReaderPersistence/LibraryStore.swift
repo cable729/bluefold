@@ -94,6 +94,40 @@ public final class LibraryStore: Sendable {
         }
     }
 
+    public func book(byContentHash hash: String) throws -> BookRecord? {
+        try dbQueue.read { db in
+            try BookRecord
+                .filter(Column("content_hash") == hash && Column("deleted_at") == nil)
+                .fetchOne(db)
+        }
+    }
+
+    /// Resolves a book through its local file reference (path_hint).
+    public func bookID(forPathHint path: String) throws -> Int64? {
+        try dbQueue.read { db in
+            try Int64.fetchOne(
+                db,
+                sql: """
+                    SELECT b.id FROM book b JOIN file_ref f ON f.book_id = b.id
+                    WHERE f.path_hint = ? AND b.deleted_at IS NULL
+                    """,
+                arguments: [path]
+            )
+        }
+    }
+
+    /// Backfills a book's content hash (e.g. once the indexer has computed
+    /// it for a Calibre-sourced book), unifying hash-based lookups.
+    public func setContentHash(bookID: Int64, hash: String) throws {
+        let ts = now()
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE book SET content_hash = ?, modified_at = ? WHERE id = ? AND content_hash IS NULL",
+                arguments: [hash, ts, bookID]
+            )
+        }
+    }
+
     public func book(id: Int64) throws -> BookRecord? {
         try dbQueue.read { db in
             try BookRecord.fetchOne(db, key: id)

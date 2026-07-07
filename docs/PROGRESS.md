@@ -24,7 +24,7 @@ the project owner's plan file; the milestone list below is self-contained.
 - [x] **M12** Own imports + overlay tags/collections UI: library sidebar (All Books / hierarchical Tags / Collections) with scope filtering (descendant tags included), Import PDFs… (contentHash identity), per-book Tags/Collections context menus with toggles, New Tag nests under selected tag, overlay tags shown in accent + searchable
 - [ ] **M13** Library-wide FTS search UI + background auto-indexing
 - [ ] **M13b** OCR indexing for scanned PDFs (Vision VNRecognizeTextRequest when a page has no text layer; bump extractor_version to re-index; find-in-scanned-doc falls back to index hits at page granularity — store OCR word boxes later for real highlights)
-- [ ] **M14** User bookmarks + reading state ("Continue reading")
+- [x] **M14** Bookmarks + reading state: BookResolver (content-hash first, file_ref path, auto-register any opened PDF), reading-state writes on capture, Bookmarks sidebar mode + ⌘D, shared AppStores.library. ("Continue Reading" library section pending M13 merge)
 - [ ] **M15** CloudKit sync via CKSyncEngine (dev account enrolled; owner must add it in Xcode > Settings > Accounts first)
 
 ### Phase C
