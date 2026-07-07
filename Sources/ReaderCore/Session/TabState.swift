@@ -1,0 +1,67 @@
+import CoreGraphics
+import Foundation
+
+/// The complete, lightweight, persistable state of one tab.
+///
+/// A tab deliberately does NOT own a live PDF document or view — those are
+/// scarce resources managed by the UI layer's document provider. Everything
+/// needed to recreate the tab's exact view (file, position, zoom, history)
+/// lives here, so background tabs cost only a few hundred bytes.
+public struct TabState: Codable, Equatable, Identifiable, Sendable {
+    public var id: UUID
+
+    /// Bookmark data resolving to the PDF file (survives moves/renames).
+    /// Security-scoped on sandboxed platforms (iOS); plain on macOS.
+    public var fileBookmark: Data?
+    /// Last known file path — for display, and for recovery when the
+    /// bookmark fails to resolve.
+    public var pathHint: String
+
+    /// Zero-based current page index (updated continuously for crash-safe
+    /// restore; distinct from history entries).
+    public var pageIndex: Int
+    /// Top-left of the visible area in page space, if known.
+    public var destinationPoint: CGPoint?
+    public var scaleFactor: CGFloat
+    public var autoScales: Bool
+    /// Raw value of PDFDisplayMode (stored raw so ReaderCore stays PDFKit-free).
+    public var displayModeRaw: Int
+
+    public var history: NavigationHistory
+
+    public init(
+        id: UUID = UUID(),
+        fileBookmark: Data? = nil,
+        pathHint: String,
+        pageIndex: Int = 0,
+        destinationPoint: CGPoint? = nil,
+        scaleFactor: CGFloat = 1.0,
+        autoScales: Bool = true,
+        displayModeRaw: Int = 1,
+        history: NavigationHistory = NavigationHistory()
+    ) {
+        self.id = id
+        self.fileBookmark = fileBookmark
+        self.pathHint = pathHint
+        self.pageIndex = pageIndex
+        self.destinationPoint = destinationPoint
+        self.scaleFactor = scaleFactor
+        self.autoScales = autoScales
+        self.displayModeRaw = displayModeRaw
+        self.history = history
+    }
+
+    /// The tab's current position as a history entry.
+    public var currentNavEntry: NavEntry {
+        NavEntry(pageIndex: pageIndex, point: destinationPoint, scaleFactor: scaleFactor)
+    }
+
+    /// Applies a navigation target to the tab's position fields.
+    public mutating func apply(_ entry: NavEntry) {
+        pageIndex = entry.pageIndex
+        destinationPoint = entry.point
+        if let scale = entry.scaleFactor {
+            scaleFactor = scale
+        }
+    }
+}
