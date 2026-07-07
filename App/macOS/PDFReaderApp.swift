@@ -14,6 +14,12 @@ struct PDFReaderApp: App {
         }
         .restorationBehavior(.disabled)  // session restore is ours, not the system's
         .commands { ReaderCommands() }
+
+        Window("Library", id: "library") {
+            LibraryView()
+        }
+        .restorationBehavior(.disabled)
+        .keyboardShortcut("l", modifiers: [.command, .shift])
     }
 }
 

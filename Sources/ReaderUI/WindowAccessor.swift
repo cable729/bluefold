@@ -69,6 +69,14 @@ struct WindowAccessor: NSViewRepresentable {
                     SessionCoordinator.shared.windowClosed(model.windowID)
                 }
             })
+            observers.append(center.addObserver(
+                forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let model = self?.model else { return }
+                    SessionCoordinator.shared.noteWindowFocused(model.windowID)
+                }
+            })
         }
 
         private func removeObservers() {

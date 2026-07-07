@@ -42,17 +42,7 @@ public final class SessionCoordinator {
     // MARK: - Session file
 
     static func defaultSessionFileURL() -> URL {
-        // Overridable so tests and XCUITest runs get an isolated session.
-        if let dir = ProcessInfo.processInfo.environment["PDFREADER_SESSION_DIR"] {
-            return URL(fileURLWithPath: dir, isDirectory: true)
-                .appendingPathComponent("session.json")
-        }
-        let support = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        )[0]
-        return support
-            .appendingPathComponent("PDFReader", isDirectory: true)
-            .appendingPathComponent("session.json")
+        AppDataDirectory.url().appendingPathComponent("session.json")
     }
 
     private func loadSession() {
@@ -109,7 +99,35 @@ public final class SessionCoordinator {
         guard !isTerminating else { return }
         models.removeValue(forKey: windowID)
         windowOrder.removeAll { $0 == windowID }
+        if lastFocusedWindowID == windowID {
+            lastFocusedWindowID = nil
+        }
         scheduleSave()
+    }
+
+    // MARK: - Opening from the library
+
+    /// The reader window that most recently became key; library opens land here.
+    private var lastFocusedWindowID: UUID?
+
+    public func noteWindowFocused(_ windowID: UUID) {
+        lastFocusedWindowID = windowID
+    }
+
+    /// Opens a file as a tab in the most recently focused reader window.
+    /// Returns nil on success, or a fresh window ID the caller must open via
+    /// `openWindow(id: "reader", value:)` when no reader window exists —
+    /// the tab is already staged in that window's model.
+    public func openInReader(fileURL: URL) -> UUID? {
+        let targetID = lastFocusedWindowID.flatMap { models[$0] != nil ? $0 : nil }
+            ?? windowOrder.last
+        if let targetID, let target = models[targetID] {
+            target.openTab(fileURL: fileURL)
+            return nil
+        }
+        let newID = UUID()
+        model(for: newID).openTab(fileURL: fileURL)
+        return newID
     }
 
     // MARK: - Persistence
