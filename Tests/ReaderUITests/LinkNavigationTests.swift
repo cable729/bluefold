@@ -94,6 +94,8 @@ private final class FakeController: ActivePDFControlling {
         executed.append(entry)
         liveNavEntry = entry
     }
+
+    func showFindResults(_ matches: [PDFSelection], current: PDFSelection?) {}
 }
 
 @Suite("Navigation flows")

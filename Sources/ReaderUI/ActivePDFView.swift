@@ -82,6 +82,16 @@ struct ActivePDFView: NSViewRepresentable {
             view.go(to: entry, in: document)
         }
 
+        func showFindResults(_ matches: [PDFSelection], current: PDFSelection?) {
+            guard let view else { return }
+            view.highlightedSelections = matches.isEmpty ? nil : matches
+            if let current {
+                view.setCurrentSelection(current, animate: true)
+            } else {
+                view.clearSelection()
+            }
+        }
+
         /// Persists the exact reading position back into the tab.
         func captureNow() {
             guard let view, let entry = liveNavEntry else { return }

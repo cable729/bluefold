@@ -17,6 +17,8 @@ import ReaderCore
 public protocol ActivePDFControlling: AnyObject {
     var liveNavEntry: NavEntry? { get }
     func execute(_ entry: NavEntry)
+    /// Applies find highlights; pass an empty array to clear them.
+    func showFindResults(_ matches: [PDFSelection], current: PDFSelection?)
 }
 
 @Observable

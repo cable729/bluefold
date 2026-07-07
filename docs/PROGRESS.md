@@ -17,14 +17,15 @@ the project owner's plan file; the milestone list below is self-contained.
 - [x] **M5** Minimal viewer: Xcode project (synchronized folders), open panel → PDFKitView, one window (`--open <path>` launch arg as automation hook)
 - [x] **M6** Tabs + memory model: tab bar, DocumentProvider LRU (~3, pinned active), destroy PDFView on tab switch. Verified: 10 textbooks open = 66 MB footprint
 - [x] **M7** Links + history: ReaderPDFView mouseDown interception (GoTo/RemoteGoTo/bare destination), NavigationHistory wiring, ⌘-click → new tab at destination, ⌘[/⌘] toolbar back/forward
-- [ ] **M8** Outline sidebar (PDFOutline), page thumbnails, in-PDF find bar (beginFindString + highlightedSelections)
+- [x] **M8** Outline sidebar (PDFOutline tree, jumps push history), lazy page thumbnails, ⌘F find bar (beginFindString + highlightedSelections, ⌘G/⇧⌘G cycling)
 - [ ] **M9** Multi-window: WindowGroup(id:for:), WindowAccessor (.moveToActiveSpace, tabbingMode=.disallowed, isRestorable=false), debounced session.json, full relaunch restore
 - [ ] **M10** Theming: light/dark/sepia chrome + ThemedPDFPage draw-override page filtering
 - [ ] **M11** Library browser: attach Calibre folder, covers/authors/tags, open→tab, iCloud dataless download-on-open
 - [ ] **M12** Own imports + overlay tags/collections UI
 - [ ] **M13** Library-wide FTS search UI + background auto-indexing
+- [ ] **M13b** OCR indexing for scanned PDFs (Vision VNRecognizeTextRequest when a page has no text layer; bump extractor_version to re-index; find-in-scanned-doc falls back to index hits at page granularity — store OCR word boxes later for real highlights)
 - [ ] **M14** User bookmarks + reading state ("Continue reading")
-- [ ] **M15** CloudKit sync via CKSyncEngine (blocked on Apple Developer account)
+- [ ] **M15** CloudKit sync via CKSyncEngine (dev account enrolled; owner must add it in Xcode > Settings > Accounts first)
 
 ### Phase C
 - [ ] **M16** iOS app
@@ -35,7 +36,8 @@ the project owner's plan file; the milestone list below is self-contained.
 - Xcode 26.6 installed, license accepted — plain `git`/`swift`/`xcodebuild` all work. (`scripts/test-clt.sh` remains for CLT-only environments but is no longer required.)
 - App builds: `xcodebuild -project App/PDFReader.xcodeproj -scheme PDFReader -configuration Debug -derivedDataPath .build/DerivedData build`. The pbxproj is hand-authored (objectVersion 77, synchronized folder groups) — adding files under App/macOS/ requires no pbxproj edits.
 - Owner's Calibre library: `~/Library/Mobile Documents/com~apple~CloudDocs/Documents/Calibre` (read-only source; files may be iCloud-evicted).
-- Apple Developer account: not yet enrolled (blocks M15 CloudKit + iOS device deploys).
+- Apple Developer account: enrolled (cable729@gmail.com, 2026-07-07). Before M15/signing: the owner must add the account in Xcode > Settings > Accounts (GUI step).
+- Test corpus guidance from owner: Axler "Linear Algebra Done Right" (in the Calibre library) is the reference for internal-link behavior; also test scanned/ugly PDFs (search there needs M13b OCR); math notation extracts messily — search and snippets must tolerate it. Don't feature Dummit & Foote in demos/screenshots.
 
 ## Key design constraints (do not violate)
 - Never write to Calibre's metadata.db; never open the live file (copy first).
