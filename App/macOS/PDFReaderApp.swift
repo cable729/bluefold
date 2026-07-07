@@ -5,7 +5,7 @@ import SwiftUI
 struct PDFReaderApp: App {
     var body: some Scene {
         WindowGroup {
-            MinimalReaderView()
+            ReaderWindowView()
         }
     }
 }
