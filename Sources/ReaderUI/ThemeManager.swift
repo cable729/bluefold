@@ -173,7 +173,6 @@ final class ThemedPDFPage: PDFPage {
         let filter = PageFilterStore.current
         guard filter != .none else { return }
 
-        let rect = bounds(for: box)
         context.saveGState()
         switch filter {
         case .invert:
@@ -185,7 +184,12 @@ final class ThemedPDFPage: PDFPage {
         case .none:
             break
         }
-        context.fill(rect)
+        // Fill the CLIP, not bounds(for: box): the blend must cover exactly
+        // what this pass drew. Scans whose crop box has a non-zero origin
+        // (Munkres: crop starts at 144,110 inside the media box) put
+        // bounds(for:) in the wrong place for PDFKit's tile contexts,
+        // leaving untinted white patches across the page.
+        context.fill(context.boundingBoxOfClipPath)
         context.restoreGState()
     }
 }

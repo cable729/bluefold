@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import PDFKit
 import ReaderCore
 import Testing
 
@@ -94,6 +95,34 @@ struct SectionSkipTests {
         let here = NavEntry(pageIndex: 10)
         #expect(OutlineNode.sectionEntry(in: [], after: here) == nil)
         #expect(OutlineNode.sectionEntry(in: [], before: here) == nil)
+    }
+}
+
+/// Destination points from broken scans (outside the visible page — even
+/// negative) must degrade to page-top jumps: PDFView silently refuses to
+/// scroll to them, which made every Munkres outline click a no-op.
+@Suite("Destination point validation")
+@MainActor
+struct DestinationPointTests {
+    private let page = PDFPage()  // default crop 612×792 at origin
+
+    @Test func inPagePointsPass() {
+        #expect(
+            ReaderPDFView.validatedPoint(CGPoint(x: 70, y: 700), on: page)
+                == CGPoint(x: 70, y: 700)
+        )
+    }
+
+    @Test func outOfCropPointsDegradeToPageTop() {
+        #expect(ReaderPDFView.validatedPoint(CGPoint(x: -19.7, y: 414), on: page) == nil)
+        #expect(ReaderPDFView.validatedPoint(CGPoint(x: 70, y: 4000), on: page) == nil)
+    }
+
+    @Test func unspecifiedMarkerIsNil() {
+        let unspecified = CGPoint(
+            x: kPDFDestinationUnspecifiedValue, y: kPDFDestinationUnspecifiedValue
+        )
+        #expect(ReaderPDFView.validatedPoint(unspecified, on: page) == nil)
     }
 }
 #endif

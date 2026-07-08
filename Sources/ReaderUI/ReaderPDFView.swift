@@ -124,7 +124,7 @@ final class ReaderPDFView: PDFView {
         return LinkTarget(
             entry: NavEntry(
                 pageIndex: document.index(for: page),
-                point: normalize(destination.point)
+                point: validatedPoint(destination.point, on: page)
             ),
             remoteFileURL: nil
         )
@@ -135,6 +135,17 @@ final class ReaderPDFView: PDFView {
             return nil
         }
         return point
+    }
+
+    /// A destination point usable by `PDFView.go(to:)`, or nil to jump to
+    /// the page top instead. Beyond the unspecified-value markers, sloppy
+    /// scans (Munkres/Pearson) carry outline and link points OUTSIDE the
+    /// page's crop box — even negative — and PDFView silently refuses to
+    /// scroll to them, making every outline click a no-op.
+    static func validatedPoint(_ point: CGPoint, on page: PDFPage) -> CGPoint? {
+        guard let point = normalize(point) else { return nil }
+        let visible = page.bounds(for: .cropBox).insetBy(dx: -12, dy: -12)
+        return visible.contains(point) ? point : nil
     }
 }
 #endif

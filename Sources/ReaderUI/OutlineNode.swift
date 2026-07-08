@@ -136,12 +136,12 @@ struct OutlineNode: Identifiable {
 
             var entry: NavEntry?
             if let destination = child.destination, let page = destination.page {
-                var point: CGPoint? = destination.point
-                if destination.point.x == kPDFDestinationUnspecifiedValue
-                    || destination.point.y == kPDFDestinationUnspecifiedValue {
-                    point = nil
-                }
-                entry = NavEntry(pageIndex: document.index(for: page), point: point)
+                // validatedPoint also drops points outside the crop box
+                // (broken scans) — PDFView refuses to scroll to those.
+                entry = NavEntry(
+                    pageIndex: document.index(for: page),
+                    point: ReaderPDFView.validatedPoint(destination.point, on: page)
+                )
             }
 
             let kids = children(of: child, in: document)
