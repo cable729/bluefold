@@ -33,7 +33,7 @@ the project owner's plan file; the milestone list below is self-contained.
 - [x] **UI-2** Feedback round 2: evicted covers download-on-demand (fixes disappearing covers), In Book Text capped at 5 with Show All toggle, selected book highlighted (accent ring), history entries labeled with outline section names, bottom status bar (page layout modes, fit width/height, page x/y with direct jump, theme switcher), plain back/forward buttons with right-click history, ⌘-click opens ADJACENT tab + same-book tabs get group dots, tab context menu (duplicate/close/close others), collections nest in the sidebar (subtree filtering; New Collection nests under selected scope)
 
 ### Phase C
-- [ ] **M16** iOS app
+- [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); library/tags/search/sync UI pending
 - [ ] **M17** XCUITest smoke suite + xcodebuild CI job
 - [ ] **M18** OSS polish, settings window, v0.1 tag
 
