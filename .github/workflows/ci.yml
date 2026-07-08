@@ -19,11 +19,12 @@ jobs:
     # ever sits queued (image retired/renamed), fall back to macos-latest —
     # the code also compiles under Swift 6.0.
     runs-on: macos-26
-    # Builds finish in ~2 min on a healthy runner (one probe runner took 15+
-    # for GRDB alone — variance is real). The known failure mode is a HANG in
-    # test execution (a 45-min probe compiled everything in 80s, then
-    # swiftpm-testing sat silent for 44 min); 25 min bounds it.
-    timeout-minutes: 25
+    # The known CI failure mode is a WHOLE-RUNNER deadlock: the PTY probe
+    # showed all 116 tests "started" in the same instant and not one
+    # completed in 23 minutes. Running each test target separately with its
+    # own kill-timeout isolates which module(s) carry the deadlock, and any
+    # healthy modules still get exercised.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - name: Select latest Xcode
@@ -37,8 +38,24 @@ jobs:
           key: spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.resolved', 'Package.swift') }}
           restore-keys: |
             spm-${{ runner.os }}-${{ runner.arch }}-
-      - name: Run tests
-        # `script` gives the test child a PTY so its per-test output is
-        # line-buffered — without it a hang leaves a silent log with no
-        # indication of which test stalled.
-        run: script -q /dev/null swift test
+      - name: Build tests
+        run: swift build --build-tests
+      - name: Run tests per module
+        # PTY (`script`) keeps per-test output line-buffered; gtimeout KILLs
+        # a deadlocked module after 5 min instead of eating the whole job.
+        run: |
+          command -v gtimeout >/dev/null 2>&1 || brew install -q coreutils
+          status=0
+          for target in ReaderCoreTests CalibreKitTests ReaderPersistenceTests \
+                        SearchIndexKitTests SyncKitTests ReaderUITests; do
+            echo "::group::${target}"
+            if gtimeout --signal=KILL 300 script -q /dev/null \
+                swift test --skip-build --filter "${target}"; then
+              echo "${target}: OK"
+            else
+              echo "::error::${target}: FAILED or DEADLOCKED (killed at 300s)"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "${status}"
