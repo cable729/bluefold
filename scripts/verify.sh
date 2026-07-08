@@ -26,12 +26,37 @@ xcodebuild -project App/PDFReader.xcodeproj -scheme PDFReader-iOS \
 
 if [ -z "${CI:-}" ]; then
     echo "== 4/4 macOS launch smoke =="
+    # Launch through LaunchServices (`open`), not direct exec: on macOS 26,
+    # direct-exec instances of a bundle ID that ever died uncleanly come up
+    # WINDOWLESS (menu bar only), which made the old pid-alive check pass
+    # while the app was effectively broken. Asserting a real window catches
+    # that class of failure too. (Quirk notes: docs/PROGRESS.md.)
     SDIR=$(mktemp -d)
-    APP=.build/DerivedData/Build/Products/Debug/PDFReader.app/Contents/MacOS/PDFReader
-    PDFREADER_SESSION_DIR="$SDIR" "$APP" >/dev/null 2>&1 &
-    APP_PID=$!
-    sleep 5
-    kill -0 "$APP_PID" 2>/dev/null || { echo "FAIL: app exited during launch"; exit 1; }
+    APP_BUNDLE=.build/DerivedData/Build/Products/Debug/PDFReader.app
+    launchctl setenv PDFREADER_SESSION_DIR "$SDIR"
+    open -n "$APP_BUNDLE"
+    sleep 6
+    launchctl unsetenv PDFREADER_SESSION_DIR
+    APP_PID=$(pgrep -n -f "$APP_BUNDLE/Contents/MacOS/PDFReader" || true)
+    [ -n "$APP_PID" ] || { echo "FAIL: app not running after launch"; exit 1; }
+    WINDOWS=$(APP_PID="$APP_PID" swift - <<'SWIFT'
+import CoreGraphics
+import Foundation
+let pid = Int(ProcessInfo.processInfo.environment["APP_PID"] ?? "") ?? -1
+let wins = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]) ?? []
+let count = wins.filter {
+    ($0["kCGWindowOwnerPID"] as? Int) == pid && ($0["kCGWindowLayer"] as? Int) == 0
+}.count
+print(count)
+SWIFT
+)
+    if [ "${WINDOWS:-0}" -lt 1 ]; then
+        echo "FAIL: app is running but opened no window (pid $APP_PID)"
+        kill "$APP_PID" 2>/dev/null || true
+        exit 1
+    fi
+    # Quit gracefully: an unclean kill poisons later direct-exec launches
+    # of this bundle ID (macOS 26 quirk).
     osascript -e 'tell application "PDFReader" to quit' >/dev/null 2>&1 || kill "$APP_PID"
     rm -rf "$SDIR"
 else
