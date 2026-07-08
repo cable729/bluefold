@@ -186,6 +186,7 @@ public struct ReaderWindowView: View {
                         .font(.system(size: 9, weight: .bold))
                 }
                 .buttonStyle(.borderless)
+                .accessibilityIdentifier("close-split")
                 .help("Close split view")
             }
             .padding(.horizontal, 8)
