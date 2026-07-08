@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+# A newer push obsoletes in-flight runs; macOS minutes bill at 10x, so never
+# let two runs of the same ref race.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -12,6 +19,9 @@ jobs:
     # ever sits queued (image retired/renamed), fall back to macos-latest —
     # the code also compiles under Swift 6.0.
     runs-on: macos-26
+    # The suite runs in <1 min locally; anything near this limit is a hang,
+    # and the timeout flushes logs that show which test stalled.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Select latest Xcode
