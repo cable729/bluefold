@@ -51,5 +51,25 @@ the project owner's plan file; the milestone list below is self-contained.
 - Session restore is custom (session.json), not @SceneStorage/NSWindow restoration.
 - All synced tables carry modified_at + soft-delete tombstones.
 
+## ⚠️ Open loose end at session handoff (2026-07-08 ~04:10 UTC)
+CI status was UNKNOWN when the previous session ended. Three runs were
+in_progress on GitHub Actions (repo cable729/pdf-app, private): run
+28916335669 (macos-15, pre-switch), 28916705846 and 28916767356 (first runs
+on the new `macos-26` runner — the label was accepted and jobs were
+executing, so the image exists). First task for whoever reads this: `gh run
+list --limit 3` and check they passed.
+- If the macos-26 runs failed on toolchain grounds: the code compiles under
+  both Swift 6.0 and 6.3 locally; likeliest culprits are the "Select latest
+  Xcode" step or an image quirk. Fallback: `runs-on: macos-latest` works.
+- If they passed: delete this section.
+Local state at handoff: working tree clean, everything pushed, 120 tests
+green locally, `./scripts/verify.sh` passed end-to-end (all 4 steps).
+
+## Handoff docs (read these first in a fresh session)
+- [ARCHITECTURE.md](ARCHITECTURE.md) — module map, memory model, data stores, diagrams
+- [DECISIONS.md](DECISIONS.md) — why things are the way they are
+- [BACKLOG.md](BACKLOG.md) — owner feature requests (both 2026-07-07 rounds) + remaining roadmap
+- `./scripts/verify.sh` — the one-command quality gate (tests + both app builds + launch smoke)
+
 ## Next step
-M14 bookmarks + reading state ("Continue reading"). M15 CloudKit after the owner adds his dev account in Xcode's GUI.
+Owner's UX priorities: fix tab drag & drop (broken in practice — reorder/new-window/cross-window), theme sync across windows + chrome tinting, command palette (⌘P navigate / ⌘⇧P commands), live search without Enter. Then M15 CloudKit (team A448YLFLYC set — but settle the bundle identifier FIRST, see BACKLOG "Product / business"), iOS part 2, M17 XCUITest, M18 v0.1.
