@@ -16,7 +16,7 @@ Conventions borrowed from VS Code (palettes, quick-open), Safari/Chrome
 | --- | --- | --- |
 | ⌘N | New Window | |
 | ⌘T | New Tab… (open panel) | Browser convention |
-| ⌥⌘O | Open File… | Moved twice: ⌘O → quick-open palette, then ⌘⇧O → Go to Section. The panel is also in the "+" tab-strip menu. |
+| ⌥⌘O | Open File… | Displaced by the palettes. The panel is also in the "+" tab-strip menu. |
 | ⌘⇧L | Open Library | Bound at scene level on the Library window; the File-menu item deliberately installs no second binding. |
 | ⌘W | Close Tab (falls back to window) | Browser convention |
 | ⌘⇧W | Close Window | Browser convention |
@@ -31,8 +31,8 @@ Conventions borrowed from VS Code (palettes, quick-open), Safari/Chrome
 | Space / ⇧Space | Scroll down / up a screen (PDFView native) | |
 | ⌘G | Go to Page… | Owner request (was ⌥⌘G). ⌘G was free: find next/previous cycles with Enter/⇧Enter inside the search field. Also available in the bottom-bar page field. |
 | — | Previous / Next Section | Status-bar ⇤ ⇥ buttons flanking the page arrows; also in the Go menu and command palette. Every outline entry (any depth) is a stop; pushes history (⌘[ returns). |
-| ⌘P (or ⌘O) | Open Anything… — the OPEN palette | Fuzzy search over every open tab (all windows), every library book, and every collection and tag. Return opens/switches; **⌘Return opens in a background tab (palette stays up for queueing several); ⌥Return opens in a new window**. Collections/tags open every book inside as tabs. VS Code ⌘P / Obsidian ⌘O. |
-| ⌘⇧O | Go to Section… — the IN-BOOK palette | Sections (with breadcrumb paths) and bookmarks of the current book. ⌘Return opens the section as an adjacent background tab. VS Code go-to-symbol. |
+| ⌘O | Open Anything… — the OPEN palette | Fuzzy search over every open tab (all windows), every library book, and every collection and tag. Return opens/switches; **⌘Return opens in a background tab (palette stays up for queueing several); ⌥Return opens in a new window**. Collections/tags open every book inside as tabs. Obsidian quick-open. |
+| ⌘P (or ⌘⇧O) | Go to Section… — the IN-BOOK palette | Sections (with breadcrumb paths) and bookmarks of the current book. ⌘Return opens the section as an adjacent background tab. Owner's final mapping (round 9): ⌘O = other books, ⌘P = within this book. ⌘⇧O alias keeps VS Code go-to-symbol muscle memory (key monitor). |
 
 ## Tabs
 
@@ -105,12 +105,12 @@ first, breadcrumb-match second.
 - **⌘G**: reassigned to Go to Page (owner request, 2026-07-08). Preview's
   ⌘G = find-next convention is intentionally dropped — find next/previous
   live on Enter/⇧Enter in the search field. Don't rebind ⌘G to find.
-- **Palette split (owner request, 2026-07-08)**: ⌘P/⌘O = OPEN palette
-  (tabs, books, collections, tags), ⌘⇧O = IN-BOOK palette (sections,
-  bookmarks). Open File… moved ⌘⇧O → ⌥⌘O to make room.
+- **Palette split (owner request, 2026-07-08; chords finalized round 9)**:
+  ⌘O = OPEN palette (tabs, books, collections, tags), ⌘P (alias ⌘⇧O) =
+  IN-BOOK palette (sections, bookmarks). Open File… moved to ⌥⌘O.
 - **⌘1–9 → tab switching** (owner chose tabs over layouts, 2026-07-08);
   layouts moved to ⌥⌘1–4. ⌘1–9 bound by the key monitor, not menus (nine
   menu items would be clutter); listed in the command table with
   `installsMenuShortcut: false` so the help overlay and palette show them.
 - Not yet bound anywhere (future candidates): ⌘⇧G find previous,
-  ⌘+/⌘−/⌘0 zoom, ⌘\\ split view, ⌘B sidebar (VS Code), ⌘, settings (M18).
+  ⌘+/⌘−/⌘0 zoom, ⌘\\ split view, ⌘, settings (M18).

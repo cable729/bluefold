@@ -4,10 +4,10 @@ import SwiftUI
 
 /// Which palette is showing, if any.
 public enum PaletteMode: Equatable, Sendable {
-    /// ⌘P / ⌘O — OPEN things: library books, collections, tags, open tabs.
+    /// ⌘O — OPEN things: library books, collections, tags, open tabs.
     case navigate
-    /// ⌘⇧O — navigate WITHIN the book: outline sections and bookmarks
-    /// (VS Code go-to-symbol).
+    /// ⌘P (alias ⌘⇧O) — navigate WITHIN the book: outline sections and
+    /// bookmarks.
     case outline
     /// ⌘⇧P — fuzzy search over the command table.
     case commands

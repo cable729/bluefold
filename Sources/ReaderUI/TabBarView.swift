@@ -33,7 +33,7 @@ struct TabBarView: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .padding(.horizontal, 8)
-            .help("New tab — from the library (⇧⌘L) or a file (⌘T / ⌘⇧O)")
+            .help("New tab — from the library (⌘O) or a file (⌘T / ⌥⌘O)")
         }
         .frame(height: 48)
         .background(.bar)

@@ -129,9 +129,8 @@ public enum CommandRegistry {
             isAvailable: { $0.model != nil },
             run: { $0.model?.openTabViaPanel() }
         ))
-        // ⌘O belongs to the open palette (VS Code/Obsidian quick-open) and
-        // ⌘⇧O to the in-book palette (VS Code go-to-symbol); the file panel
-        // lives on ⌥⌘O.
+        // ⌘O opens the open palette (Obsidian quick-open), ⌘P/⌘⇧O the
+        // in-book palette; the file panel lives on ⌥⌘O.
         commands.append(ReaderCommand(
             id: "file.openFile", title: "Open File…", category: .file,
             chords: [KeyChord("o", [.command, .option])],
@@ -211,19 +210,20 @@ public enum CommandRegistry {
             isAvailable: { $0.activeDocument != nil },
             run: { $0.ui?.presentPalette(.goToPage) }
         ))
-        // ⌘P is freed from Print (VS Code quick-open convention); ⌘O is
-        // bound by the window's key monitor, not the menu.
+        // Owner's final mapping (round 9): ⌘O = OPEN other things (books,
+        // collections, tags, tabs — Obsidian quick-open), ⌘P = navigate
+        // WITHIN the book. ⌘P stays freed from Print.
         commands.append(ReaderCommand(
             id: "nav.openAnything", title: "Open Anything…", category: .navigation,
-            chords: [KeyChord("p", [.command]), KeyChord("o", [.command])],
+            chords: [KeyChord("o", [.command])],
             isAvailable: { $0.model != nil },
             run: { $0.ui?.presentPalette(.navigate) }
         ))
-        // In-book navigation, split from the open palette (owner request):
-        // ⌘⇧O mirrors VS Code's go-to-symbol.
+        // ⌘⇧O alias is bound by the window key monitor (VS Code
+        // go-to-symbol muscle memory).
         commands.append(ReaderCommand(
             id: "nav.goToSection", title: "Go to Section…", category: .navigation,
-            chords: [KeyChord("o", [.command, .shift])],
+            chords: [KeyChord("p", [.command]), KeyChord("o", [.command, .shift])],
             isAvailable: { $0.activeDocument != nil },
             run: { $0.ui?.presentPalette(.outline) }
         ))

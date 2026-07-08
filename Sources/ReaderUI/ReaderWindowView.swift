@@ -107,19 +107,19 @@ public struct ReaderWindowView: View {
                     openWindow(id: "library")
                 }
                 .help("Open the library (⇧⌘L)")
-                // Shortcuts ⌘F and ⌘⇧O live on the menu items (command
-                // table); ⌘O now opens the navigate palette.
+                // Shortcuts ⌘F and ⌥⌘O live on the menu items (command
+                // table); ⌘O opens books, ⌘P navigates the current book.
                 Button("Find", systemImage: "magnifyingglass") { ui.openSearchSidebar() }
                     .disabled(activeDocument == nil)
                     .help("Find in document (⌘F)")
                 Button("Open…", systemImage: "folder") { openPanel() }
-                    .help("Open a PDF file (⌘⇧O)")
+                    .help("Open a PDF file (⌥⌘O)")
                 // Visible entry point to the command palette — the chords
                 // (⌘⇧P, ⌘P, /) are otherwise undiscoverable (round 5).
                 Button("Commands", systemImage: "command") {
                     ui.presentPalette(.commands)
                 }
-                .help("All commands (⌘⇧P) · Go to anything (⌘P) · Shortcuts (/)")
+                .help("All commands (⌘⇧P) · Open a book (⌘O) · Sections (⌘P) · Shortcuts (/)")
             }
         }
         .navigationTitle(activeTitle)
@@ -195,7 +195,7 @@ public struct ReaderWindowView: View {
                     .fixedSize()
                     // Discoverability (round 5): the shortcut system is
                     // invisible unless something points at it.
-                    Text("⌘⇧P all commands   ·   ⌘P go to anything   ·   /  shortcuts")
+                    Text("⌘O open a book   ·   ⌘⇧P all commands   ·   /  shortcuts")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
