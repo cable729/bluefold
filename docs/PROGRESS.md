@@ -57,7 +57,12 @@ the project owner's plan file; the milestone list below is self-contained.
   finishDrag. ⌘G = Go to Page (⌥⌘G retired; find cycles via Enter/⇧Enter).
   Discoverability: toolbar ⌘-button for the palette + empty-state hint line.
   "+" is a menu (From Library… / Open File…). Library tags show subtree
-  book-count badges (LibraryModel.tagCounts).
+  book-count badges (LibraryModel.tagCounts). Quick-open (owner request):
+  ⌘P lists every library book — type part of the name, Return opens it as
+  a tab; Calibre paths mirror into file_ref at library reload
+  (upsertFileRefs/openableBooks), open books dedupe into their tab row,
+  evicted files download first. One library reload is needed post-update
+  before never-opened Calibre books appear.
 
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); library/tags/search/sync UI pending

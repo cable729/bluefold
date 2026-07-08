@@ -15,6 +15,9 @@ struct PaletteOverlay: View {
     @State private var query = ""
     @State private var selection = 0
     @FocusState private var fieldFocused: Bool
+    /// Library books, fetched ONCE per palette appearance — `rows` is
+    /// recomputed per keystroke and must never hit SQLite.
+    @State private var libraryBooks: [BookCandidateInput] = []
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -68,12 +71,31 @@ struct PaletteOverlay: View {
                 .strokeBorder(.separator, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.25), radius: 18, y: 8)
-        .onAppear { fieldFocused = true }
+        .onAppear {
+            fieldFocused = true
+            loadLibraryBooks()
+        }
         .onChange(of: query) { _, _ in selection = 0 }
         .onChange(of: mode) { _, _ in
             query = ""
             selection = 0
             fieldFocused = true
+            loadLibraryBooks()
+        }
+    }
+
+    /// Quick-open source: every library book with a known file location
+    /// (Calibre paths are mirrored into file_ref at library reload).
+    private func loadLibraryBooks() {
+        guard mode == .navigate else { return }
+        let books = AppStores.library.flatMap { try? $0.openableBooks() } ?? []
+        libraryBooks = books.map {
+            BookCandidateInput(
+                title: $0.title,
+                path: DocumentProvider.canonicalPath(
+                    for: URL(fileURLWithPath: $0.pathHint)
+                )
+            )
         }
     }
 
@@ -87,7 +109,7 @@ struct PaletteOverlay: View {
 
     private var placeholder: String {
         switch mode {
-        case .navigate: "Go to section, bookmark, or open tab…"
+        case .navigate: "Go to section, bookmark, tab, or library book…"
         case .commands: "Run a command…"
         case .goToPage: "Page number (1–\(pageCount))…"
         }
@@ -130,7 +152,7 @@ struct PaletteOverlay: View {
 
     private var emptyMessage: String {
         switch mode {
-        case .navigate: "No matching section, bookmark, or tab"
+        case .navigate: "No matching section, bookmark, tab, or book"
         case .commands: "No matching command"
         case .goToPage: ""
         }
@@ -225,8 +247,10 @@ struct PaletteOverlay: View {
 
         // Current window's tabs first (strip order), then other windows'.
         var tabs: [TabCandidateInput] = []
+        var openPaths: Set<String> = []
         func append(from windowModel: ReaderWindowModel, label: String?) {
             for tab in windowModel.tabs {
+                openPaths.insert(tab.pathHint)
                 tabs.append(TabCandidateInput(
                     windowID: windowModel.windowID,
                     tabID: tab.id,
@@ -244,7 +268,10 @@ struct PaletteOverlay: View {
             append(from: windowModel, label: "other window")
         }
 
-        return NavigateCandidates.assemble(outline: outline, bookmarks: bookmarks, tabs: tabs)
+        return NavigateCandidates.assemble(
+            outline: outline, bookmarks: bookmarks, tabs: tabs,
+            books: libraryBooks, openPaths: openPaths
+        )
     }
 
     private func perform(_ action: NavigateCandidate.Action) {
@@ -257,6 +284,15 @@ struct PaletteOverlay: View {
             } else if let target = SessionCoordinator.shared.models[windowID] {
                 target.selectTab(id: tabID)
                 target.hostWindow?.makeKeyAndOrderFront(nil)
+            }
+        case .openBook(let url):
+            // iCloud-evicted books download first; the tab opens when the
+            // bytes are local (same behavior as opening from the library).
+            // Weak: the window (and its model) may close mid-download.
+            let model = self.model
+            Task { @MainActor [weak model] in
+                try? await FileAvailability.ensureLocal(url)
+                model?.openTab(fileURL: url)
             }
         }
     }

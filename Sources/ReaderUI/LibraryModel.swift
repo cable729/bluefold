@@ -357,6 +357,18 @@ public final class LibraryModel {
                         bookRowIDs[item.id] = rowID
                     }
                 }
+                // Mirror every Calibre book's PDF path as a file_ref so
+                // quick-open (⌘P) can open books never opened before —
+                // without this, only imports and already-opened books have
+                // a known location.
+                let refs = items.compactMap { item -> (bookID: Int64, pathHint: String)? in
+                    guard case .calibre = item.source, let rowID = bookRowIDs[item.id]
+                    else { return nil }
+                    return (rowID, DocumentProvider.canonicalPath(for: item.fileURL))
+                }
+                try await Task.detached(priority: .userInitiated) {
+                    try store.upsertFileRefs(refs)
+                }.value
             }
             appendImportedItems()
             reloadOverlay()

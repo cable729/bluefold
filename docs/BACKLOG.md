@@ -265,12 +265,20 @@ with owner if wanted): one-time first-launch HUD.
 
 ### ✅ DONE 2026-07-08 — Unify the "+" tab button with the library
 "+" is now a menu: "From Library…" (opens the Library window) /
-"Open File…" (the old panel). The alternative — seeding the NAVIGATE
-palette with library books — was deliberately NOT done yet: candidates
-would come from the overlay DB, whose file paths (file_ref) only exist
-for imports and previously-opened books, so unopened Calibre books would
-silently be missing. Revisit with the owner (needs a Calibre-backed
-candidate source to be complete).
+"Open File…" (the old panel).
+
+### ✅ DONE 2026-07-08 — Quick-open a book from the keyboard (owner request)
+"⌘P, type part of the book name, Return" opens any library book as a tab
+— no library window. Done by seeding the navigate palette with library
+books: library reload now mirrors every Calibre book's PDF path into
+`file_ref` (`LibraryStore.upsertFileRefs`), `openableBooks()` joins
+book+file_ref, and the palette appends a "Library — open in a new tab"
+section (fetched once per palette open, never per keystroke). Books
+already open anywhere dedupe into their "Open Tab" row (switch, don't
+duplicate); iCloud-evicted files download before the tab opens. NOTE:
+Calibre books need ONE library reload after this update before they're
+listed (the mirror runs at reload); imports and previously-opened books
+work immediately.
 
 ### ✅ DONE 2026-07-08 — Go to Page is ⌘G
 No conflict existed anymore: the M8 find-bar ⌘G/⇧⌘G cycling died with the

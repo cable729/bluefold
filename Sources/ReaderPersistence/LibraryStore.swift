@@ -192,6 +192,50 @@ public final class LibraryStore: Sendable {
         }
     }
 
+    /// Records or refreshes the on-disk location of many books in one
+    /// transaction. Library reload mirrors every Calibre book's PDF path
+    /// through this so quick-open can list books never opened before.
+    public func upsertFileRefs(_ refs: [(bookID: Int64, pathHint: String)]) throws {
+        guard !refs.isEmpty else { return }
+        try dbQueue.write { db in
+            for ref in refs {
+                if var existing = try FileRefRecord
+                    .filter(Column("book_id") == ref.bookID).fetchOne(db)
+                {
+                    if existing.pathHint != ref.pathHint {
+                        existing.pathHint = ref.pathHint
+                        try existing.update(db)
+                    }
+                } else {
+                    var record = FileRefRecord(
+                        id: nil, bookID: ref.bookID, bookmark: nil, pathHint: ref.pathHint
+                    )
+                    try record.insert(db)
+                }
+            }
+        }
+    }
+
+    /// Every live book that has a known file location — the quick-open
+    /// palette's source. Title-sorted for stable empty-query display.
+    public func openableBooks() throws -> [OpenableBook] {
+        try dbQueue.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT b.id AS book_id, b.title AS title, f.path_hint AS path_hint
+                    FROM book b JOIN file_ref f ON f.book_id = b.id
+                    WHERE b.deleted_at IS NULL
+                    ORDER BY b.title COLLATE NOCASE
+                    """
+            ).map { row in
+                OpenableBook(
+                    bookID: row["book_id"], title: row["title"], pathHint: row["path_hint"]
+                )
+            }
+        }
+    }
+
     // MARK: - Tags
 
     @discardableResult

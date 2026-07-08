@@ -53,6 +53,20 @@ public struct FileRefRecord: Codable, Hashable, Sendable,
     }
 }
 
+/// One row of `LibraryStore.openableBooks()`: what the quick-open palette
+/// needs to list and open a book.
+public struct OpenableBook: Hashable, Sendable {
+    public var bookID: Int64
+    public var title: String
+    public var pathHint: String
+
+    public init(bookID: Int64, title: String, pathHint: String) {
+        self.bookID = bookID
+        self.title = title
+        self.pathHint = pathHint
+    }
+}
+
 /// A hierarchical user tag. `parentID == nil` means a root tag.
 public struct TagRecord: Codable, Hashable, Sendable,
     FetchableRecord, MutablePersistableRecord

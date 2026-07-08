@@ -122,6 +122,31 @@ private final class TestClock: @unchecked Sendable {
         #expect(ref?.bookmark == bookmark)
     }
 
+    @Test func fileRefUpsertAndOpenableBooks() throws {
+        let store = try LibraryStore.inMemory()
+        let axler = try store.upsertCalibreBook(uuid: "axler", title: "Linear Algebra Done Right")
+        let noPath = try store.upsertCalibreBook(uuid: "rudin", title: "Real Analysis")
+        let gone = try store.upsertCalibreBook(uuid: "gone", title: "Deleted")
+
+        try store.upsertFileRefs([
+            (bookID: axler.id!, pathHint: "/calibre/axler.pdf"),
+            (bookID: gone.id!, pathHint: "/calibre/gone.pdf"),
+        ])
+        try store.softDeleteBook(id: gone.id!)
+
+        // Only live books with a known location are openable; a book whose
+        // path was never mirrored is not listed.
+        let openable = try store.openableBooks()
+        #expect(openable.map(\.pathHint) == ["/calibre/axler.pdf"])
+        #expect(openable.first?.title == "Linear Algebra Done Right")
+        _ = noPath
+
+        // Re-upserting updates in place (Calibre library moved), no dup row.
+        try store.upsertFileRefs([(bookID: axler.id!, pathHint: "/moved/axler.pdf")])
+        #expect(try store.fileRef(forBook: axler.id!)?.pathHint == "/moved/axler.pdf")
+        #expect(try store.openableBooks().count == 1)
+    }
+
     @Test func softDeletedBooksAreHiddenByDefault() throws {
         let store = try LibraryStore.inMemory()
         let keep = try store.upsertCalibreBook(uuid: "keep", title: "Keep")

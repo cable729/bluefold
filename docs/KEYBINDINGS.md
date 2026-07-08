@@ -30,7 +30,7 @@ Conventions borrowed from VS Code (palettes, quick-open), Safari/Chrome
 | ↑ / ↓ | Scroll (PDFView native; pages in single-page mode) | |
 | Space / ⇧Space | Scroll down / up a screen (PDFView native) | |
 | ⌘G | Go to Page… | Owner request (was ⌥⌘G). ⌘G was free: find next/previous cycles with Enter/⇧Enter inside the search field. Also available in the bottom-bar page field. |
-| ⌘P (or ⌘O) | Go to Anything… — navigate palette | Fuzzy search over the outline (with breadcrumb paths), bookmarks, and every open tab in every window. VS Code ⌘P / Obsidian ⌘O. |
+| ⌘P (or ⌘O) | Go to Anything… — navigate palette | Fuzzy search over the outline (with breadcrumb paths), bookmarks, every open tab in every window, AND every library book — type part of a book name, Return opens it as a tab (books already open dedupe into their tab row). VS Code ⌘P / Obsidian ⌘O. |
 
 ## Tabs
 

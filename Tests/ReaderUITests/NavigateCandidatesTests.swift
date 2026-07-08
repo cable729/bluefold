@@ -122,5 +122,31 @@ struct NavigateCandidatesTests {
         )
         #expect(candidates.map(\.title) == ["Open Book", "Page 4", "Intro"])
     }
+
+    @Test func libraryBooksComeLastAndSkipOpenOnes() {
+        let candidates = NavigateCandidates.assemble(
+            outline: [OutlineNode(label: "Intro", entry: NavEntry(pageIndex: 0), children: nil)],
+            bookmarks: [],
+            tabs: [
+                TabCandidateInput(
+                    windowID: UUID(), tabID: UUID(), title: "Axler",
+                    pageIndex: 0, isActive: false, windowLabel: nil
+                )
+            ],
+            books: [
+                BookCandidateInput(title: "Axler", path: "/books/axler.pdf"),
+                BookCandidateInput(title: "Hatcher", path: "/books/hatcher.pdf"),
+            ],
+            openPaths: ["/books/axler.pdf"]
+        )
+        // The open book keeps only its tab row (switch, don't duplicate);
+        // the unopened one gets a quick-open row after the outline.
+        #expect(candidates.map(\.title) == ["Axler", "Intro", "Hatcher"])
+        #expect(
+            candidates.last?.action
+                == .openBook(URL(fileURLWithPath: "/books/hatcher.pdf"))
+        )
+        #expect(candidates.last?.subtitle == "Library — open in a new tab")
+    }
 }
 #endif

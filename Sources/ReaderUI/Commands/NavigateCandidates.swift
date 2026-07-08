@@ -7,6 +7,8 @@ struct NavigateCandidate: Identifiable, Equatable {
     enum Action: Equatable {
         case jump(NavEntry)
         case selectTab(windowID: UUID, tabID: UUID)
+        /// Open a library book (by file path) as a new tab.
+        case openBook(URL)
     }
 
     let id: String
@@ -42,14 +44,25 @@ struct BookmarkCandidateInput {
     var label: String?
 }
 
+/// A library book the palette can open directly (quick-open, no library
+/// window). Paths come from the overlay DB's file_ref mirror.
+struct BookCandidateInput {
+    var title: String
+    /// Canonical file path (matches tab pathHints for dedup).
+    var path: String
+}
+
 /// Assembles the navigate palette's candidate list: open tabs (all windows),
-/// bookmarks of the active book, then the flattened outline with breadcrumb
-/// paths. That order is what an empty query shows.
+/// bookmarks of the active book, the flattened outline with breadcrumb
+/// paths, then library books (quick-open). That order is what an empty
+/// query shows.
 enum NavigateCandidates {
     static func assemble(
         outline: [OutlineNode],
         bookmarks: [BookmarkCandidateInput],
-        tabs: [TabCandidateInput]
+        tabs: [TabCandidateInput],
+        books: [BookCandidateInput] = [],
+        openPaths: Set<String> = []
     ) -> [NavigateCandidate] {
         var out: [NavigateCandidate] = []
 
@@ -77,6 +90,18 @@ enum NavigateCandidates {
         }
 
         flatten(outline, path: [], into: &out)
+
+        // Books already open anywhere are skipped: their "Open Tab" row is
+        // the better action (switch, don't duplicate).
+        for book in books where !openPaths.contains(book.path) {
+            out.append(NavigateCandidate(
+                id: "book.\(book.path)",
+                icon: "book.closed",
+                title: book.title,
+                subtitle: "Library — open in a new tab",
+                action: .openBook(URL(fileURLWithPath: book.path))
+            ))
+        }
         return out
     }
 
