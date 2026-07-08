@@ -51,8 +51,9 @@ shells in `App/`.
 ## Development
 
 ```sh
-swift build      # build everything
-swift test       # run the full unit/integration suite
+swift build           # build everything
+swift test            # run the full unit/integration suite (~0.5s)
+./scripts/verify.sh   # the full gate: tests + both app builds + launch smoke
 ```
 
 Requires macOS 15+ and Swift 6. The app targets (in `App/`) require Xcode 16+.
