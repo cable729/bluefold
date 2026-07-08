@@ -155,6 +155,20 @@ struct AnchorIndexTests {
         #expect(merged.first?.destName == "section.5.1")
     }
 
+    @Test func chapterAnchorsMergePerPageKeepingRicherLabel() {
+        // Tu, probed: outline dest at the page top, printed "Chapter 1"
+        // mid-page — one chapter, one glyph, the fuller label.
+        let merged = AnchorIndex.merge([
+            anchor(kind: .chapter, label: "Chapter 1:Euclidean Spaces", y: 636,
+                   destName: nil, source: .outline),
+            anchor(kind: .chapter, label: "Chapter 1", y: 480, source: .text),
+        ])
+        #expect(merged.count == 1)
+        #expect(merged.first?.label == "Chapter 1:Euclidean Spaces")
+        // Position from the text tier (the printed heading), which won.
+        #expect(merged.first?.point.y == 480)
+    }
+
     @Test func farApartSameKindStaysSeparate() {
         let merged = AnchorIndex.merge([
             anchor(kind: .theorem, label: "Theorem 5.1", y: 700, source: .text),

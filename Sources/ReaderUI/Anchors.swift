@@ -123,6 +123,13 @@ final class AnchorIndex {
                 if result[index].destName == nil {
                     result[index].destName = anchor.destName
                 }
+                // A losing label that EXTENDS the winner's is more
+                // informative, not different: the text tier finds the
+                // printed "Chapter 1" while the outline knows
+                // "Chapter 1: Euclidean Spaces" (Tu, probed).
+                if extendsLabel(result[index].label, with: anchor.label) {
+                    result[index].label = anchor.label
+                }
                 continue
             }
             result.append(anchor)
@@ -132,9 +139,20 @@ final class AnchorIndex {
 
     private nonisolated static func sameSpot(_ a: Anchor, _ b: Anchor) -> Bool {
         guard a.pageIndex == b.pageIndex else { return false }
+        // One chapter heading per page: the outline's destination often
+        // points at the page top while "Chapter N" is printed mid-page —
+        // any distance is the same chapter (Tu, probed 2026-07-08).
+        if a.kind == .chapter, b.kind == .chapter { return true }
         let distance = abs(a.point.y - b.point.y)
         let sameFamily = family(a.kind) == family(b.kind)
         return distance <= (sameFamily ? mergeTolerance : strictTolerance)
+    }
+
+    /// True when `candidate` begins with (a normalized) `label` and says
+    /// more — "Chapter 1" → "Chapter 1:Euclidean Spaces".
+    private nonisolated static func extendsLabel(_ label: String, with candidate: String) -> Bool {
+        guard candidate.count > label.count else { return false }
+        return candidate.lowercased().hasPrefix(label.lowercased())
     }
 
     /// Structure kinds merge with each other (a chapter and its first

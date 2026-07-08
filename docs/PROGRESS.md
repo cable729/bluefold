@@ -204,6 +204,26 @@ the project owner's plan file; the milestone list below is self-contained.
     (currently 5pt inside the crop edge — may sit over text in
     margin-less scans), OCR tier for scanned books, labels on history
     entries (NavEntry.label).
+  - **Round 16.1** (owner: "chapters/subchapters missing; anchor every
+    LaTeX number"): the text tier now also detects STRUCTURE printed on
+    the page, not just what the (often shallow) outline has — `Chapter 7
+    [Title]`/`Appendix A`/`Part III` lines, numbered section headings
+    ("1.3 The Axiom of Completeness"; one dot = section, more =
+    subsection), Hrbacek-style "2.11 Definition <statement runs on>"
+    (capitalized keyword, no colon; label keeps number+keyword), and
+    undotted per-chapter numbering ("Example 3." — explicit `.`/`:`
+    terminator required so wrapped "…see\nTheorem 5" stays dead).
+    New guards, each from a probed false positive: running heads end in a
+    page number ("4.6 Applications to Vector Calculus 41", Tu), exercise
+    sentences start with a verb ("2.6 Prove that…", Hrbacek — first-word
+    blacklist), terminator "." must not be a decimal point ("Theorem
+    5.19 and…" would backtrack-match). Same-page chapter anchors merge
+    at ANY distance (outline dest at page top vs printed "Chapter 1"
+    mid-page, Tu) keeping the longer label when one extends the other.
+    Probed clean on Axler/Abbott/Tu/Cummings/Hrbacek; Ross 10e is
+    unfixable-by-text (Pearson reflow scrambles headings mid-line —
+    outline tier only). 6 books probed, 391 tests green, verify gate
+    passed, owner app relaunched.
 
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); F-1 added library/search/theming/link-history UI (simulator BUILD-verified only — needs hand-run); CloudKit sync UI pending

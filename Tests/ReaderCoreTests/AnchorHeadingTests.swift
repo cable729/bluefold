@@ -48,6 +48,75 @@ import Testing
         #expect(heading?.label == "Definition 1.4.2")
     }
 
+    @Test func undottedNumberWithExplicitTerminator() {
+        // Per-chapter numbering (Ross-style) — round-16 owner feedback.
+        #expect(AnchorHeadingParser.parse(line: "Example 3. Rolling two dice…")
+            == .init(kind: .example, label: "Example 3"))
+        #expect(AnchorHeadingParser.parse(line: "Remark 12: on notation")?.kind == .example)
+        #expect(AnchorHeadingParser.parse(line: "Lemma 4 (Zorn). Every chain…")
+            == .init(kind: .theorem, label: "Lemma 4 (Zorn)"))
+        // Undotted + bare end of line = wrapped reference ("…see\nTheorem 5").
+        #expect(AnchorHeadingParser.parse(line: "Theorem 5") == nil)
+    }
+
+    // MARK: - Chapter and section headings (structure printed in the text)
+
+    @Test func chapterHeadings() {
+        #expect(AnchorHeadingParser.parse(line: "Chapter 7")
+            == .init(kind: .chapter, label: "Chapter 7"))
+        #expect(AnchorHeadingParser.parse(line: "Chapter 7 Linear Maps")
+            == .init(kind: .chapter, label: "Chapter 7 Linear Maps"))
+        #expect(AnchorHeadingParser.parse(line: "APPENDIX A Sets and Functions")?.kind == .chapter)
+        #expect(AnchorHeadingParser.parse(line: "Part III")?.kind == .chapter)
+    }
+
+    @Test func chapterFalsePositives() {
+        // Wrapped prose: "…as we saw in\nChapter 7." / "…in\nchapter 7".
+        #expect(AnchorHeadingParser.parse(line: "Chapter 7.") == nil)
+        #expect(AnchorHeadingParser.parse(line: "chapter 7") == nil)
+        #expect(AnchorHeadingParser.parse(line: "Chapter 7 and Chapter 8 cover this") == nil)
+    }
+
+    @Test func numberedSectionHeadings() {
+        #expect(AnchorHeadingParser.parse(line: "1.3 The Axiom of Completeness")
+            == .init(kind: .section, label: "1.3 The Axiom of Completeness"))
+        #expect(AnchorHeadingParser.parse(line: "4.6 Applications to Vector Calculus")?.kind == .section)
+        #expect(AnchorHeadingParser.parse(line: "2.3.1 Uniform Convergence")?.kind == .subsection)
+    }
+
+    @Test func numberFirstWithoutColonKeepsKeywordOnly() {
+        // Hrbacek/Jech: the statement runs on in the same line.
+        #expect(AnchorHeadingParser.parse(
+            line: "2.11 Definition The membership relation on A is defined by"
+        ) == .init(kind: .definition, label: "2.11 Definition"))
+        #expect(AnchorHeadingParser.parse(line: "3.8 Example")
+            == .init(kind: .example, label: "3.8 Example"))
+        // The lowercase no-colon form is prose, not a heading.
+        #expect(AnchorHeadingParser.parse(line: "5.2 definition of a subspace") == nil)
+    }
+
+    @Test func rejectsExerciseSentences() {
+        // Hrbacek exercise pages, real cases.
+        #expect(AnchorHeadingParser.parse(
+            line: "2.6 Prove that for any three binary relations R, S, and T"
+        ) == nil)
+        #expect(AnchorHeadingParser.parse(
+            line: "2.7 Give examples of sets X, Y, and Z such that"
+        ) == nil)
+    }
+
+    @Test func numberedSectionFalsePositives() {
+        // Running head with trailing page number (Tu p.59, real case).
+        #expect(AnchorHeadingParser.parse(line: "4.6 Applications to Vector Calculus 41") == nil)
+        // Bare list-item numbers (Axler exercise pages, real case).
+        #expect(AnchorHeadingParser.parse(line: "7 Suppose that 𝑚 is a nonnegative integer") == nil)
+        // Sentences after a wrapped reference number.
+        #expect(AnchorHeadingParser.parse(line: "5.4 Suppose T ∈ ℒ(V). Then U is invariant") == nil)
+        #expect(AnchorHeadingParser.parse(line: "2.2 and the result follows") == nil)
+        // Displayed math with an equation-ish shape.
+        #expect(AnchorHeadingParser.parse(line: "3.1 A = LU decomposition of A") == nil)
+    }
+
     // MARK: - False-positive guards
 
     @Test func rejectsMidProseWrappedReference() {
