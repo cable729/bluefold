@@ -206,3 +206,15 @@ macOS apps (Docker is impossible — macOS doesn't containerize):
 
 ### Verified good by owner
 - Theme sync/tinting, live search + breadcrumbs, status-bar page arrows.
+
+### Round 4 additions (same morning)
+- ✅ DONE 2026-07-08 — **Compact drag preview**: dragging a book now shows a
+  small capsule ("3 books" for multi-drags) instead of the full-size cell.
+- ✅ DONE 2026-07-08 — **Drag tags onto tags to build the tree** (drop on
+  the Tags header or use "Move to Top Level" to un-nest; store refuses
+  cycles). Collections already reorder via their own mechanism; add the
+  same drag-reparenting there if wanted.
+- **CI policy (owner: no billing)**: PR #2 = frugal mode (runs only on PRs
+  and manual dispatch, never plain pushes; docs changes skip CI). MERGE IT.
+  Nothing can run until the monthly included-minutes reset regardless; the
+  routine gate is ./scripts/verify.sh locally.
