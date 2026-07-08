@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		AA0000000000000000000010 /* ReaderUI in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000011 /* ReaderUI */; };
 		AA0000000000000000000021 /* ReaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000022 /* ReaderCore */; };
+		AA000000000000000000003D /* ReaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA000000000000000000003C /* ReaderCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -142,6 +143,7 @@
 			);
 			name = PDFReaderUITests;
 			packageProductDependencies = (
+				AA000000000000000000003C /* ReaderCore */,
 			);
 			productName = PDFReaderUITests;
 			productReference = AA0000000000000000000032 /* PDFReaderUITests.xctest */;
@@ -251,6 +253,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA000000000000000000003D /* ReaderCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -507,6 +510,10 @@
 			productName = ReaderUI;
 		};
 		AA0000000000000000000022 /* ReaderCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ReaderCore;
+		};
+		AA000000000000000000003C /* ReaderCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ReaderCore;
 		};

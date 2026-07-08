@@ -173,9 +173,25 @@ final class TabStripNSView: NSView {
         }
     }
 
+    /// Temporary drag diagnostics (PDFREADER_SESSION_DIR/dragdebug.log);
+    /// active only when the session-dir override is present, i.e. tests.
+    static func dragLog(_ message: String) {
+        guard let dir = ProcessInfo.processInfo.environment["PDFREADER_SESSION_DIR"] else { return }
+        let url = URL(fileURLWithPath: dir).appendingPathComponent("dragdebug.log")
+        let line = "\(Date().timeIntervalSince1970) \(message)\n"
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8)!)
+            try? handle.close()
+        } else {
+            try? line.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
     /// Called by TabItemNSView on mouse-down; selection happens immediately
     /// (browser behavior), dragging may follow.
     func beginPress(on item: TabItemNSView, with event: NSEvent) {
+        Self.dragLog("beginPress tab=\(item.tabID.uuidString.prefix(8)) loc=\(event.locationInWindow)")
         actions.select(item.tabID)
         let inStrip = convert(event.locationInWindow, from: nil)
         drag = DragState(
@@ -191,6 +207,7 @@ final class TabStripNSView: NSView {
 
     func continuePress(with event: NSEvent) {
         guard var drag else { return }
+        Self.dragLog("continuePress loc=\(event.locationInWindow) tornOff=\(drag.isTornOff)")
         let inStrip = convert(event.locationInWindow, from: nil)
         drag.currentInStrip = inStrip
         let dx = inStrip.x - drag.startInStrip.x
@@ -235,6 +252,7 @@ final class TabStripNSView: NSView {
     }
 
     func endPress(with event: NSEvent) {
+        Self.dragLog("endPress loc=\(event.locationInWindow) drag=\(drag.map { "didMove=\($0.didMove) tornOff=\($0.isTornOff)" } ?? "nil")")
         guard let drag else { return }
         defer {
             self.drag = nil

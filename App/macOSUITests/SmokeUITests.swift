@@ -1,4 +1,5 @@
 import AppKit
+import ReaderCore
 import XCTest
 
 /// M17 smoke suite: drives the real app through the flows unit tests cannot
@@ -178,10 +179,24 @@ final class SmokeUITests: XCTestCase {
             .withOffset(CGVector(dx: 120, dy: 120))
         start.click(forDuration: 0.3, thenDragTo: desktop)
 
-        XCTAssertTrue(
-            app.windows.element(boundBy: 1).waitForExistence(timeout: 10),
-            "tearing off a tab should open a second window"
-        )
+        let secondWindow = app.windows.element(boundBy: 1).waitForExistence(timeout: 10)
+        if !secondWindow {
+            let session = (try? String(
+                contentsOf: sessionDir.appendingPathComponent("session.json"),
+                encoding: .utf8
+            )) ?? "<no session.json>"
+            let dragLog = (try? String(
+                contentsOf: sessionDir.appendingPathComponent("dragdebug.log"),
+                encoding: .utf8
+            )) ?? "<no dragdebug.log>"
+            let dump = XCTAttachment(
+                string: "dragdebug.log:\n\(dragLog)\n\nsession.json:\n\(session)\n\n\(app.debugDescription)"
+            )
+            dump.name = "tearoff-failure"
+            dump.lifetime = .keepAlways
+            add(dump)
+        }
+        XCTAssertTrue(secondWindow, "tearing off a tab should open a second window")
         XCTAssertEqual(app.windows.count, 2)
 
         // Beta lives in exactly one window; Alpha stayed put.
@@ -190,20 +205,42 @@ final class SmokeUITests: XCTestCase {
         quitGracefully(app)
     }
 
-    func testDragTabBetweenWindows() {
-        let files = ["Alpha", "Beta", "Gamma"].map { makePDF(named: $0) }
-        let app = launchApp(opening: files, freshSession: true)
-        let first = app.windows.firstMatch
-        XCTAssertTrue(tab("Gamma", in: first).waitForExistence(timeout: 10))
+    /// Seeds session.json with a ready-made window layout using the app's own
+    /// codec, so multi-window tests don't depend on tear-off drags (whose
+    /// coordinate-targeted synthesis is unreliable on some machines) to set
+    /// the stage.
+    private func writeSession(windows: [(tabs: [URL], frame: CGRect)]) throws {
+        let snapshot = SessionSnapshot(windows: windows.map { window in
+            let tabs = window.tabs.map { TabState(pathHint: $0.path) }
+            return WindowState(
+                id: UUID(), frame: window.frame, tabs: tabs, activeTabID: tabs.first?.id
+            )
+        })
+        try SessionCodec.encode(snapshot)
+            .write(to: sessionDir.appendingPathComponent("session.json"))
+    }
 
-        // Tear Gamma into its own window first.
-        let start = tab("Gamma", in: first).coordinate(
-            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
-        )
-        let desktop = first.coordinate(withNormalizedOffset: CGVector(dx: 1.0, dy: 1.0))
-            .withOffset(CGVector(dx: 120, dy: 120))
-        start.click(forDuration: 0.3, thenDragTo: desktop)
-        XCTAssertTrue(app.windows.element(boundBy: 1).waitForExistence(timeout: 10))
+    func testDragTabBetweenWindows() throws {
+        let files = ["Alpha", "Beta", "Gamma"].map { makePDF(named: $0) }
+        // Two windows from a seeded session: [Gamma] and [Alpha, Beta],
+        // side by side so neither covers the other's strip. The drag SOURCE
+        // window is listed last so it opens last and becomes key — synthesized
+        // drags must start in the key window to be delivered.
+        try writeSession(windows: [
+            (tabs: [files[2]], frame: CGRect(x: 880, y: 150, width: 760, height: 500)),
+            (tabs: [files[0], files[1]], frame: CGRect(x: 80, y: 150, width: 760, height: 500)),
+        ])
+        let app = launchApp(opening: [])
+        // Window order after restore is unspecified; find tabs app-wide.
+        XCTAssertTrue(app.buttons["tab-Alpha"].waitForExistence(timeout: 10))
+        let gammaSeen = app.buttons["tab-Gamma"].waitForExistence(timeout: 10)
+        if !gammaSeen {
+            let dump = XCTAttachment(string: "windows=\(app.windows.count)\n\(app.debugDescription)")
+            dump.name = "two-window-restore-failure"
+            dump.lifetime = .keepAlways
+            add(dump)
+        }
+        XCTAssertTrue(gammaSeen, "second restored window should carry Gamma")
 
         // Identify which window now holds Gamma alone.
         let windows = (0..<2).map { app.windows.element(boundBy: $0) }
@@ -219,10 +256,18 @@ final class SmokeUITests: XCTestCase {
             thenDragTo: gammaWindow.groups["tab-strip"]
         )
 
-        XCTAssertTrue(
-            tab("Beta", in: gammaWindow).waitForExistence(timeout: 5),
-            "Beta should have moved to the second window"
-        )
+        let moved = tab("Beta", in: gammaWindow).waitForExistence(timeout: 5)
+        if !moved {
+            let dragLog = (try? String(
+                contentsOf: sessionDir.appendingPathComponent("dragdebug.log"),
+                encoding: .utf8
+            )) ?? "<no dragdebug.log>"
+            let dump = XCTAttachment(string: "dragdebug.log:\n\(dragLog)")
+            dump.name = "crosswindow-failure"
+            dump.lifetime = .keepAlways
+            add(dump)
+        }
+        XCTAssertTrue(moved, "Beta should have moved to the second window")
         XCTAssertEqual(tabTitles(in: mainWindow), ["Alpha"])
         XCTAssertEqual(Set(tabTitles(in: gammaWindow)), Set(["Gamma", "Beta"]))
         quitGracefully(app)
