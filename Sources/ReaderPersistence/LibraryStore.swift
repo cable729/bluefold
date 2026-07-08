@@ -45,10 +45,13 @@ public final class LibraryStore: Sendable {
 
     // MARK: - Books
 
-    /// Inserts a Calibre-sourced book, or updates the title of the existing
-    /// row with the same `calibre_uuid`. Resurrects a soft-deleted row.
+    /// Inserts a Calibre-sourced book, or updates the title/authors of the
+    /// existing row with the same `calibre_uuid`. Resurrects a soft-deleted
+    /// row.
     @discardableResult
-    public func upsertCalibreBook(uuid: String, title: String) throws -> BookRecord {
+    public func upsertCalibreBook(
+        uuid: String, title: String, authors: String? = nil
+    ) throws -> BookRecord {
         let ts = now()
         return try dbQueue.write { db in
             if var existing = try BookRecord
@@ -56,6 +59,7 @@ public final class LibraryStore: Sendable {
                 .fetchOne(db)
             {
                 existing.title = title
+                existing.authors = authors ?? existing.authors
                 existing.modifiedAt = ts
                 existing.deletedAt = nil
                 try existing.update(db)
@@ -63,7 +67,7 @@ public final class LibraryStore: Sendable {
             }
             var book = BookRecord(
                 id: nil, calibreUUID: uuid, contentHash: nil,
-                title: title, modifiedAt: ts, deletedAt: nil
+                title: title, authors: authors, modifiedAt: ts, deletedAt: nil
             )
             try book.insert(db)
             return book
@@ -83,7 +87,7 @@ public final class LibraryStore: Sendable {
         return try dbQueue.write { db in
             var book = BookRecord(
                 id: nil, calibreUUID: nil, contentHash: contentHash,
-                title: title, modifiedAt: ts, deletedAt: nil
+                title: title, authors: nil, modifiedAt: ts, deletedAt: nil
             )
             try book.insert(db)
             var ref = FileRefRecord(
@@ -137,23 +141,27 @@ public final class LibraryStore: Sendable {
     /// Batch upsert for library scans: one transaction instead of one per
     /// book (the per-row fsync cost dominates first-open time otherwise).
     /// Returns book-row id per calibre uuid.
-    public func upsertCalibreBooks(_ books: [(uuid: String, title: String)]) throws -> [String: Int64] {
+    public func upsertCalibreBooks(
+        _ books: [(uuid: String, title: String, authors: String)]
+    ) throws -> [String: Int64] {
         let ts = now()
         return try dbQueue.write { db in
             var ids: [String: Int64] = [:]
-            for (uuid, title) in books {
+            for (uuid, title, authors) in books {
                 try db.execute(
                     sql: """
-                        INSERT INTO book (calibre_uuid, title, modified_at, deleted_at)
-                        VALUES (?, ?, ?, NULL)
+                        INSERT INTO book (calibre_uuid, title, authors, modified_at, deleted_at)
+                        VALUES (?, ?, ?, ?, NULL)
                         ON CONFLICT(calibre_uuid) DO UPDATE SET
                             title = excluded.title,
+                            authors = excluded.authors,
                             modified_at = CASE WHEN book.title <> excluded.title
+                                               OR COALESCE(book.authors, '') <> COALESCE(excluded.authors, '')
                                                OR book.deleted_at IS NOT NULL
                                           THEN excluded.modified_at ELSE book.modified_at END,
                             deleted_at = NULL
                         """,
-                    arguments: [uuid, title, ts]
+                    arguments: [uuid, title, authors, ts]
                 )
                 if let id = try Int64.fetchOne(
                     db, sql: "SELECT id FROM book WHERE calibre_uuid = ?", arguments: [uuid]
@@ -223,14 +231,16 @@ public final class LibraryStore: Sendable {
             try Row.fetchAll(
                 db,
                 sql: """
-                    SELECT b.id AS book_id, b.title AS title, f.path_hint AS path_hint
+                    SELECT b.id AS book_id, b.title AS title,
+                           COALESCE(b.authors, '') AS authors, f.path_hint AS path_hint
                     FROM book b JOIN file_ref f ON f.book_id = b.id
                     WHERE b.deleted_at IS NULL
                     ORDER BY b.title COLLATE NOCASE
                     """
             ).map { row in
                 OpenableBook(
-                    bookID: row["book_id"], title: row["title"], pathHint: row["path_hint"]
+                    bookID: row["book_id"], title: row["title"],
+                    authors: row["authors"], pathHint: row["path_hint"]
                 )
             }
         }

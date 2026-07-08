@@ -52,6 +52,9 @@ struct BookmarkCandidateInput {
 /// window). Paths come from the overlay DB's file_ref mirror.
 struct BookCandidateInput {
     var title: String
+    /// Display string; empty when unknown. Searchable — "dummit" must find
+    /// the book titled "Abstract Algebra, 3rd Edition".
+    var authors: String = ""
     /// Canonical file path (matches tab pathHints for dedup).
     var path: String
 }
@@ -98,7 +101,11 @@ enum NavigateCandidates {
                 id: "book.\(book.path)",
                 icon: "book.closed",
                 title: book.title,
-                subtitle: "Library — open in a new tab",
+                // Authors in the subtitle are part of `searchText`, so
+                // fuzzy matching finds books by author too.
+                subtitle: book.authors.isEmpty
+                    ? "Library — open in a new tab"
+                    : "\(book.authors) — Library",
                 action: .openBook(URL(fileURLWithPath: book.path))
             ))
         }

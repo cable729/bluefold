@@ -13,6 +13,8 @@ public struct BookRecord: Codable, Hashable, Sendable,
     public var calibreUUID: String?
     public var contentHash: String?
     public var title: String
+    /// Display string ("Jane Doe, John Smith"), mirrored from Calibre.
+    public var authors: String?
     public var modifiedAt: Int64
     public var deletedAt: Int64?
 
@@ -21,6 +23,7 @@ public struct BookRecord: Codable, Hashable, Sendable,
         case calibreUUID = "calibre_uuid"
         case contentHash = "content_hash"
         case title
+        case authors
         case modifiedAt = "modified_at"
         case deletedAt = "deleted_at"
     }
@@ -58,11 +61,14 @@ public struct FileRefRecord: Codable, Hashable, Sendable,
 public struct OpenableBook: Hashable, Sendable {
     public var bookID: Int64
     public var title: String
+    /// Display string; empty when unknown (imports).
+    public var authors: String
     public var pathHint: String
 
-    public init(bookID: Int64, title: String, pathHint: String) {
+    public init(bookID: Int64, title: String, authors: String = "", pathHint: String) {
         self.bookID = bookID
         self.title = title
+        self.authors = authors
         self.pathHint = pathHint
     }
 }

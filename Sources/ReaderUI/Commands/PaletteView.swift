@@ -156,7 +156,7 @@ struct PaletteOverlay: View {
                 for: URL(fileURLWithPath: book.pathHint)
             )
             guard seen.insert(path).inserted else { return nil }
-            return BookCandidateInput(title: book.title, path: path)
+            return BookCandidateInput(title: book.title, authors: book.authors, path: path)
         }
         libraryCollections = ((try? store.collections()) ?? []).compactMap { collection in
             guard let id = collection.id else { return nil }

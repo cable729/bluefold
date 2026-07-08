@@ -110,6 +110,15 @@ enum LibrarySchema {
             try db.create(index: "idx_collection_parent_id", on: "collection", columns: ["parent_id"])
         }
 
+        migrator.registerMigration("v3") { db in
+            // Authors, mirrored from Calibre at library reload — quick-open
+            // must match "dummit" even though the title is "Abstract
+            // Algebra, 3rd Edition" (overlay titles carry no author).
+            try db.alter(table: "book") { t in
+                t.add(column: "authors", .text)
+            }
+        }
+
         return migrator
     }
 }

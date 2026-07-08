@@ -1,13 +1,16 @@
 #if os(macOS)
+import AppKit
 import SwiftUI
 
 /// A fast hover hint: a small bubble above the control after a short delay.
 ///
-/// AppKit's `.help()` tooltips take well over a second to appear, which makes
-/// discovering icon-only controls feel sluggish. `.instantHint("…")` shows a
-/// subtle material bubble after ~0.15s of hover instead. It renders as an
-/// overlay (no extra window), never intercepts clicks, and hides the moment
-/// the pointer leaves.
+/// AppKit's `.help()` tooltips take too long to appear (even with
+/// NSInitialToolTipDelay lowered they can lag). `.instantHint("…")` shows a
+/// bubble after ~0.15s of hover and hides the moment the pointer leaves.
+///
+/// The bubble renders in its own borderless child WINDOW, not an overlay —
+/// overlays get clipped by scroll views, sidebars, and window edges
+/// (round 12: hints were cut off mid-word all over the app).
 ///
 /// Keep `.help()` alongside it where the duplicate late tooltip is harmless —
 /// `.help` also feeds VoiceOver, which this purely visual hint does not.
@@ -42,14 +45,17 @@ struct InstantHintModifier: ViewModifier {
                     isShowing = false
                 }
             }
-            .overlay(alignment: edge == .top ? .top : .bottom) {
-                if isShowing {
-                    bubble
-                }
-            }
+            .background(
+                HintWindowPresenter(text: text, edge: edge, isShowing: isShowing)
+            )
     }
+}
 
-    private var bubble: some View {
+/// The bubble content (unchanged look from the old overlay version).
+private struct HintBubble: View {
+    let text: String
+
+    var body: some View {
         Text(text)
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -61,13 +67,96 @@ struct InstantHintModifier: ViewModifier {
                     .strokeBorder(.quaternary, lineWidth: 1)
             )
             .fixedSize()
-            // Float just outside the hovered control, on the requested edge.
-            .alignmentGuide(edge == .top ? .top : .bottom) { d in
-                edge == .top ? d[.bottom] + 4 : d[.top] - 4
+    }
+}
+
+/// Zero-size anchor that positions a floating panel next to the hovered
+/// control, in screen coordinates — immune to any clipping.
+private struct HintWindowPresenter: NSViewRepresentable {
+    let text: String
+    let edge: VerticalEdge
+    let isShowing: Bool
+
+    func makeNSView(context: Context) -> AnchorView {
+        AnchorView()
+    }
+
+    func updateNSView(_ view: AnchorView, context: Context) {
+        view.setHint(text: text, edge: edge, visible: isShowing)
+    }
+
+    static func dismantleNSView(_ view: AnchorView, coordinator: ()) {
+        view.setHint(text: "", edge: .top, visible: false)
+    }
+
+    @MainActor
+    final class AnchorView: NSView {
+        // nonisolated(unsafe): touched on main only; read in deinit.
+        private nonisolated(unsafe) var panel: NSPanel?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil {
+                dismissPanel()
             }
-            .allowsHitTesting(false)
-            .transition(.opacity)
-            .zIndex(1)
+        }
+
+        func setHint(text: String, edge: VerticalEdge, visible: Bool) {
+            guard visible, let window, !text.isEmpty else {
+                dismissPanel()
+                return
+            }
+            let hostingView = NSHostingView(rootView: HintBubble(text: text))
+            let size = hostingView.fittingSize
+            // The representable is a .background, so our bounds == the
+            // hovered control's bounds.
+            let anchor = window.convertToScreen(convert(bounds, to: nil))
+            let origin = CGPoint(
+                x: anchor.midX - size.width / 2,
+                y: edge == .top ? anchor.maxY + 4 : anchor.minY - size.height - 4
+            )
+
+            let panel = self.panel ?? Self.makePanel()
+            self.panel = panel
+            panel.contentView = hostingView
+            panel.setFrame(CGRect(origin: origin, size: size), display: true)
+            if panel.parent == nil {
+                window.addChildWindow(panel, ordered: .above)
+            }
+            panel.orderFront(nil)
+        }
+
+        private func dismissPanel() {
+            guard let panel else { return }
+            panel.parent?.removeChildWindow(panel)
+            panel.orderOut(nil)
+            self.panel = nil
+        }
+
+        private static func makePanel() -> NSPanel {
+            let panel = NSPanel(
+                contentRect: .zero,
+                styleMask: [.borderless, .nonactivatingPanel],
+                backing: .buffered,
+                defer: true
+            )
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.hasShadow = false
+            panel.ignoresMouseEvents = true
+            panel.isReleasedWhenClosed = false
+            panel.animationBehavior = .none
+            return panel
+        }
+
+        deinit {
+            if let panel {
+                DispatchQueue.main.async {
+                    panel.parent?.removeChildWindow(panel)
+                    panel.orderOut(nil)
+                }
+            }
+        }
     }
 }
 #endif

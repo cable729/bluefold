@@ -351,9 +351,9 @@ public final class LibraryModel {
             // transaction, off the main actor — per-book writes made first
             // open take seconds.
             if let store {
-                let pairs = items.compactMap { item -> (uuid: String, title: String)? in
+                let pairs = items.compactMap { item -> (uuid: String, title: String, authors: String)? in
                     guard case .calibre(let uuid) = item.source else { return nil }
-                    return (uuid, item.title)
+                    return (uuid, item.title, item.authors.joined(separator: ", "))
                 }
                 let mapping = try await Task.detached(priority: .userInitiated) {
                     try store.upsertCalibreBooks(pairs)

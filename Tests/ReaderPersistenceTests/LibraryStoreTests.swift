@@ -122,6 +122,24 @@ private final class TestClock: @unchecked Sendable {
         #expect(ref?.bookmark == bookmark)
     }
 
+    @Test func authorsMirrorIntoOpenableBooks() throws {
+        let store = try LibraryStore.inMemory()
+        let ids = try store.upsertCalibreBooks([
+            (uuid: "df", title: "Abstract Algebra, 3rd Edition",
+             authors: "David S. Dummit, Richard M. Foote")
+        ])
+        try store.upsertFileRefs([(bookID: ids["df"]!, pathHint: "/c/df.pdf")])
+
+        let openable = try store.openableBooks()
+        #expect(openable.first?.authors == "David S. Dummit, Richard M. Foote")
+
+        // Authors update in place on the next mirror.
+        _ = try store.upsertCalibreBooks([
+            (uuid: "df", title: "Abstract Algebra, 3rd Edition", authors: "Dummit & Foote")
+        ])
+        #expect(try store.openableBooks().first?.authors == "Dummit & Foote")
+    }
+
     @Test func fileRefUpsertAndOpenableBooks() throws {
         let store = try LibraryStore.inMemory()
         let axler = try store.upsertCalibreBook(uuid: "axler", title: "Linear Algebra Done Right")

@@ -133,6 +133,21 @@ struct NavigateCandidatesTests {
         #expect(candidates[3].subtitle == "Tag — 1 book as tabs")
     }
 
+    @Test func bookCandidatesAreSearchableByAuthor() {
+        let candidates = NavigateCandidates.assembleOpen(
+            tabs: [],
+            books: [BookCandidateInput(
+                title: "Abstract Algebra, 3rd Edition",
+                authors: "David S. Dummit, Richard M. Foote",
+                path: "/c/df.pdf"
+            )]
+        )
+        // The palette's fuzzy fallback runs against searchText — authors
+        // must be in it or "dummit" finds nothing (round 12).
+        #expect(candidates[0].searchText.contains("Dummit"))
+        #expect(candidates[0].subtitle == "David S. Dummit, Richard M. Foote — Library")
+    }
+
     @Test func emptyCollectionsAndTagsAreHidden() {
         let candidates = NavigateCandidates.assembleOpen(
             tabs: [],
