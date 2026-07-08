@@ -194,8 +194,9 @@ public struct LibraryView: View {
                 }
             }
             .dropDestination(for: String.self) { ids, _ in
-                guard let tagID = node.tag.id else { return false }
-                model.addTag(tagID: tagID, toItemIDs: dropTargets(for: ids))
+                let targets = dropTargets(for: ids)
+                guard let tagID = node.tag.id, !targets.isEmpty else { return false }
+                model.addTag(tagID: tagID, toItemIDs: targets)
                 return true
             }
     }
@@ -212,8 +213,9 @@ public struct LibraryView: View {
                 }
             }
             .dropDestination(for: String.self) { ids, _ in
-                guard let collectionID = collection.id else { return false }
-                model.addToCollection(collectionID: collectionID, itemIDs: dropTargets(for: ids))
+                let targets = dropTargets(for: ids)
+                guard let collectionID = collection.id, !targets.isEmpty else { return false }
+                model.addToCollection(collectionID: collectionID, itemIDs: targets)
                 return true
             }
     }
@@ -288,23 +290,31 @@ public struct LibraryView: View {
                         .padding(20)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .background {
+                        // A click that lands outside every cell (grid gaps,
+                        // margins) falls through to this layer and clears
+                        // the selection. Cells sit on top and win their own
+                        // clicks. (A gesture on the ScrollView itself never
+                        // fires — NSScrollView swallows it.)
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { selection.clear() }
+                    }
                 }
-                // A click that lands outside every cell clears the selection
-                // (cell gestures sit deeper in the hierarchy and win).
-                .onTapGesture { selection.clear() }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     if !selection.isEmpty {
                         selectionBar
                     }
                 }
                 .background {
-                    // Esc clears. Rendered only while a selection exists so
-                    // Esc keeps its usual meaning in the search field.
-                    if !selection.isEmpty {
-                        Button("") { selection.clear() }
-                            .keyboardShortcut(.escape, modifiers: [])
-                            .opacity(0)
-                            .accessibilityHidden(true)
+                    // Esc clears the selection. A local key monitor scoped
+                    // to this window — SwiftUI's .keyboardShortcut(.escape)
+                    // never fires here (Escape is routed as cancelOperation,
+                    // not a key equivalent, outside dialogs).
+                    EscapeCatcher {
+                        guard !selection.isEmpty else { return false }
+                        selection.clear()
+                        return true
                     }
                 }
                 .onChange(of: model.filteredItems) { _, newItems in
@@ -341,6 +351,18 @@ public struct LibraryView: View {
         let selected = model.items(withIDs: selection.selectedIDs)
         let importedOnly = !selected.isEmpty && selected.allSatisfy { $0.source == .imported }
         return HStack(spacing: 12) {
+            // Visible so its Esc key equivalent reliably registers (hidden
+            // buttons don't participate in key-equivalent matching).
+            Button {
+                selection.clear()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.escape, modifiers: [])
+            .help("Clear selection (Esc)")
+            .accessibilityLabel("Clear selection")
             Text("\(selected.count) selected")
                 .font(.callout.weight(.medium))
                 .foregroundStyle(.secondary)
@@ -542,6 +564,48 @@ private struct LibrarySetupView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(40)
+    }
+}
+
+/// Runs `onEscape` when Esc is pressed in this view's window (and no sheet
+/// is up). Returns true to swallow the event. Needed because Escape reaches
+/// views as `cancelOperation:` through the responder chain, which SwiftUI's
+/// `.keyboardShortcut(.escape)` does not intercept in a plain window.
+private struct EscapeCatcher: NSViewRepresentable {
+    let onEscape: () -> Bool
+
+    func makeNSView(context: Context) -> MonitorView {
+        let view = MonitorView()
+        view.onEscape = onEscape
+        return view
+    }
+
+    func updateNSView(_ nsView: MonitorView, context: Context) {
+        nsView.onEscape = onEscape
+    }
+
+    final class MonitorView: NSView {
+        var onEscape: (() -> Bool)?
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil, monitor == nil {
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                    guard
+                        let self,
+                        event.keyCode == 53,  // Escape
+                        event.window === self.window,
+                        self.window?.attachedSheet == nil,
+                        self.onEscape?() == true
+                    else { return event }
+                    return nil  // handled: swallow
+                }
+            } else if window == nil, let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+        }
     }
 }
 
