@@ -68,7 +68,6 @@ struct SidebarView: View {
                     .instantHint(followSection
                         ? "Following the current section — click to stop"
                         : "Follow the current section")
-                    .help("Track the section being read in the outline")
                 }
             }
             .padding(8)

@@ -80,15 +80,14 @@ final class ReaderPDFView: PDFView {
     func go(to entry: NavEntry, in document: PDFDocument) {
         guard let page = document.page(at: min(entry.pageIndex, max(0, document.pageCount - 1)))
         else { return }
-        if let point = entry.point {
-            go(to: PDFDestination(page: page, at: point))
-        } else {
-            // NEVER a destination with unspecified coordinates: PDFKit
-            // treats that as a silent no-op (round 12 — every point-less
-            // jump left the view parked while the model moved on, wedging
-            // section skips on scans and Aluffi's front matter).
-            go(to: page)
-        }
+        // Point-less jumps synthesize an EXPLICIT top-of-page point. Both a
+        // destination with unspecified coordinates AND go(to: page) — which
+        // wraps one internally — are silent no-ops on macOS 26 PDFKit for
+        // some documents (rounds 12–12.5: jumps moved the model while the
+        // view stayed parked; only explicit in-crop points always scroll).
+        let crop = page.bounds(for: .cropBox)
+        let point = entry.point ?? CGPoint(x: crop.minX, y: crop.maxY)
+        go(to: PDFDestination(page: page, at: point))
     }
 
     private func linkTarget(atViewPoint viewPoint: CGPoint) -> LinkTarget? {

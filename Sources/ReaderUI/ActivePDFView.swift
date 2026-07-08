@@ -58,8 +58,14 @@ struct ActivePDFView: NSViewRepresentable {
         }
         // The document is resident now: give EVERY tab of this book its
         // strip breadcrumb — restored background tabs sat as "p.N" until
-        // first activated (round 10).
-        model.refreshBreadcrumbs(forDocumentAt: model.url(for: tab))
+        // first activated (round 10). Deferred: makeNSView runs during a
+        // SwiftUI update, and mutating observable state mid-update corrupts
+        // the update graph (round 12.5 intermittent weirdness).
+        let model = self.model
+        let url = model.url(for: tab)
+        DispatchQueue.main.async {
+            model.refreshBreadcrumbs(forDocumentAt: url)
+        }
         return view
     }
 

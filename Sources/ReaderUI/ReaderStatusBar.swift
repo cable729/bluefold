@@ -38,7 +38,6 @@ struct ReaderStatusBar: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .instantHint("Theme")
-            .help("Theme")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
@@ -60,14 +59,12 @@ struct ReaderStatusBar: View {
                         Image(systemName: "arrow.left.and.right.square")
                     }
                     .instantHint("Fit width")
-                    .help("Fit width")
                     Button {
                         model.fitHeight()
                     } label: {
                         Image(systemName: "arrow.up.and.down.square")
                     }
                     .instantHint("Fit height")
-                    .help("Fit height")
                 }
                 .buttonStyle(.borderless)
 
@@ -82,7 +79,6 @@ struct ReaderStatusBar: View {
                     .buttonStyle(.borderless)
                     .disabled(!model.canGoToPreviousSection)
                     .instantHint("Previous section")
-                    .help("Previous section")
                     Button {
                         model.goToPreviousPage()
                     } label: {
@@ -93,7 +89,6 @@ struct ReaderStatusBar: View {
                         pageIndex: currentPageIndex, pageCount: pageCount ?? 0
                     ))
                     .instantHint("Previous page")
-                    .help("Previous page")
                     TextField("", text: $pageField)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 52)
@@ -112,7 +107,6 @@ struct ReaderStatusBar: View {
                         pageIndex: currentPageIndex, pageCount: pageCount ?? 0
                     ))
                     .instantHint("Next page")
-                    .help("Next page")
                     Button {
                         model.goToNextSection()
                     } label: {
@@ -121,7 +115,6 @@ struct ReaderStatusBar: View {
                     .buttonStyle(.borderless)
                     .disabled(!model.canGoToNextSection)
                     .instantHint("Next section")
-                    .help("Next section")
                 }
                 .font(.callout)
                 .monospacedDigit()

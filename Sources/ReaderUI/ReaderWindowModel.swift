@@ -360,14 +360,18 @@ public final class ReaderWindowModel {
         activeController?.liveNavEntry ?? activeTab?.currentNavEntry
     }
 
+    /// Enablement reads the tab's STORED position, not the live view:
+    /// `tabs` is observable, so SwiftUI re-evaluates when it changes.
+    /// Reading liveNavEntry here left buttons grayed with no invalidation
+    /// to ungray them (round 12.5).
     public var canGoToPreviousSection: Bool {
-        guard let currentPosition else { return false }
-        return OutlineNode.sectionEntry(in: activeOutline, before: currentPosition) != nil
+        guard let activeTab else { return false }
+        return OutlineNode.sectionEntry(in: activeOutline, before: activeTab.currentNavEntry) != nil
     }
 
     public var canGoToNextSection: Bool {
-        guard let currentPosition else { return false }
-        return OutlineNode.sectionEntry(in: activeOutline, after: currentPosition) != nil
+        guard let activeTab else { return false }
+        return OutlineNode.sectionEntry(in: activeOutline, after: activeTab.currentNavEntry) != nil
     }
 
     /// Section skips are deliberate navigation: they push history, so ⌘[
