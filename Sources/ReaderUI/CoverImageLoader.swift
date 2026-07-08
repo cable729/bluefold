@@ -26,7 +26,13 @@ enum CoverImageLoader {
             guard FileAvailability.isLocal(url) else { return nil }
         }
 
-        let image = await Task.detached(priority: .utility) { () -> NSImage? in
+        // The image is freshly created and uniquely referenced when it
+        // crosses back — boxed explicitly so older Swift 6 compilers (CI)
+        // accept the transfer, not just 6.3's region analysis.
+        struct Transfer: @unchecked Sendable {
+            let image: NSImage?
+        }
+        let image = await Task.detached(priority: .utility) { () -> Transfer in
             let options: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
@@ -36,12 +42,12 @@ enum CoverImageLoader {
             guard
                 let source = CGImageSourceCreateWithURL(url as CFURL, nil),
                 let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-            else { return nil }
-            return NSImage(
+            else { return Transfer(image: nil) }
+            return Transfer(image: NSImage(
                 cgImage: cgImage,
                 size: NSSize(width: cgImage.width, height: cgImage.height)
-            )
-        }.value
+            ))
+        }.value.image
 
         if let image {
             cache.setObject(image, forKey: key)
