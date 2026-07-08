@@ -106,6 +106,63 @@ references inside PDFs already work via PDFActionRemoteGoTo.)
   download link to notarized DMG releases, feature tour). Do after M18 when
   there's something to download.
 
+## Feature requests (2026-07-07, round 2 — session close)
+
+### Theming
+- **Theme must sync to ALL windows immediately** and tint the window chrome
+  (titlebar/toolbar background via NSWindow.backgroundColor +
+  titlebarAppearsTransparent or toolbar style), and be changeable from an
+  EMPTY window too (the bottom bar only renders when a document is open —
+  move theme control somewhere always present, or always show the bar).
+  Note ThemeManager.shared is @Observable so cross-window propagation
+  *should* work — investigate why it doesn't (each window's
+  preferredColorScheme may not re-evaluate; windows created before a change
+  may capture stale state).
+
+### Tabs (drag & drop is BROKEN in practice — owner tested)
+- **Reorder tabs within a window by dragging** (not implemented at all).
+- **Drag a tab out to create a new window** (drop on empty desktop area).
+- **Drag tabs between windows** — implemented via .draggable/.dropDestination
+  but does not work in practice; likely gesture conflict with onTapGesture
+  or drop-target coverage. Consider replacing SwiftUI DnD with an
+  AppKit-backed tab strip if SwiftUI gestures keep fighting.
+- **Two-row tab UI**: row 1 = title (as now); row 2 = outline breadcrumb of
+  that tab's position. Same PDF open in adjacent tabs: render the title ONCE
+  spanning the group (real tab-group header), breadcrumbs per tab beneath.
+- **Split view**: two tabs side by side in one window, with management UI;
+  plus multi-select/close-many tabs.
+- **Commands: "Open Collection" and "Open Collection in New Window"** — open
+  every book in a collection as tabs (pairs well with the command palette).
+
+### Testing / CI (owner: "the test suite does NOT guarantee everything works")
+Correct — unit tests can't catch what the owner keeps finding (layout
+collapse, broken DnD, tooltip delay). The industry-standard answer for
+macOS apps (Docker is impossible — macOS doesn't containerize):
+1. **XCUITest** driving the real app (launch args + PDFREADER_SESSION_DIR
+   already exist as hooks) on **GitHub Actions macOS runners** — M17. Smoke
+   flows: open → tab → ⌘-click link → back → quit → relaunch → restored;
+   library open → search → hit → correct page; tab drag (XCUITest can drag).
+2. A single **`scripts/verify.sh`** entry point (build both platforms, swift
+   test, xcodebuild test incl. UITests, launch smoke with footprint check) so
+   ANY agent — including cheaper/less capable ones — or contributor can run
+   the whole gate with one command. CI runs the same script.
+3. Optional deeper end-to-end: accessibility-driven runner or snapshot tests
+   (pointfree swift-snapshot-testing) for view regressions.
+
+### Product / business (brainstorm sessions wanted — do NOT decide alone)
+- **Rename the app** (working title "PDFReader" / pdf-app). Brainstorm with
+  owner.
+- **Bundle id / team identity**: owner wants to move off com.cable729.* and
+  is considering an LLC — brainstorm naming + legal setup with him. NOTE:
+  changing bundle id after CloudKit ships is painful (container is
+  id-scoped) — settle this BEFORE M15 if possible, or create the container
+  under a neutral id now.
+- **Cross-platform eventually** (beyond Apple). The split that makes this
+  tractable: ReaderCore/persistence logic is UI-independent; a future
+  Windows/Linux build would need a new shell + PDF renderer (PDFium/MuPDF).
+  Long-horizon; don't let new code deepen PDFKit coupling outside
+  ReaderUI/SearchIndexKit extraction paths.
+
 ## Known bugs / rough edges (not yet scheduled)
 - Tooltip delay (above).
 - Cover loading during scroll (above).

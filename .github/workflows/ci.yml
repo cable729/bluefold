@@ -8,10 +8,15 @@ on:
 jobs:
   test:
     name: swift test (macOS)
-    runs-on: macos-15
+    # macos-26 ships Xcode 26 / Swift 6.3 (matches local dev). If this label
+    # ever sits queued (image retired/renamed), fall back to macos-latest —
+    # the code also compiles under Swift 6.0.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
-      - name: Swift version
-        run: swift --version
+      - name: Select latest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          swift --version
       - name: Run tests
         run: swift test
