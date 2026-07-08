@@ -30,7 +30,7 @@ the project owner's plan file; the milestone list below is self-contained.
 - [x] **UI-1** Feedback round 1: search moved into the sidebar (results list, no navigation while typing, click = jump+history), 4 icon-tab sidebar modes (fixes segmented overflow), sidebar/window fill constraints (fixes dead-space collapse), active tab highlighted (accent top bar + bold), tabs draggable between windows (payload windowID|tabID -> SessionCoordinator.moveTab), back/forward buttons are history menus, ⌘[/⌘] moved to a History menu, current section highlighted in Contents, live page tracking via PDFViewPageChanged
 
 ### Phase C
-- [ ] **M16** iOS app
+- [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); library/tags/search/sync UI pending
 - [ ] **M17** XCUITest smoke suite + xcodebuild CI job
 - [ ] **M18** OSS polish, settings window, v0.1 tag
 
