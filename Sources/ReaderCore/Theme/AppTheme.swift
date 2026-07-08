@@ -7,11 +7,22 @@ public enum AppTheme: String, Codable, CaseIterable, Equatable, Sendable {
     case light
     case dark
     case sepia
+    /// Follows the system appearance. Raw values are persisted (UserDefaults,
+    /// session.json) — never rename the existing cases; only append.
+    case auto
 
-    /// How PDF page content should be filtered when rendering under this theme.
+    /// Concrete themes resolve to themselves; `.auto` delegates to the
+    /// system appearance. The result is never `.auto`.
+    public func resolved(systemIsDark: Bool) -> AppTheme {
+        self == .auto ? (systemIsDark ? .dark : .light) : self
+    }
+
+    /// How PDF page content should be filtered when rendering under this
+    /// theme. `.auto` must be resolved first via `resolved(systemIsDark:)`;
+    /// unresolved it falls back to rendering as authored.
     public var pageRenderFilter: PageRenderFilter {
         switch self {
-        case .light: .none
+        case .light, .auto: .none
         case .dark: .invert
         case .sepia: .warmPaper
         }

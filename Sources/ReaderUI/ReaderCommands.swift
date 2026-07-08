@@ -44,6 +44,7 @@ public struct ReaderCommands: Commands {
 
         CommandGroup(after: .toolbar) {
             Picker("Theme", selection: Bindable(ThemeManager.shared).current) {
+                Text("Auto").tag(AppTheme.auto)
                 Text("Light").tag(AppTheme.light)
                 Text("Dark").tag(AppTheme.dark)
                 Text("Sepia").tag(AppTheme.sepia)

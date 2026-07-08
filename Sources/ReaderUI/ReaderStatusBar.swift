@@ -4,50 +4,57 @@ import ReaderCore
 import SwiftUI
 
 /// Bottom bar of a reader window: page layout controls, page position with
-/// direct jump, and the theme switcher.
+/// direct jump, and the theme switcher. Always visible — with no document
+/// (`pageCount == nil`) the page controls disable so the theme switcher
+/// stays reachable from an empty window.
 struct ReaderStatusBar: View {
     @Bindable var model: ReaderWindowModel
-    let pageCount: Int
+    let pageCount: Int?
 
     @State private var pageField = ""
 
     var body: some View {
         HStack(spacing: 12) {
-            displayModePicker
-            HStack(spacing: 2) {
-                Button {
-                    model.fitWidth()
-                } label: {
-                    Image(systemName: "arrow.left.and.right.square")
+            Group {
+                displayModePicker
+                HStack(spacing: 2) {
+                    Button {
+                        model.fitWidth()
+                    } label: {
+                        Image(systemName: "arrow.left.and.right.square")
+                    }
+                    .help("Fit width")
+                    Button {
+                        model.fitHeight()
+                    } label: {
+                        Image(systemName: "arrow.up.and.down.square")
+                    }
+                    .help("Fit height")
                 }
-                .help("Fit width")
-                Button {
-                    model.fitHeight()
-                } label: {
-                    Image(systemName: "arrow.up.and.down.square")
+                .buttonStyle(.borderless)
+
+                Spacer()
+
+                HStack(spacing: 4) {
+                    TextField("", text: $pageField)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 52)
+                        .multilineTextAlignment(.center)
+                        .onSubmit(jumpToTypedPage)
+                    Text("of \(pageCount ?? 0)")
+                        .foregroundStyle(.secondary)
                 }
-                .help("Fit height")
+                .font(.callout)
+                .monospacedDigit()
+                .opacity(pageCount == nil ? 0 : 1)
             }
-            .buttonStyle(.borderless)
-
-            Spacer()
-
-            HStack(spacing: 4) {
-                TextField("", text: $pageField)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 52)
-                    .multilineTextAlignment(.center)
-                    .onSubmit(jumpToTypedPage)
-                Text("of \(pageCount)")
-                    .foregroundStyle(.secondary)
-            }
-            .font(.callout)
-            .monospacedDigit()
+            .disabled(pageCount == nil)
 
             Spacer()
 
             Menu {
                 Picker("Theme", selection: Bindable(ThemeManager.shared).current) {
+                    Text("Auto").tag(AppTheme.auto)
                     Text("Light").tag(AppTheme.light)
                     Text("Dark").tag(AppTheme.dark)
                     Text("Sepia").tag(AppTheme.sepia)
@@ -74,6 +81,7 @@ struct ReaderStatusBar: View {
         case .light: "Light"
         case .dark: "Dark"
         case .sepia: "Sepia"
+        case .auto: "Auto"
         }
     }
 
@@ -105,7 +113,8 @@ struct ReaderStatusBar: View {
     }
 
     private func jumpToTypedPage() {
-        guard let number = Int(pageField.trimmingCharacters(in: .whitespaces)),
+        guard let pageCount,
+              let number = Int(pageField.trimmingCharacters(in: .whitespaces)),
               (1...pageCount).contains(number)
         else {
             syncPageField()
