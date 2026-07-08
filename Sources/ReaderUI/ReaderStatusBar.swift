@@ -15,6 +15,42 @@ struct ReaderStatusBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
+            // With no document, only the theme switcher remains (owner
+            // feedback: disabled PDF controls in an empty window are noise).
+            if pageCount != nil {
+                pdfControls
+            }
+
+            Spacer()
+
+            Menu {
+                Picker("Theme", selection: Bindable(ThemeManager.shared).current) {
+                    Text("Auto").tag(AppTheme.auto)
+                    Text("Light").tag(AppTheme.light)
+                    Text("Dark").tag(AppTheme.dark)
+                    Text("Sepia").tag(AppTheme.sepia)
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                Label(themeName, systemImage: "circle.lefthalf.filled")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .instantHint("Theme")
+            .help("Theme")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .background(.bar)
+        .onAppear(perform: syncPageField)
+        .onChange(of: model.activeTab?.pageIndex) { _, _ in syncPageField() }
+        .onChange(of: model.activeTabID) { _, _ in syncPageField() }
+    }
+
+    @ViewBuilder
+    private var pdfControls: some View {
+        HStack(spacing: 12) {
             Group {
                 displayModePicker
                 HStack(spacing: 2) {
@@ -71,35 +107,8 @@ struct ReaderStatusBar: View {
                 }
                 .font(.callout)
                 .monospacedDigit()
-                .opacity(pageCount == nil ? 0 : 1)
             }
-            .disabled(pageCount == nil)
-
-            Spacer()
-
-            Menu {
-                Picker("Theme", selection: Bindable(ThemeManager.shared).current) {
-                    Text("Auto").tag(AppTheme.auto)
-                    Text("Light").tag(AppTheme.light)
-                    Text("Dark").tag(AppTheme.dark)
-                    Text("Sepia").tag(AppTheme.sepia)
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            } label: {
-                Label(themeName, systemImage: "circle.lefthalf.filled")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .instantHint("Theme")
-            .help("Theme")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
-        .background(.bar)
-        .onAppear(perform: syncPageField)
-        .onChange(of: model.activeTab?.pageIndex) { _, _ in syncPageField() }
-        .onChange(of: model.activeTabID) { _, _ in syncPageField() }
     }
 
     private var currentPageIndex: Int? {
