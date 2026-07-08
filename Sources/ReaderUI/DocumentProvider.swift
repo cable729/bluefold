@@ -1,4 +1,3 @@
-#if os(macOS)
 import PDFKit
 
 /// Owns every live `PDFDocument` in the process.
@@ -76,4 +75,3 @@ public final class DocumentProvider {
         cache.removeAll { $0.path == path && !pinnedPaths.contains(path) }
     }
 }
-#endif

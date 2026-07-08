@@ -1,5 +1,6 @@
-#if os(macOS)
+#if canImport(AppKit)
 import AppKit
+#endif
 import CalibreKit
 import Foundation
 import Observation
@@ -8,46 +9,7 @@ import ReaderPersistence
 import SearchIndexKit
 import UniformTypeIdentifiers
 
-/// One book in the library UI, whichever source it came from.
-public struct LibraryItem: Identifiable, Equatable, Sendable {
-    public enum Source: Equatable, Sendable {
-        case calibre(uuid: String)
-        case imported
-    }
-
-    public var id: String
-    public var source: Source
-    public var title: String
-    public var authors: [String]
-    public var calibreTags: [String]
-    public var fileURL: URL
-    public var coverURL: URL?
-}
-
-/// One full-text search match in a library book (M13 "In Book Text").
-public struct BookSearchHit: Identifiable, Equatable, Sendable {
-    /// `"<contentHash>-<page>"` — stable across searches.
-    public let id: String
-    /// The `LibraryItem.id` the hit belongs to.
-    public let itemID: String
-    /// Book title, for display.
-    public let title: String
-    /// 1-based page number, as stored in the index.
-    public let page: Int
-    /// Matched text with «…» highlight markers.
-    public let snippet: String
-}
-
-/// What the grid is currently scoped to (sidebar selection).
-public enum LibraryFilter: Hashable {
-    case all
-    case tag(Int64)
-    case collection(Int64)
-    /// Smart filter: books with no live overlay tag.
-    case untagged
-    /// Smart filter: books in no live collection.
-    case notInAnyCollection
-}
+// LibraryItem, BookSearchHit, and LibraryFilter live in LibraryTypes.swift.
 
 /// State of the library window: the Calibre source, the merged item list
 /// (Calibre books + the app's own imports), and the overlay tag/collection
@@ -79,7 +41,11 @@ public final class LibraryModel {
     /// Overlay tags per LibraryItem id, for display and toggle state.
     public private(set) var itemTags: [String: [TagRecord]] = [:]
 
+    /// macOS: the folder path as a plain string (no sandbox).
     private static let calibrePathKey = "CalibreLibraryPath"
+    /// iOS: a security-scoped bookmark from the folder picker — the only way
+    /// a sandboxed app can reopen the user's iCloud Drive folder on relaunch.
+    private static let calibreBookmarkKey = "CalibreFolderBookmark"
     private static let setupDoneKey = "CalibreSetupDone"
 
     public private(set) var calibreRoot: URL?
@@ -135,15 +101,37 @@ public final class LibraryModel {
             return  // tests: no Calibre auto-detect, no UserDefaults
         }
         needsSetup = !UserDefaults.standard.bool(forKey: Self.setupDoneKey)
-        if !needsSetup, let stored = UserDefaults.standard.string(forKey: Self.calibrePathKey) {
-            calibreRoot = URL(fileURLWithPath: stored, isDirectory: true)
+        if !needsSetup {
+            calibreRoot = Self.restoreCalibreRoot()
         }
+    }
+
+    /// Reopens the persisted Calibre folder, per-platform.
+    private static func restoreCalibreRoot() -> URL? {
+        #if os(macOS)
+        return UserDefaults.standard.string(forKey: calibrePathKey)
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+        #else
+        guard let data = UserDefaults.standard.data(forKey: calibreBookmarkKey) else { return nil }
+        var stale = false
+        guard let url = try? URL(resolvingBookmarkData: data, bookmarkDataIsStale: &stale),
+              url.startAccessingSecurityScopedResource()
+        else { return nil }
+        // Access is deliberately held for the app's lifetime: the reader
+        // opens book files under this root at any time.
+        if stale, let fresh = try? url.bookmarkData() {
+            UserDefaults.standard.set(fresh, forKey: calibreBookmarkKey)
+        }
+        return url
+        #endif
     }
 
     // MARK: - Setup
 
+    #if os(macOS)
     /// A Calibre library at the conventional iCloud location, if one exists —
-    /// offered (never silently applied) during setup.
+    /// offered (never silently applied) during setup. macOS only: a sandboxed
+    /// iOS app can't probe iCloud Drive paths; the folder picker is the way.
     public var detectedCalibreCandidate: URL? {
         let stored = UserDefaults.standard.string(forKey: Self.calibrePathKey)
             .map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -158,6 +146,7 @@ public final class LibraryModel {
         }
         return nil
     }
+    #endif
 
     /// Completes setup: a folder to sync from, or nil for "no Calibre —
     /// imported PDFs only".
@@ -168,6 +157,7 @@ public final class LibraryModel {
             attachCalibreFolder(url)
         } else {
             UserDefaults.standard.removeObject(forKey: Self.calibrePathKey)
+            UserDefaults.standard.removeObject(forKey: Self.calibreBookmarkKey)
             calibreRoot = nil
             Task { await reload() }
         }
@@ -177,6 +167,7 @@ public final class LibraryModel {
     /// books on the next reload.
     public func detachCalibreFolder() {
         UserDefaults.standard.removeObject(forKey: Self.calibrePathKey)
+        UserDefaults.standard.removeObject(forKey: Self.calibreBookmarkKey)
         calibreRoot = nil
         items.removeAll { $0.source != .imported }
         Task { await reload() }
@@ -289,7 +280,17 @@ public final class LibraryModel {
 
     public func attachCalibreFolder(_ url: URL) {
         calibreRoot = url
+        #if os(macOS)
         UserDefaults.standard.set(url.path, forKey: Self.calibrePathKey)
+        #else
+        // The picker URL is security-scoped: keep access open (held for the
+        // app's lifetime — the reader opens books under it at any time) and
+        // persist a bookmark for the next launch.
+        _ = url.startAccessingSecurityScopedResource()
+        if let bookmark = try? url.bookmarkData() {
+            UserDefaults.standard.set(bookmark, forKey: Self.calibreBookmarkKey)
+        }
+        #endif
         Task { await reload() }
     }
 
@@ -299,6 +300,7 @@ public final class LibraryModel {
         calibreRoot = url
     }
 
+    #if os(macOS)
     public func chooseCalibreFolder() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -307,6 +309,7 @@ public final class LibraryModel {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         attachCalibreFolder(url)
     }
+    #endif
 
     public func reload() async {
         guard let calibreRoot else {
@@ -547,6 +550,7 @@ public final class LibraryModel {
 
     // MARK: - Imports
 
+    #if os(macOS)
     /// Imports arbitrary PDFs (downloads, homework, …) into the app library.
     public func importPDFs() {
         let panel = NSOpenPanel()
@@ -556,6 +560,7 @@ public final class LibraryModel {
         guard panel.runModal() == .OK else { return }
         importPDFs(at: panel.urls)
     }
+    #endif
 
     public func importPDFs(at urls: [URL]) {
         guard let store else { return }
@@ -780,27 +785,37 @@ public final class LibraryModel {
         reloadOverlay()
     }
 
+    #if os(macOS)
     /// Reveals the items' PDF files in Finder. Selecting never downloads —
     /// evicted iCloud placeholders are still selectable in Finder.
     public func revealInFinder(_ targets: [LibraryItem]) {
         guard !targets.isEmpty else { return }
         NSWorkspace.shared.activateFileViewerSelecting(targets.map(\.fileURL))
     }
+    #endif
 
     func setItemsForTesting(_ items: [LibraryItem]) {
         self.items = items
         rescope()
     }
 
+    /// Downloads the item's file from iCloud if evicted, tracking it in
+    /// `downloading` so the UI can show progress. Shared by both platforms'
+    /// open paths; the platform layer decides what "open" means afterwards.
+    public func ensureLocalTracked(_ item: LibraryItem) async throws {
+        downloading.insert(item.id)
+        defer { downloading.remove(item.id) }
+        try await FileAvailability.ensureLocal(item.fileURL)
+    }
+
+    #if os(macOS)
     /// Ensures the file is local (downloading from iCloud if evicted), then
     /// stages it in a reader window, optionally at a position (full-text
     /// search hits open at their page). Returns a new window ID if one must
     /// be opened by the caller.
     public func openItem(_ item: LibraryItem, at entry: NavEntry? = nil) async throws -> UUID? {
-        downloading.insert(item.id)
-        defer { downloading.remove(item.id) }
-        try await FileAvailability.ensureLocal(item.fileURL)
+        try await ensureLocalTracked(item)
         return SessionCoordinator.shared.openInReader(fileURL: item.fileURL, at: entry)
     }
+    #endif
 }
-#endif

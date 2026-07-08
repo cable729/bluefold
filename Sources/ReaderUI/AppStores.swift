@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 import ReaderPersistence
 
@@ -40,4 +39,3 @@ public enum AppStores {
         }
     }()
 }
-#endif
