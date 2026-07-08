@@ -68,30 +68,56 @@ struct OutlineNode: Identifiable {
         return entries.sorted { readingKey(of: $0) < readingKey(of: $1) }
     }
 
-    /// Tolerance when comparing in-page offsets: "where I am" (the view's
-    /// scroll anchor) and a destination a hair away must count as the same
-    /// spot, or next/previous gets stuck re-selecting the current section.
-    private static let sameSpotTolerance: CGFloat = 8
+    /// Landing slop: after `go(to:)`, PDFKit parks the view slightly BELOW
+    /// the requested anchor (page-break margins and rounding). Positions
+    /// within this distance of an anchor count as standing ON it — with a
+    /// strict comparison, "previous" re-selected the section just jumped to
+    /// and looked dead (round 13).
+    private static let sameSpotTolerance: CGFloat = 40
 
-    /// First section anchored after the current position.
-    static func sectionEntry(in nodes: [OutlineNode], after current: NavEntry) -> NavEntry? {
+    /// Index of the section containing `current`: the last entry anchored
+    /// at or before the position (with landing slop). nil before the first.
+    private static func currentSectionIndex(
+        in ordered: [NavEntry], at current: NavEntry
+    ) -> Int? {
         let here = readingKey(of: current)
-        return orderedSectionEntries(in: nodes).first { entry in
+        var result: Int?
+        for (index, entry) in ordered.enumerated() {
             let key = readingKey(of: entry)
-            return key.page > here.page
-                || (key.page == here.page && key.offset > here.offset + sameSpotTolerance)
+            if key.page < here.page
+                || (key.page == here.page && key.offset <= here.offset + sameSpotTolerance) {
+                result = index
+            } else {
+                break
+            }
         }
+        return result
     }
 
-    /// Last section anchored before the current position. Standing ON a
-    /// section's anchor goes to the one before it, media-player-style.
-    static func sectionEntry(in nodes: [OutlineNode], before current: NavEntry) -> NavEntry? {
-        let here = readingKey(of: current)
-        return orderedSectionEntries(in: nodes).last { entry in
-            let key = readingKey(of: entry)
-            return key.page < here.page
-                || (key.page == here.page && key.offset < here.offset - sameSpotTolerance)
+    /// The section after the current one (identity-based: immune to the
+    /// view landing a few points off the anchor).
+    static func sectionEntry(in nodes: [OutlineNode], after current: NavEntry) -> NavEntry? {
+        let ordered = orderedSectionEntries(in: nodes)
+        guard let index = currentSectionIndex(in: ordered, at: current) else {
+            return ordered.first  // before everything: next = first section
         }
+        return index + 1 < ordered.count ? ordered[index + 1] : nil
+    }
+
+    /// Media-player "previous": deep into a section it returns to THAT
+    /// section's start; standing at its start it goes to the one before.
+    static func sectionEntry(in nodes: [OutlineNode], before current: NavEntry) -> NavEntry? {
+        let ordered = orderedSectionEntries(in: nodes)
+        guard let index = currentSectionIndex(in: ordered, at: current) else { return nil }
+        let entry = ordered[index]
+        let here = readingKey(of: current)
+        let key = readingKey(of: entry)
+        let deepIntoSection = key.page < here.page
+            || (key.page == here.page && key.offset < here.offset - sameSpotTolerance)
+        if deepIntoSection {
+            return entry
+        }
+        return index > 0 ? ordered[index - 1] : nil
     }
 
     /// IDs of the ancestors of `targetID`, root first — the disclosure

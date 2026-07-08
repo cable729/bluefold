@@ -80,6 +80,31 @@ struct SectionSkipTests {
         ) == nil)
     }
 
+    @Test func landingSlopDoesNotWedgePrevious() {
+        // After jumping to 1.1 (anchor y=400) PDFKit parks the view a bit
+        // BELOW the anchor. Previous must go to Chapter 1 — not re-jump
+        // 1.1 forever (round 13) — and next must move on to 1.2.
+        let landed = NavEntry(pageIndex: 4, point: CGPoint(x: 0, y: 375))
+        #expect(
+            OutlineNode.sectionEntry(in: outline, before: landed)
+                == NavEntry(pageIndex: 4, point: CGPoint(x: 0, y: 700))
+        )
+        #expect(
+            OutlineNode.sectionEntry(in: outline, after: landed)
+                == NavEntry(pageIndex: 4, point: CGPoint(x: 0, y: 150))
+        )
+    }
+
+    @Test func deepInASectionPreviousReturnsToItsStart() {
+        // Reading well past 1.1's anchor: previous restarts 1.1 first
+        // (media-player), then a second press reaches Chapter 1.
+        let deep = NavEntry(pageIndex: 4, point: CGPoint(x: 0, y: 250))
+        #expect(
+            OutlineNode.sectionEntry(in: outline, before: deep)
+                == NavEntry(pageIndex: 4, point: CGPoint(x: 0, y: 400))
+        )
+    }
+
     @Test func pointlessEntriesCountAsPageTop() {
         let plain = [
             OutlineNode(label: "A", entry: NavEntry(pageIndex: 2), children: nil),
