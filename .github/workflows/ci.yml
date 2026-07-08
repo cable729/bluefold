@@ -19,14 +19,23 @@ jobs:
     # ever sits queued (image retired/renamed), fall back to macos-latest —
     # the code also compiles under Swift 6.0.
     runs-on: macos-26
-    # The suite runs in <1 min locally; anything near this limit is a hang,
-    # and the timeout flushes logs that show which test stalled.
-    timeout-minutes: 15
+    # A 15-min probe run was still compiling GRDB when it hit the limit —
+    # cold dependency builds on these runners are the bottleneck, not the
+    # tests (<1 min locally). 45 min bounds a cold build; the .build cache
+    # below makes warm runs far faster.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Select latest Xcode
         run: |
           sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
           swift --version
+      - name: Cache SwiftPM build
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.resolved', 'Package.swift') }}
+          restore-keys: |
+            spm-${{ runner.os }}-${{ runner.arch }}-
       - name: Run tests
         run: swift test
