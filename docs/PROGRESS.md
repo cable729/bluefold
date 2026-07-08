@@ -71,6 +71,22 @@ the project owner's plan file; the milestone list below is self-contained.
   background tabs, ⌘O palette focus fix, and a hard fence keeping unit
   tests out of the user's real library.db.
 
+- [x] **UI-6** Feedback rounds 9–13.7 (2026-07-08, all same-day): final
+  palette chords (⌘O = open books/collections/tags · ⌘P/⌘⇧O = in-book
+  sections/bookmarks) with live ⌘/⇧ modifier feedback (footer legend +
+  selected-row badge; ⇧⏎ = new window, ⌘⏎ = background tab, palette stays
+  open for queueing); batch opens download concurrently and open books as
+  they arrive (one evicted iCloud book used to stall everything
+  silently); sidebar outline follows the current section (scope toggle,
+  app-owned DisclosureGroup expansion); status-bar ⇤ ⇥ section skipping,
+  destination-precise and hardened against every scan pathology (see
+  quirks below); tab breadcrumbs persist on TabState in session.json;
+  book.authors in the overlay (schema v3) makes quick-open match authors;
+  sepia tint fills the clip (offset-crop scans); instantHint bubbles live
+  in floating child windows (unclippable); tooltips deduped (.help
+  removed beside .instantHint, NSInitialToolTipDelay=150 persisted —
+  `register` is invisible to CFPreferences).
+
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); library/tags/search/sync UI pending
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `PDFReaderUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but local XCUITest synthesis can't drive them (see quirks below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI/human hands end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test PDFREADER_BUNDLE_ID_SUFFIX=.uitest<N>`. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
@@ -139,6 +155,36 @@ app bugs:
   window-server state. Rule of thumb going forward: agents do code + unit
   tests; ONE consolidated GUI pass at the end.
 
+## PDFKit destination pathologies (macOS 26) — learned the hard way, 2026-07-08
+Real books (especially Pearson-style scans: Munkres, Dummit & Foote) break
+naive PDFKit navigation. Rules encoded in the codebase; do not regress:
+1. **`PDFView.go(to:)` silently no-ops** for destinations whose point is
+   outside the page's crop box OR carries kPDFDestinationUnspecifiedValue.
+   `go(to: PDFPage)` no-ops too — it wraps an unspecified destination
+   internally. ALWAYS navigate with an explicit in-crop point
+   (`ReaderPDFView.go(to:in:)` synthesizes crop-top for point-less jumps).
+2. **Outline/link destination points can be garbage**: negative x, outside
+   an offset crop box (crop origin (144,110) inside a bigger media box),
+   or unspecified — even in well-made books' front matter (Aluffi).
+   `ReaderPDFView.validatedPoint` (12pt slop) gates every incoming point;
+   `OutlineNode.tree` synthesizes concrete crop-top points for the rest.
+3. **PDFView parks the view a few points BELOW a requested anchor**
+   (page-break margins) — position comparisons need landing slop
+   (`OutlineNode.sameSpotTolerance` = 40pt, identity-based stepping).
+4. **Chapter headings and their first section often share one anchor** —
+   ordered section stops dedupe same-spot entries (2pt).
+5. **Offset crop boxes break page-space geometry in tile contexts**:
+   ThemedPDFPage must fill `context.boundingBoxOfClipPath`, never
+   `bounds(for: box)`.
+6. Non-PDFKit but adjacent: SwiftUI **enablement must read observable
+   state** (liveNavEntry isn't tracked — buttons gray forever), never
+   mutate observable state inside makeNSView (defer a runloop turn), and
+   UserDefaults `register()` is invisible to CFPreferences readers like
+   NSToolTipManager — use `set()`.
+Probe scripts for new pathologies live in the fix-session pattern: load
+the actual book with PDFKit in a scratch swift script and print
+destinations/crops before theorizing.
+
 ## Handoff docs (read these first in a fresh session)
 - [ARCHITECTURE.md](ARCHITECTURE.md) — module map, memory model, data stores, diagrams
 - [DECISIONS.md](DECISIONS.md) — why things are the way they are
@@ -146,15 +192,27 @@ app bugs:
 - `./scripts/verify.sh` — the one-command quality gate (tests + both app builds + launch smoke)
 
 ## Next step
-1. **Owner hand-pass on the round-5 fixes** (a demo instance with grouped
-   tabs may still be running from the fix session; scratch session, safe to
-   ⌘Q): tear-off drag by hand — the ghost must never wedge (alpha-0 +
-   monitor failsafes are in, but only a human can synthesize the original
-   failure); grouped-header look at 22pt (owner wanted a live design pass);
-   click a grouped tab — title must NOT glide in; close last window → Dock
-   reopen → tabs must come back; ⌘G go-to-page; "+" menu; library tag
-   badges. Plus the still-unverified round-3 items: cross-window drag,
-   split view, live find breadcrumbs.
+1. **Owner decisions pending** (do NOT do these unprompted):
+   - Merge the 4 duplicate book rows (Calibre + pre-mirror auto-registered
+     twins holding reading state; palette dedupes by path so it's
+     cosmetic). Merge SQL was drafted and permission-blocked in the
+     2026-07-08 session — ask the owner, then run against library.db
+     (backup first; one pre-cleanup backup already sits in that session's
+     scratchpad, which is temp — don't rely on it).
+   - Parked features: user-editable keybindings.json overlay; first-launch
+     shortcuts HUD; ⌘\ split-view chord; tag colors; sub-tag context menu;
+     library list view + sort + sectioned-by-tag view (owner sketched it —
+     see BACKLOG round 7).
+2. **Owner hand-verification debt** (fixes shipped same-day, only lightly
+   hand-tested): tear-off drag wedge failsafes, cross-window drag, split
+   view, ⇤ ⇥ full backward trip through a scan (D&F Galois → front
+   matter), sidebar follow-mode feel, ⇧⏎/⌘⏎ palette variants.
+3. **Merge PR #1 (ci-hardening) + PR #2 (ci-frugal)** once GitHub billing
+   resets; read the per-module PTY log to name the deadlocking CI module;
+   then CI job B (XCUITest + iOS sim build) and wire UI tests into
+   scripts/verify.sh.
+4. Then: M15 CloudKit (settle bundle identifier FIRST — see BACKLOG
+   "Product / business"), iOS part 2, M18 v0.1.
 2. **Merge PR #1 (ci-hardening)** and read its PTY log to name the hanging
    CI test; gate or fix it, then add CI job B (xcodebuild UI tests + iOS
    sim build) and wire UI tests into scripts/verify.sh.

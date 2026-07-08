@@ -226,6 +226,36 @@ macOS apps (Docker is impossible — macOS doesn't containerize):
   reading/section-skipping progresses. Expansion state is app-owned now
   (custom recursive DisclosureGroups).
 
+## Feedback rounds 11–13.7 (2026-07-08 afternoon) — ✅ the broken-scan saga, all fixed
+One connected arc, kicked off by "clicking sections in Munkres does
+nothing". Every fix is unit-test-pinned; the durable lessons live in
+PROGRESS.md § "PDFKit destination pathologies". Summary:
+- **R11**: Munkres outline points lie OUTSIDE the crop box (x = -19.7,
+  crop starts at 144) → PDFView refuses them → clicks no-oped. Points now
+  validated (`ReaderPDFView.validatedPoint`, 12pt slop). Same offset crop
+  origin broke the sepia tint fill → ThemedPDFPage now fills
+  `context.boundingBoxOfClipPath` instead of box geometry.
+- **R12**: quick-open couldn't find "dummit" — overlay titles carry no
+  author. `book.authors` column (schema v3), mirrored at library reload,
+  searchable + shown in palette subtitles. instantHint bubbles moved into
+  a floating child window (overlays got clipped everywhere).
+- **R12.5**: `go(to: PDFPage)` — and any PDFDestination with UNSPECIFIED
+  coordinates — is a silent no-op on macOS 26 PDFKit. Point-less jumps
+  synthesize an explicit crop-top point. Also: enablement must read
+  OBSERVABLE state (liveNavEntry isn't tracked → permanently gray
+  buttons), and never mutate observable state inside makeNSView.
+- **R13/13.6**: previous-section wedges. PDFKit parks the view ~few pt
+  below a requested anchor → identity-based stepping with 40pt landing
+  slop; outline tree now synthesizes concrete crop-top points for broken
+  destinations so reading-order math never sees nil (-∞ offsets made
+  "previous" restart the current section forever).
+- **R13.5**: tab breadcrumbs persist ON TabState in session.json
+  (recomputing needs the live document; background tabs never load one —
+  relaunches showed "p.N" everywhere).
+- **R13.7**: chapter heading + first section often share ONE anchor
+  (always in scans) — same-spot stops dedupe (2pt) so ⇤ crosses chapter
+  boundaries instead of stepping to an invisible twin.
+
 ## Known bugs / rough edges (not yet scheduled)
 - Tooltip delay (above).
 - Cover loading during scroll (above).
