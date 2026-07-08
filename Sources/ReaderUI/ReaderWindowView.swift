@@ -56,6 +56,13 @@ public struct ReaderWindowView: View {
                 }
                 content
                     .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
+                    // Registers the PDF content area as a drag-to-split drop
+                    // target (tab-strip drags light up the left/right half).
+                    // Only when a tab is open: an empty window has nothing to
+                    // split against, so drops there stay strip/desktop drops.
+                    .background(SplitDropZoneAccessor(
+                        windowID: windowID, isEnabled: model.activeTab != nil
+                    ))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             // Always present (even with no document) so the theme control
@@ -163,11 +170,19 @@ public struct ReaderWindowView: View {
                     .id("\(tab.id)-\(ThemeManager.shared.resolvedTheme.rawValue)")
                 if let splitTab = model.splitTab,
                    let splitDocument = model.provider.document(for: model.url(for: splitTab)) {
+                    // The split pane sits leading OR trailing of the primary
+                    // (Split Left / Split Right).
                     HSplitView {
+                        if model.splitSide == .leading {
+                            splitPane(tab: splitTab, document: splitDocument)
+                                .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+                        }
                         primary
                             .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
-                        splitPane(tab: splitTab, document: splitDocument)
-                            .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+                        if model.splitSide == .trailing {
+                            splitPane(tab: splitTab, document: splitDocument)
+                                .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+                        }
                     }
                 } else {
                     primary

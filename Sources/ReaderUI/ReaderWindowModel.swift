@@ -96,6 +96,9 @@ public final class ReaderWindowModel {
             splitTabID = state.splitTabID.flatMap { id in
                 state.tabs.contains { $0.id == id } ? id : nil
             }
+            // Files written before sided splits carry no side: trailing
+            // (right) is what those files meant.
+            splitSide = state.splitSide ?? .trailing
             pendingFrame = state.frame
             windowFrame = state.frame
             refreshPins()
@@ -106,7 +109,8 @@ public final class ReaderWindowModel {
     public var stateSnapshot: WindowState {
         WindowState(
             id: windowID, frame: windowFrame, tabs: tabs,
-            activeTabID: activeTabID, splitTabID: splitTabID
+            activeTabID: activeTabID, splitTabID: splitTabID,
+            splitSide: splitTabID == nil ? nil : splitSide
         )
     }
 
@@ -131,15 +135,21 @@ public final class ReaderWindowModel {
     /// Tab shown in the secondary pane; nil = not split.
     public private(set) var splitTabID: UUID?
 
+    /// Side of the primary pane the split pane sits on. Only meaningful
+    /// while `splitTabID` is non-nil; kept across closeSplit so a reopened
+    /// split lands where the last one was.
+    public private(set) var splitSide: SplitSide = .trailing
+
     public var splitTab: TabState? {
         guard let splitTabID else { return nil }
         return tabs.first { $0.id == splitTabID }
     }
 
-    /// Shows a tab in the secondary pane. Splitting the active tab first
-    /// moves activation to another tab so the two panes never show the same
-    /// tab (two live views over one TabState would fight over its position).
-    public func openInSplit(tabID: UUID) {
+    /// Shows a tab in the secondary pane, on `side` of the primary.
+    /// Splitting the active tab first moves activation to another tab so the
+    /// two panes never show the same tab (two live views over one TabState
+    /// would fight over its position).
+    public func openInSplit(tabID: UUID, side: SplitSide = .trailing) {
         guard tabs.contains(where: { $0.id == tabID }) else { return }
         if tabID == activeTabID {
             if let other = tabs.first(where: { $0.id != tabID }) {
@@ -149,8 +159,31 @@ public final class ReaderWindowModel {
             }
         }
         splitTabID = tabID
+        splitSide = side
         refreshPins()
         onMutation?()
+    }
+
+    /// ⌘\ with no split open: duplicates the active tab (same book; position
+    /// and history are copied but independent from here on) into the split
+    /// pane on `side`. The original stays active in the primary pane — this
+    /// works even in a single-tab window, unlike `openInSplit`, because the
+    /// duplicate provides its own partner.
+    @discardableResult
+    public func duplicateActiveTabIntoSplit(side: SplitSide = .trailing) -> UUID? {
+        guard
+            let activeTabID,
+            let index = tabs.firstIndex(where: { $0.id == activeTabID })
+        else { return nil }
+        var copy = tabs[index]
+        copy.id = UUID()
+        tabs.insert(copy, at: index + 1)
+        splitTabID = copy.id
+        splitSide = side
+        refreshPins()
+        refreshBreadcrumb(tabID: copy.id)
+        onMutation?()
+        return copy.id
     }
 
     public func closeSplit() {

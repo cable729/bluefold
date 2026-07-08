@@ -93,7 +93,7 @@ private struct TabStripRepresentable: NSViewRepresentable {
             closeMany: { model.closeTabs(ids: $0) },
             duplicate: { model.duplicateTab(id: $0) },
             closeOthers: { model.closeOtherTabs(keeping: $0) },
-            openInSplit: { model.openInSplit(tabID: $0) },
+            openInSplit: { model.openInSplit(tabID: $0, side: $1) },
             closeSplit: { model.closeSplit() },
             reorder: { model.moveTab(id: $0, toIndex: $1) },
             moveToWindow: { [weak view] tabID, targetWindowID, index in
@@ -116,6 +116,18 @@ private struct TabStripRepresentable: NSViewRepresentable {
                     tabID, from: model.windowID, at: screenPoint
                 ) else { return }
                 openWindow(id: "reader", value: newID)
+                closeWindowIfEmptied(model: model, view: view)
+            },
+            dropIntoSplit: { [weak view] tabID, targetWindowID, side in
+                if targetWindowID == model.windowID {
+                    model.openInSplit(tabID: tabID, side: side)
+                    return
+                }
+                // Cross-window: move the tab first (same as a strip drop),
+                // then open it as the target's split.
+                SessionCoordinator.shared.moveTabIntoSplit(
+                    tabID, from: model.windowID, to: targetWindowID, side: side
+                )
                 closeWindowIfEmptied(model: model, view: view)
             }
         )

@@ -26,13 +26,16 @@ struct TabStripActions {
     var closeMany: ([UUID]) -> Void = { _ in }
     var duplicate: (UUID) -> Void
     var closeOthers: (UUID) -> Void
-    var openInSplit: (UUID) -> Void = { _ in }
+    var openInSplit: (UUID, SplitSide) -> Void = { _, _ in }
     var closeSplit: () -> Void = {}
     var reorder: (UUID, Int) -> Void
     /// Cross-window move: (tabID, targetWindowID, insertionIndex)
     var moveToWindow: (UUID, UUID, Int) -> Void
     /// Tab dropped on empty desktop at a screen point.
     var detachToNewWindow: (UUID, CGPoint) -> Void
+    /// Tab dropped on a reader window's content-area half:
+    /// (tabID, targetWindowID, side) — opens as that window's split.
+    var dropIntoSplit: (UUID, UUID, SplitSide) -> Void = { _, _, _ in }
 }
 
 /// AppKit-backed, Chrome-style tab strip. SwiftUI's .draggable/.onTapGesture
@@ -438,6 +441,7 @@ final class TabStripNSView: NSView {
         self.drag = nil
         removeDragMonitors()
         TabStripRegistry.shared.updateDropTarget(at: nil, excluding: nil)
+        SplitDropZoneRegistry.shared.setTarget(nil)
         needsLayout = true
     }
 
@@ -469,6 +473,7 @@ final class TabStripNSView: NSView {
                 + tabWidth / 2
             drag.previewIndex = max(0, min(Int(midX / tabWidth), itemViews.count - 1))
             self.drag = drag
+            SplitDropZoneRegistry.shared.setTarget(nil) // back in the band
             layoutItems(animated: true)
         } else {
             if !drag.isTornOff {
@@ -482,11 +487,30 @@ final class TabStripNSView: NSView {
             let screen = screenPoint(for: event)
             drag.ghost?.move(to: screen)
             self.drag = drag
-            // Light up whichever strip would accept the drop.
+            // Light up whichever strip would accept the drop; when none is
+            // under the pointer, light up a content-area half instead
+            // (drag-to-split). Strips win: their grace band overlaps the top
+            // of the content area, and a strip drop is the more deliberate
+            // gesture there.
             TabStripRegistry.shared.updateDropTarget(
                 at: screen, excluding: drag.isTornOff ? nil : windowID
             )
+            SplitDropZoneRegistry.shared.setTarget(splitDropZone(atScreen: screen))
         }
+    }
+
+    /// The drag-to-split zone a drop at `screen` would hit, or nil when a
+    /// strip claims the point or the target couldn't actually split. Shared
+    /// by the hover highlight and finishDrag so they can never disagree.
+    private func splitDropZone(atScreen screen: CGPoint) -> SplitDropZone? {
+        guard
+            TabStripRegistry.shared.strip(at: screen) == nil,
+            let zone = SplitDropZoneRegistry.shared.zone(at: screen)
+        else { return nil }
+        // A same-window split needs another tab left for the primary pane;
+        // items still contains the torn-off tab, so ≥ 2 means one remains.
+        if zone.windowID == windowID, items.count < 2 { return nil }
+        return zone
     }
 
     func endPress(with event: NSEvent) {
@@ -503,6 +527,7 @@ final class TabStripNSView: NSView {
         defer {
             self.drag = nil
             TabStripRegistry.shared.updateDropTarget(at: nil, excluding: nil)
+            SplitDropZoneRegistry.shared.setTarget(nil)
             layoutItems(animated: true)
         }
         drag.ghost?.close()
@@ -517,6 +542,11 @@ final class TabStripNSView: NSView {
                 }
                 let index = targetStrip.insertionIndex(forScreenPoint: screen)
                 actions.moveToWindow(drag.tabID, targetID, index)
+            } else if let zone = splitDropZone(atScreen: screen) {
+                // Dropped on a reader window's content-area half: open as
+                // that window's split on that side (cross-window drops move
+                // the tab first, exactly like strip drops).
+                actions.dropIntoSplit(drag.tabID, zone.windowID, zone.side)
             } else {
                 actions.detachToNewWindow(drag.tabID, screen)
             }
@@ -564,11 +594,22 @@ final class TabStripNSView: NSView {
             menu.addItem(withTitle: "Close Split View", action: nil, keyEquivalent: "")
                 .setHandler { [weak self] in self?.actions.closeSplit() }
         } else {
-            let split = menu.addItem(
-                withTitle: "Open in Split View", action: nil, keyEquivalent: ""
+            // Also the way to move an existing split to the other side:
+            // splitting a tab re-targets the pane, side included.
+            let splitRight = menu.addItem(
+                withTitle: "Split Right", action: nil, keyEquivalent: ""
             )
-            split.setHandler { [weak self] in self?.actions.openInSplit(item.tabID) }
-            split.isEnabled = items.count > 1
+            splitRight.setHandler { [weak self] in
+                self?.actions.openInSplit(item.tabID, .trailing)
+            }
+            splitRight.isEnabled = items.count > 1
+            let splitLeft = menu.addItem(
+                withTitle: "Split Left", action: nil, keyEquivalent: ""
+            )
+            splitLeft.setHandler { [weak self] in
+                self?.actions.openInSplit(item.tabID, .leading)
+            }
+            splitLeft.isEnabled = items.count > 1
         }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Close Tab", action: nil, keyEquivalent: "")
