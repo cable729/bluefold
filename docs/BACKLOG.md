@@ -13,11 +13,12 @@ end-of-session feedback after using the app.
   `iCloud.com.cable729.pdfreader`, implement SyncKit with CKSyncEngine
   behind `SyncTransport` (fake transport for tests), deploy schema to
   production in CloudKit Console before any release build.
-- **iOS part 2.** Library UI (Calibre via iCloud Drive picker, tags,
-  collections), FTS search UI, theming (ThemedPDFPage already
-  iOS-compatible), link-tap history interception (UIKit gesture analog of
-  ReaderPDFView.mouseDown), dataless-file download flow, save session on
-  .inactive too.
+- ✅ CODE-DONE 2026-07-08 (F-1; simulator build only — needs hand-run) —
+  **iOS part 2.** Library UI (Calibre via iCloud Drive picker, tags,
+  collections), FTS search UI, theming, link-tap history interception,
+  dataless-file download flow, session save on .inactive/.background.
+  Deferred: iOS own-imports into the overlay DB; outline sidebar /
+  bookmarks / reading state on iOS.
 - **M17 — XCUITest smoke suite + CI job B** (xcodebuild macOS app tests +
   iOS simulator build). Launch-arg fixtures already exist (`--open`,
   `PDFREADER_SESSION_DIR`).
@@ -87,7 +88,10 @@ end-of-session feedback after using the app.
   sidebar, descendant tags included so each badge equals what clicking the
   tag shows; zero-count tags show no badge (`LibraryModel.tagCounts`).
 
-### Deep linking / anchors (owner question, answered)
+### Deep linking / anchors (owner question, answered) — ✅ SHIPPED 2026-07-08
+Implemented as designed below (F-1): `pdfreader://open?hash=…&dest=…&page=…`,
+Copy Link to Here / to Selection, `NamedDestinations` CGPDF resolver.
+Original plan:
 PDFs expose anchors we can link to: **named destinations** (hyperref's
 `\hypertarget`/section anchors — PDFDocument can enumerate names),
 **outline entries**, and page+point. Theorem/exercise granularity exists in
@@ -172,14 +176,12 @@ macOS apps (Docker is impossible — macOS doesn't containerize):
 - **Right-click a tag → create a sub-tag** ("add more" from the tag's own
   context menu; today nesting requires drag or the New Tag flow from
   inside a scope). Also consider "Rename Tag" in the same menu.
-- **Tag colors** — color per tag (tag row dot + tinted tag chips on book
-  cells; store adds a `color` column to `tag`, sync-safe).
-- **Library view modes**:
-  - List view (rows, not covers) with sortable columns — title, author,
-    date added, last read.
-  - Sectioned-by-tag view: within a tag scope (e.g. Math), group the grid
-    under headings — books tagged ONLY Math first, then one section per
-    child tag (Algebra, …). Owner sketched this explicitly.
+- ✅ DONE 2026-07-08 (F-1) — **Tag colors** — schema v4 `tag.color` hex,
+  sidebar dot, tinted chips, Color submenu (8 presets + None).
+- ✅ DONE 2026-07-08 (F-1) — **Library view modes**: sortable list view
+  (title/author/date added/last read; schema v5 `book.created_at`) and
+  the sectioned-by-tag grid (scope-only first, then per-child sections),
+  toolbar toggle, prefs persisted.
 
 ### ✅ Fixed same day (round-7 bugs)
 - Tag/collection ⓘ popovers: now open on HOVER (200ms) and the text
@@ -376,10 +378,11 @@ palette; ⌘⇧F = library search. Shipped:
   the real library.db (AppStores.isTestProcess + isolation tests) after
   test fixtures polluted it with junk rows (cleaned; a backup of the
   pre-cleanup DB is in the fix session's scratchpad).
-- NOT done (parked): user-editable keybindings.json overlay; one-time
-  first-launch shortcuts HUD; merging the 4 duplicate book rows
-  (Calibre + pre-mirror auto-registered twins) — needs owner sign-off,
-  currently harmless (palette dedupes by path).
+- NOT done (parked): user-editable keybindings.json overlay
+  (✅ DONE 2026-07-08, F-1); one-time first-launch shortcuts HUD;
+  merging the 4 duplicate book rows (Calibre + pre-mirror
+  auto-registered twins) — needs owner sign-off, currently harmless
+  (palette dedupes by path).
 
 ### ✅ DONE 2026-07-08 — Quick-open a book from the keyboard (owner request)
 "⌘P, type part of the book name, Return" opens any library book as a tab

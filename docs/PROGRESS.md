@@ -87,8 +87,40 @@ the project owner's plan file; the milestone list below is self-contained.
   removed beside .instantHint, NSInitialToolTipDelay=150 persisted —
   `register` is invisible to CFPreferences).
 
+- [x] **F-1** Feature wave (2026-07-08 afternoon, owner's priority list; 4 parallel
+  worktree agents + deep linking inline, all merged, 330 tests):
+  - **Deep linking** (`pdfreader://open?hash=…&dest=…&page=…&x=&y=`): content-hash
+    resolution (survives moves), named destinations resolved via the CGPDF
+    Names/Dests tree (`NamedDestinations`), `DeepLinkRouter` queues launch URLs +
+    downloads evicted books, Copy Link to Here / to Selection (Edit menu +
+    palette, chordless). Scheme registered via App/macOS/Info.plist
+    (INFOPLIST_FILE merges with generated; synchronized-group exception set keeps
+    it out of Resources). Scheme string = `DeepLink.schemes` in ReaderCore — the
+    single rename point; register new scheme + keep old as alias on rename.
+    VERIFIED live: page and dest links land exactly (Axler dest=section.1.1 →
+    p.21 "1A › Complex Numbers").
+  - **Tag colors** (schema v4 `tag.color` hex, sidebar dots, tinted chips, Color
+    submenu with 8 presets).
+  - **Library view modes** (schema v5 `book.created_at`): sortable list view
+    (title/author/date added/last read), sectioned-by-tag grid inside a tag scope
+    (scope-only books first, then per-child-tag sections), toolbar mode toggle,
+    prefs persisted.
+  - **User keybindings**: `keybindings.json` overlay (Application Support), chord
+    parser + conflict validation with launch alert + help-overlay banner,
+    "Preferences: Open Keybindings File" command; format documented in
+    KEYBINDINGS.md. ⌘G stays protected.
+  - **Split view upgrades**: `SplitSide` (leading/trailing, session-compatible),
+    Split Left / Split Right / Close Split commands, ⌘\ toggle (duplicates active
+    tab into a right split / closes), drag-to-split drop zones over the PDF area
+    (screen-level registry, non-activating overlay, all ends through finishDrag).
+  - **iOS part 2**: library UI (folder-picker Calibre source w/ security-scoped
+    bookmark), FTS search UI, theming, link-tap history interception, dataless
+    download flow, session save on .inactive/.background. Shared-code refactor:
+    LinkResolution.swift, PageTheming.swift, LibraryTypes.swift extracted
+    cross-platform.
+
 ### Phase C
-- [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); library/tags/search/sync UI pending
+- [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); F-1 added library/search/theming/link-history UI (simulator BUILD-verified only — needs hand-run); CloudKit sync UI pending
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `PDFReaderUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but local XCUITest synthesis can't drive them (see quirks below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI/human hands end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test PDFREADER_BUNDLE_ID_SUFFIX=.uitest<N>`. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
 - [ ] **M18** OSS polish, settings window, v0.1 tag
 
@@ -181,6 +213,12 @@ naive PDFKit navigation. Rules encoded in the codebase; do not regress:
    mutate observable state inside makeNSView (defer a runloop turn), and
    UserDefaults `register()` is invisible to CFPreferences readers like
    NSToolTipManager — use `set()`.
+7. **Named destinations (2026-07-08, deep-linking session)**: PDFKit has NO
+   working public API — the private `namedDestination:` selector returns
+   nil. Resolve via the CGPDF catalog (`NamedDestinations`). WRITING side:
+   `CGPDFContext addDestination`/`setDestination` silently write nothing —
+   test fixtures hand-write a raw PDF name tree
+   (Tests/ReaderUITests/DeepLinkResolveTests.swift).
 Probe scripts for new pathologies live in the fix-session pattern: load
 the actual book with PDFKit in a scratch swift script and print
 destinations/crops before theorizing.
@@ -194,23 +232,26 @@ destinations/crops before theorizing.
 ## Next step
 1. **Owner decisions pending** (do NOT do these unprompted):
    - Merge the 4 duplicate book rows (Calibre + pre-mirror auto-registered
-     twins holding reading state; palette dedupes by path so it's
-     cosmetic). Merge SQL was drafted and permission-blocked in the
-     2026-07-08 session — ask the owner, then run against library.db
-     (backup first; one pre-cleanup backup already sits in that session's
-     scratchpad, which is temp — don't rely on it).
-   - Parked features: user-editable keybindings.json overlay; first-launch
-     shortcuts HUD; ⌘\ split-view chord; tag colors; sub-tag context menu;
-     library list view + sort + sectioned-by-tag view (owner sketched it —
-     see BACKLOG round 7).
-2. **Owner hand-verification debt** (fixes shipped same-day, only lightly
-   hand-tested): split view, ⇤ ⇥ full backward trip through a scan (D&F
-   Galois → front matter), sidebar follow-mode feel, ⇧⏎/⌘⏎ palette
-   variants. VERIFIED by owner 2026-07-08: tab tear-off drag and
-   cross-window tab drag both work by hand.
+     twins; the auto rows hold reading state, the Calibre rows hold tags;
+     palette dedupes by path so it's cosmetic). Shown to the owner
+     2026-07-08 with concrete rows (D&F, Axler, Tao, Aluffi) — awaiting
+     his go/no-go; back up library.db before running.
+   - **App + LLC rename** (owner confirmed he wants both): brainstorm
+     session needed. Gates M15 (CloudKit container is bundle-id-scoped)
+     and the deep-link scheme (DeepLink.schemes — new scheme first, keep
+     `pdfreader` as alias).
+   - Still parked: first-launch shortcuts HUD; sub-tag context menu
+     (right-click tag → New Sub-Tag / Rename).
+2. **Owner hand-verification debt**: F-1 wave UI (tag colors, list/
+   sectioned views, keybindings.json flow, split left/right + drag-to-
+   split, Copy Link commands), iOS part 2 on a simulator/device, plus the
+   older items: ⇤ ⇥ full backward trip through a scan, sidebar follow-mode
+   feel, ⇧⏎/⌘⏎ palette variants. VERIFIED by owner 2026-07-08: tab
+   tear-off + cross-window drags; deep links land exactly (session-tested
+   by agent).
 3. **Merge PR #1 (ci-hardening) + PR #2 (ci-frugal)** once GitHub billing
    resets; read the per-module PTY log to name the deadlocking CI module;
    then CI job B (XCUITest + iOS sim build) and wire UI tests into
    scripts/verify.sh.
-4. Then: M15 CloudKit (settle bundle identifier FIRST — see BACKLOG
-   "Product / business"), iOS part 2, M18 v0.1.
+4. Then: M15 CloudKit (settle bundle identifier FIRST), M18 v0.1
+   (settings window, app icon, notarized DMG, screenshots — use Axler).
