@@ -309,6 +309,35 @@ public enum CommandRegistry {
             isAvailable: { $0.activeDocument != nil },
             run: { $0.model?.fitHeight() }
         ))
+        // Split view. ⌘\ toggles, VS Code-style (owner spec, round 14): no
+        // split → the active tab duplicates into a split on that side (same
+        // book, independent position); any split open → it closes. Sides are
+        // re-targeted via the tab context menu (Split Left/Right on a tab).
+        let splits: [(String, String, SplitSide, [KeyChord])] = [
+            ("view.splitRight", "Split Right", .trailing, [KeyChord("\\", [.command])]),
+            ("view.splitLeft", "Split Left", .leading, []),
+        ]
+        for (id, title, side, chords) in splits {
+            commands.append(ReaderCommand(
+                id: id, title: title, category: .view,
+                chords: chords,
+                isAvailable: { $0.model?.activeTab != nil },
+                isOn: { $0.model?.splitTabID != nil && $0.model?.splitSide == side },
+                run: { context in
+                    guard let model = context.model else { return }
+                    if model.splitTabID != nil {
+                        model.closeSplit()
+                    } else {
+                        model.duplicateActiveTabIntoSplit(side: side)
+                    }
+                }
+            ))
+        }
+        commands.append(ReaderCommand(
+            id: "view.closeSplit", title: "Close Split", category: .view,
+            isAvailable: { $0.model?.splitTabID != nil },
+            run: { $0.model?.closeSplit() }
+        ))
         // Generated from AppTheme.allCases so a new theme (e.g. "auto")
         // appears everywhere automatically.
         for theme in AppTheme.allCases {

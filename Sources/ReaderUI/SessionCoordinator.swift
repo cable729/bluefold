@@ -236,6 +236,30 @@ public final class SessionCoordinator {
         scheduleSave()
     }
 
+    /// Moves a tab into another window's SPLIT pane (drag-to-split drop on a
+    /// content-area half): the tab transfers exactly like `moveTab`, then
+    /// opens as the target's split on `side`. A target with no tab of its
+    /// own to keep in the primary pane just receives the tab as a plain move.
+    public func moveTabIntoSplit(
+        _ tabID: UUID,
+        from sourceWindowID: UUID,
+        to targetWindowID: UUID,
+        side: SplitSide
+    ) {
+        guard
+            sourceWindowID != targetWindowID,
+            let source = models[sourceWindowID],
+            let target = models[targetWindowID],
+            let tab = source.detachTab(id: tabID)
+        else { return }
+        let canSplit = !target.tabs.isEmpty
+        target.adoptTab(tab)
+        if canSplit {
+            target.openInSplit(tabID: tab.id, side: side)
+        }
+        scheduleSave()
+    }
+
     /// Detaches a tab into a freshly staged window (tab dragged out of the
     /// strip onto the desktop). Returns the new window ID; the caller must
     /// present it via `openWindow(id: "reader", value:)`. The new window

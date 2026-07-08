@@ -60,6 +60,8 @@ public struct ReaderCommands: Commands {
             Divider()
             items(["view.fitWidth", "view.fitHeight"])
             Divider()
+            items(["view.splitRight", "view.splitLeft", "view.closeSplit"])
+            Divider()
             prefixedItems("view.theme.")
         }
 
