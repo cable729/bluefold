@@ -181,6 +181,11 @@ public final class ReaderWindowModel {
         }
         if activate || activeTabID == nil {
             selectTab(id: tab.id)
+        } else {
+            // Background tabs (⌘-click) get their breadcrumb NOW if the
+            // document is resident (same book: it always is) — the strip
+            // used to show "p.98" until the tab was first activated.
+            refreshBreadcrumb(tabID: tab.id)
         }
         onMutation?()
         return tab.id
@@ -553,6 +558,10 @@ public final class ReaderWindowModel {
             let executor = controller
                 ?? (source.id == activeTabID ? activeController : nil)
             executor?.execute(entry)
+            // The page-change notification won't refresh the strip label:
+            // its guard sees the pageIndex we just applied and bails. The
+            // breadcrumb stayed stale until the user scrolled (round 9).
+            refreshBreadcrumb(tabID: source.id)
         }
     }
 
@@ -566,6 +575,7 @@ public final class ReaderWindowModel {
             tab.apply(entry)
         }
         controller.execute(entry)
+        refreshBreadcrumb(tabID: activeTab.id)  // see linkActivated
     }
 
     public var canGoBack: Bool { activeTab?.history.canGoBack ?? false }
@@ -662,6 +672,7 @@ public final class ReaderWindowModel {
         }
         if let target {
             controller.execute(target)
+            refreshBreadcrumb(tabID: activeTab.id)  // see linkActivated
         }
     }
 

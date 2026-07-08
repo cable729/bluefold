@@ -22,10 +22,23 @@ struct PaletteOverlay: View {
     @State private var libraryCollections: [GroupCandidateInput] = []
     @State private var libraryTags: [GroupCandidateInput] = []
 
+    /// Modifiers currently held, tracked live so the UI can SHOW what
+    /// ⌘/⇧ will do before the user commits (round-9 owner request).
+    @State private var heldModifiers: NSEvent.ModifierFlags = []
+    @State private var flagsMonitor: Any?
+
     /// How a row is invoked: plain (activate), ⌘ (background — open
-    /// without switching, palette stays up), ⌥ (new window).
+    /// without switching, palette stays up), ⇧ or ⌥ (new window —
+    /// browser convention: ⌘=tab, ⇧=window).
     enum RunVariant {
         case activate, background, newWindow
+    }
+
+    /// The variant the currently held modifiers select.
+    private var heldVariant: RunVariant {
+        if heldModifiers.contains(.command) { return .background }
+        if !heldModifiers.intersection([.shift, .option]).isEmpty { return .newWindow }
+        return .activate
     }
 
     var body: some View {
@@ -51,13 +64,13 @@ struct PaletteOverlay: View {
                     .focused($fieldFocused)
                     .onSubmit { runSelected() }
                     .onKeyPress(keys: [.return]) { press in
-                        // ⌘Return: background open. ⌥Return: new window.
+                        // ⌘Return: background open. ⇧/⌥Return: new window.
                         // Plain Return falls through to onSubmit.
                         if press.modifiers.contains(.command) {
                             runSelected(variant: .background)
                             return .handled
                         }
-                        if press.modifiers.contains(.option) {
+                        if !press.modifiers.intersection([.shift, .option]).isEmpty {
                             runSelected(variant: .newWindow)
                             return .handled
                         }
@@ -84,6 +97,10 @@ struct PaletteOverlay: View {
                 goToPageHint
             } else {
                 resultsList
+                if mode == .navigate || mode == .outline {
+                    Divider()
+                    variantLegend
+                }
             }
         }
         .frame(width: 560)
@@ -96,6 +113,18 @@ struct PaletteOverlay: View {
         .onAppear {
             fieldFocused = true
             loadLibraryBooks()
+            // Live ⌘/⇧ feedback while the palette is up.
+            flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+                heldModifiers = event.modifierFlags
+                    .intersection([.command, .shift, .option])
+                return event
+            }
+        }
+        .onDisappear {
+            if let flagsMonitor {
+                NSEvent.removeMonitor(flagsMonitor)
+            }
+            flagsMonitor = nil
         }
         .task {
             // Focus can lose the race against an AppKit first responder
@@ -178,14 +207,19 @@ struct PaletteOverlay: View {
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                                PaletteRowView(row: row, isSelected: index == selection)
+                                PaletteRowView(
+                                    row: row,
+                                    isSelected: index == selection,
+                                    badge: index == selection ? selectedRowBadge(row) : nil
+                                )
                                     .id(row.id)
                                     .onTapGesture {
                                         selection = index
                                         let flags = NSApp.currentEvent?.modifierFlags ?? []
                                         let variant: RunVariant =
                                             flags.contains(.command) ? .background
-                                            : flags.contains(.option) ? .newWindow
+                                            : !flags.intersection([.shift, .option]).isEmpty
+                                                ? .newWindow
                                             : .activate
                                         runSelected(variant: variant)
                                     }
@@ -210,6 +244,41 @@ struct PaletteOverlay: View {
         case .commands: "No matching command"
         case .goToPage: ""
         }
+    }
+
+    /// What the held modifiers would do to the SELECTED row — shown as its
+    /// trailing badge so the effect is visible before committing.
+    private func selectedRowBadge(_ row: Row) -> String? {
+        guard row.supportsBackground else { return nil }
+        switch heldVariant {
+        case .background: return "→ background tab"
+        case .newWindow: return "→ new window"
+        case .activate: return nil
+        }
+    }
+
+    /// Footer legend: what ⏎ / ⌘⏎ / ⇧⏎ do, with the variant the HELD
+    /// modifiers select emphasized live (round-9 owner request — the
+    /// modifier behaviors were invisible until tried).
+    private var variantLegend: some View {
+        HStack(spacing: 18) {
+            legendItem("⏎", "open", active: heldVariant == .activate)
+            legendItem("⌘⏎", "background tab", active: heldVariant == .background)
+            legendItem("⇧⏎", "new window", active: heldVariant == .newWindow)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
+    private func legendItem(_ chord: String, _ label: String, active: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(chord)
+                .font(.caption.weight(active ? .bold : .regular).monospaced())
+            Text(label)
+                .font(.caption)
+        }
+        .foregroundStyle(active ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
     }
 
     private var goToPageHint: some View {
@@ -359,6 +428,12 @@ struct PaletteOverlay: View {
                     fileURL: model.url(for: tab), activate: false,
                     at: entry, after: tab.id
                 )
+            } else if variant == .newWindow, let tab = model.activeTab {
+                // ⇧: the section opens in a fresh window at that position.
+                let windowID = SessionCoordinator.shared.openInNewWindow(
+                    fileURLs: [model.url(for: tab)], entries: [entry]
+                )
+                context.presentReaderWindow(windowID)
             } else {
                 model.jump(to: entry)
             }
@@ -501,6 +576,9 @@ struct PaletteOverlay: View {
 private struct PaletteRowView: View {
     let row: PaletteOverlay.Row
     let isSelected: Bool
+    /// Live modifier feedback ("→ background tab"); replaces `trailing`
+    /// while a variant modifier is held.
+    var badge: String?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -523,7 +601,11 @@ private struct PaletteRowView: View {
                 }
             }
             Spacer(minLength: 12)
-            if let trailing = row.trailing, !trailing.isEmpty {
+            if let badge {
+                Text(badge)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.tint)
+            } else if let trailing = row.trailing, !trailing.isEmpty {
                 Text(trailing)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)

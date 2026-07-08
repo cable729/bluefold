@@ -78,9 +78,12 @@ Conventions borrowed from VS Code (palettes, quick-open), Safari/Chrome
 
 ↑ / ↓ move the selection (wraps), Return runs it, Esc closes, click outside
 closes. **⌘Return / ⌘-click** = open in a background tab (the palette stays
-open so you can queue several); **⌥Return / ⌥-click** = open in a new
-window. Matched characters are highlighted; results are ranked title-match
-first, breadcrumb-match second.
+open so you can queue several); **⇧Return / ⇧-click** (or ⌥) = open in a
+new window — browser convention: ⌘ = tab, ⇧ = window. Holding a modifier
+shows its effect live: the selected row gets a "→ background tab"/"→ new
+window" badge and the footer legend highlights the active variant. Matched
+characters are highlighted; results are ranked title-match first,
+breadcrumb-match second.
 
 ## Reassignments & conflicts found in the audit (2026-07-08)
 

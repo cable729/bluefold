@@ -196,12 +196,18 @@ public final class SessionCoordinator {
     }
 
     /// Stages a fresh window holding every file as a tab ("Open Collection
-    /// in New Window"); the caller presents the returned ID via
-    /// `openWindow(id: "reader", value:)`.
-    public func openInNewWindow(fileURLs: [URL]) -> UUID {
+    /// in New Window", palette ⇧⏎); the caller presents the returned ID via
+    /// `openWindow(id: "reader", value:)`. `entries` (parallel to
+    /// `fileURLs`, nil-padded) position each tab — a section opened in a
+    /// new window starts at that section.
+    public func openInNewWindow(fileURLs: [URL], entries: [NavEntry?]? = nil) -> UUID {
         let newID = UUID()
-        let tabs = fileURLs.map {
-            TabState(pathHint: DocumentProvider.canonicalPath(for: $0))
+        let tabs = fileURLs.enumerated().map { index, url in
+            var tab = TabState(pathHint: DocumentProvider.canonicalPath(for: url))
+            if let entries, entries.indices.contains(index), let entry = entries[index] {
+                tab.apply(entry)
+            }
+            return tab
         }
         pendingRestore[newID] = WindowState(
             id: newID, tabs: tabs, activeTabID: tabs.first?.id

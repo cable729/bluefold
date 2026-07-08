@@ -118,5 +118,40 @@ struct ReaderWindowModelTests {
         model.closeTab(id: second)
         #expect(model.provider.residentPaths.isEmpty)
     }
+
+    @Test func backgroundTabOfSameBookGetsBreadcrumbImmediately() throws {
+        // A ⌘-clicked reference used to sit as "p.N" in the strip until
+        // its tab was first activated (round 9).
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WindowModelTests-\(UUID().uuidString.prefix(4))")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let document = PDFDocument()
+        for index in 0..<4 {
+            document.insert(PDFPage(), at: index)
+        }
+        // Minimal outline: "Chapter 2" starting on page 3.
+        let root = PDFOutline()
+        let chapter = PDFOutline()
+        chapter.label = "Chapter 2"
+        chapter.destination = PDFDestination(
+            page: document.page(at: 2)!, at: CGPoint(x: 0, y: 700)
+        )
+        root.insertChild(chapter, at: 0)
+        document.outlineRoot = root
+        let url = dir.appendingPathComponent("outlined.pdf")
+        document.write(to: url)
+
+        let model = makeModel()
+        model.openTab(fileURL: url)
+        // The active tab's view keeps the document resident in the app;
+        // tests must load it explicitly.
+        _ = model.provider.document(for: url)
+        let background = model.openTab(
+            fileURL: url, activate: false, at: NavEntry(pageIndex: 3)
+        )
+        #expect(model.tabBreadcrumbs[background] == "Chapter 2")
+    }
 }
 #endif
