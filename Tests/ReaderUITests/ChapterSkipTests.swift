@@ -106,14 +106,60 @@ struct SectionSkipTests {
     }
 
     @Test func pointlessEntriesCountAsPageTop() {
+        // Nil-point entries can't come out of tree(from:) anymore (concrete
+        // crop-top points are synthesized); for hand-built ones the rule is
+        // "never wedge": same-page = standing at the section start, so
+        // previous steps BACK rather than restarting (a restart at the page
+        // top you're already on is a no-op — the round-13.6 bug).
         let plain = [
             OutlineNode(label: "A", entry: NavEntry(pageIndex: 2), children: nil),
             OutlineNode(label: "B", entry: NavEntry(pageIndex: 8), children: nil),
         ]
-        // Mid-page-2 position: A (page top) is behind, B ahead.
         let here = NavEntry(pageIndex: 2, point: CGPoint(x: 0, y: 300))
         #expect(OutlineNode.sectionEntry(in: plain, after: here)?.pageIndex == 8)
-        #expect(OutlineNode.sectionEntry(in: plain, before: here)?.pageIndex == 2)
+        #expect(OutlineNode.sectionEntry(in: plain, before: here) == nil)  // A is first
+    }
+
+    @Test func previousStepsBackThroughPointlessSections() {
+        // The scan case (round 13.6): entries whose points were dropped.
+        // Standing at B's page top, previous must reach A — a nil point's
+        // -∞ offset used to read as "deep inside B" and re-target B forever.
+        let plain = [
+            OutlineNode(label: "A", entry: NavEntry(pageIndex: 2), children: nil),
+            OutlineNode(label: "B", entry: NavEntry(pageIndex: 8), children: nil),
+        ]
+        let atBTop = NavEntry(pageIndex: 8, point: CGPoint(x: 0, y: 700))
+        #expect(OutlineNode.sectionEntry(in: plain, before: atBTop)?.pageIndex == 2)
+    }
+
+    @Test @MainActor func treeSynthesizesConcretePointsForBrokenDestinations() throws {
+        // Outline destinations with unspecified points (scans) come out of
+        // tree(from:) with CONCRETE crop-top points, so stepping math and
+        // go(to:) never see nil.
+        let document = PDFDocument()
+        for index in 0..<10 {
+            document.insert(PDFPage(), at: index)
+        }
+        let root = PDFOutline()
+        for (label, pageIndex) in [("A", 2), ("B", 8)] {
+            let node = PDFOutline()
+            node.label = label
+            node.destination = PDFDestination(
+                page: document.page(at: pageIndex)!,
+                at: CGPoint(x: kPDFDestinationUnspecifiedValue, y: kPDFDestinationUnspecifiedValue)
+            )
+            root.insertChild(node, at: root.numberOfChildren)
+        }
+        document.outlineRoot = root
+
+        let nodes = OutlineNode.tree(from: document)
+        let entries = nodes.compactMap(\.entry)
+        #expect(entries.count == 2)
+        #expect(entries.allSatisfy { $0.point != nil })
+
+        // And previous from B's synthesized top reaches A.
+        let atB = try #require(entries.last)
+        #expect(OutlineNode.sectionEntry(in: nodes, before: atB)?.pageIndex == 2)
     }
 
     @Test func emptyOutlineHasNoStops() {

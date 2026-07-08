@@ -112,8 +112,17 @@ struct OutlineNode: Identifiable {
         let entry = ordered[index]
         let here = readingKey(of: current)
         let key = readingKey(of: entry)
-        let deepIntoSection = key.page < here.page
-            || (key.page == here.page && key.offset < here.offset - sameSpotTolerance)
+        let deepIntoSection: Bool
+        if key.page < here.page {
+            deepIntoSection = true
+        } else if entry.point == nil {
+            // Point-less section = page top with unknown geometry; its -∞
+            // offset must NOT count as "you're below it" or previous would
+            // re-target it forever. Same page ⇒ standing at its start.
+            deepIntoSection = false
+        } else {
+            deepIntoSection = key.offset < here.offset - sameSpotTolerance
+        }
         if deepIntoSection {
             return entry
         }
@@ -162,11 +171,19 @@ struct OutlineNode: Identifiable {
 
             var entry: NavEntry?
             if let destination = child.destination, let page = destination.page {
-                // validatedPoint also drops points outside the crop box
+                // validatedPoint drops unspecified/out-of-crop points
                 // (broken scans) — PDFView refuses to scroll to those.
+                // The fallback is a CONCRETE crop-top point, never nil:
+                // section stepping compares in-page offsets, and a nil
+                // point compared as -∞ made "previous" think it was always
+                // deep inside the section and re-target it forever
+                // (round 13.6).
+                let crop = page.bounds(for: .cropBox)
+                let point = ReaderPDFView.validatedPoint(destination.point, on: page)
+                    ?? CGPoint(x: crop.minX, y: crop.maxY)
                 entry = NavEntry(
                     pageIndex: document.index(for: page),
-                    point: ReaderPDFView.validatedPoint(destination.point, on: page)
+                    point: point
                 )
             }
 
