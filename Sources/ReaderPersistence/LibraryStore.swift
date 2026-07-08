@@ -67,7 +67,8 @@ public final class LibraryStore: Sendable {
             }
             var book = BookRecord(
                 id: nil, calibreUUID: uuid, contentHash: nil,
-                title: title, authors: authors, modifiedAt: ts, deletedAt: nil
+                title: title, authors: authors, modifiedAt: ts, deletedAt: nil,
+                createdAt: ts
             )
             try book.insert(db)
             return book
@@ -87,7 +88,8 @@ public final class LibraryStore: Sendable {
         return try dbQueue.write { db in
             var book = BookRecord(
                 id: nil, calibreUUID: nil, contentHash: contentHash,
-                title: title, authors: nil, modifiedAt: ts, deletedAt: nil
+                title: title, authors: nil, modifiedAt: ts, deletedAt: nil,
+                createdAt: ts
             )
             try book.insert(db)
             var ref = FileRefRecord(
@@ -162,8 +164,8 @@ public final class LibraryStore: Sendable {
             for (uuid, title, authors) in books {
                 try db.execute(
                     sql: """
-                        INSERT INTO book (calibre_uuid, title, authors, modified_at, deleted_at)
-                        VALUES (?, ?, ?, ?, NULL)
+                        INSERT INTO book (calibre_uuid, title, authors, modified_at, deleted_at, created_at)
+                        VALUES (?, ?, ?, ?, NULL, ?)
                         ON CONFLICT(calibre_uuid) DO UPDATE SET
                             title = excluded.title,
                             authors = excluded.authors,
@@ -173,7 +175,7 @@ public final class LibraryStore: Sendable {
                                           THEN excluded.modified_at ELSE book.modified_at END,
                             deleted_at = NULL
                         """,
-                    arguments: [uuid, title, authors, ts]
+                    arguments: [uuid, title, authors, ts, ts]
                 )
                 if let id = try Int64.fetchOne(
                     db, sql: "SELECT id FROM book WHERE calibre_uuid = ?", arguments: [uuid]
@@ -704,6 +706,27 @@ public final class LibraryStore: Sendable {
     public func readingState(forBook bookID: Int64) throws -> ReadingStateRecord? {
         try dbQueue.read { db in
             try ReadingStateRecord.fetchOne(db, key: bookID)
+        }
+    }
+
+    /// Last-read time (unix ms) per live book id — one query for the whole
+    /// library, feeding the list view's "Last Read" column. Books never
+    /// opened have no row.
+    public func lastReadTimes() throws -> [Int64: Int64] {
+        try dbQueue.read { db in
+            var times: [Int64: Int64] = [:]
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT rs.book_id AS book_id, rs.updated_at AS updated_at
+                    FROM reading_state rs
+                    JOIN book b ON b.id = rs.book_id AND b.deleted_at IS NULL
+                    """
+            )
+            for row in rows {
+                times[row["book_id"]] = row["updated_at"]
+            }
+            return times
         }
     }
 

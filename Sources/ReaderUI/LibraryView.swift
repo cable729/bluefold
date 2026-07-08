@@ -23,6 +23,9 @@ public struct LibraryView: View {
     @State private var newCollectionName: String?
     @State private var showAllTextHits = false
     @State private var selection = LibrarySelection()
+    /// The list view's Table selection, mirrored into `selection` so the
+    /// shared action bar and context menus see one truth in every mode.
+    @State private var listSelection: Set<String> = []
     @State private var showTagsHelp = false
     @State private var showCollectionsHelp = false
     @FocusState private var searchFocused: Bool
@@ -40,7 +43,7 @@ public struct LibraryView: View {
                 NavigationSplitView {
                     sidebar
                 } detail: {
-                    grid
+                    detail
                 }
             }
         }
@@ -65,6 +68,16 @@ public struct LibraryView: View {
         }
         .toolbar {
             ToolbarItemGroup {
+                Picker("View Mode", selection: $model.viewMode) {
+                    Label("Grid", systemImage: "square.grid.2x2")
+                        .tag(LibraryViewMode.grid)
+                    Label("List", systemImage: "list.bullet")
+                        .tag(LibraryViewMode.list)
+                    Label("Grouped by Tag", systemImage: "square.grid.3x1.below.line.grid.1x2")
+                        .tag(LibraryViewMode.sectioned)
+                }
+                .pickerStyle(.segmented)
+                .help("Grid, list, or grouped-by-sub-tag (inside a tag scope)")
                 if let progress = model.indexingProgress {
                     Text("Indexing \(progress.done)/\(progress.total)…")
                         .font(.caption)
@@ -393,7 +406,7 @@ public struct LibraryView: View {
     }
 
     @ViewBuilder
-    private var grid: some View {
+    private var detail: some View {
         Group {
             if model.items.isEmpty, !model.isLoading, model.loadError == nil {
                 ContentUnavailableView {
@@ -417,61 +430,176 @@ public struct LibraryView: View {
                     Button("Choose Different Folder…") { model.chooseCalibreFolder() }
                 }
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        if !model.searchText.trimmingCharacters(in: .whitespaces).isEmpty {
-                            fullTextResults
+                modeContent
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        if !selection.isEmpty {
+                            selectionBar
                         }
-                        LazyVGrid(columns: columns, spacing: 24) {
-                            ForEach(model.filteredItems) { item in
-                                BookCell(
-                                    item: item,
-                                    overlayTags: model.itemTags[item.id] ?? [],
-                                    isDownloading: model.downloading.contains(item.id),
-                                    isSelected: selection.contains(item.id),
-                                    tap: { handleTap(item) },
-                                    open: { openKeepingSelection(item) },
-                                    menu: { cellContextMenu(for: item) }
-                                )
-                                // Compact preview: dragging the full-size
-                                // cell hides the sidebar rows you aim at.
-                                .draggable(item.id) {
-                                    dragPreview(for: item)
+                    }
+                    .background {
+                        // Esc clears the selection. A local key monitor scoped
+                        // to this window — SwiftUI's .keyboardShortcut(.escape)
+                        // never fires here (Escape is routed as cancelOperation,
+                        // not a key equivalent, outside dialogs).
+                        EscapeCatcher {
+                            guard !selection.isEmpty else { return false }
+                            selection.clear()
+                            return true
+                        }
+                    }
+                    .onChange(of: model.filteredItems) { _, newItems in
+                        selection.prune(to: newItems.map(\.id))
+                    }
+                    // Two-way Table ↔ shared-selection bridge. The equality
+                    // guards stop the two onChanges ping-ponging.
+                    .onChange(of: listSelection) { _, new in
+                        if selection.selectedIDs != new {
+                            selection.replace(with: new)
+                        }
+                    }
+                    .onChange(of: selection) { _, new in
+                        if listSelection != new.selectedIDs {
+                            listSelection = new.selectedIDs
+                        }
+                    }
+            }
+        }
+    }
+
+    /// The current view mode's content: list, sectioned grid, or plain grid.
+    @ViewBuilder
+    private var modeContent: some View {
+        switch model.effectiveViewMode {
+        case .list:
+            listView
+        case .grid, .sectioned:
+            coverScroll
+        }
+    }
+
+    /// The cover-based modes: one ScrollView hosting either the flat grid or
+    /// the sectioned-by-tag grid, plus the in-book-text hits while searching.
+    private var coverScroll: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if !model.searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                    fullTextResults
+                }
+                if model.effectiveViewMode == .sectioned {
+                    LazyVGrid(columns: columns, spacing: 24, pinnedViews: [.sectionHeaders]) {
+                        ForEach(model.tagSections) { section in
+                            Section {
+                                ForEach(section.items) { item in
+                                    bookCell(item)
                                 }
+                            } header: {
+                                sectionGridHeader(section)
                             }
                         }
-                        .padding(20)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background {
-                        // A click that lands outside every cell (grid gaps,
-                        // margins) falls through to this layer and clears
-                        // the selection. Cells sit on top and win their own
-                        // clicks. (A gesture on the ScrollView itself never
-                        // fires — NSScrollView swallows it.)
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { selection.clear() }
+                    .padding(20)
+                } else {
+                    LazyVGrid(columns: columns, spacing: 24) {
+                        ForEach(model.filteredItems) { item in
+                            bookCell(item)
+                        }
                     }
+                    .padding(20)
                 }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if !selection.isEmpty {
-                        selectionBar
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                // A click that lands outside every cell (grid gaps,
+                // margins) falls through to this layer and clears
+                // the selection. Cells sit on top and win their own
+                // clicks. (A gesture on the ScrollView itself never
+                // fires — NSScrollView swallows it.)
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { selection.clear() }
+            }
+        }
+    }
+
+    /// One cover cell, shared by the flat and sectioned grids.
+    private func bookCell(_ item: LibraryItem) -> some View {
+        BookCell(
+            item: item,
+            overlayTags: model.itemTags[item.id] ?? [],
+            isDownloading: model.downloading.contains(item.id),
+            isSelected: selection.contains(item.id),
+            tap: { handleTap(item) },
+            open: { openKeepingSelection(item) },
+            menu: { cellContextMenu(for: item) }
+        )
+        // Compact preview: dragging the full-size
+        // cell hides the sidebar rows you aim at.
+        .draggable(item.id) {
+            dragPreview(for: item)
+        }
+    }
+
+    /// A pinned section heading in the sectioned-by-tag grid.
+    private func sectionGridHeader(_ section: LibraryTagSection) -> some View {
+        HStack(spacing: 8) {
+            Text(section.title)
+                .font(.headline)
+            Text("\(section.items.count)")
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
+        .background(.background)
+    }
+
+    /// The list view: sortable columns over the same filtered items.
+    /// Double-click or Return opens the selection, exactly like the grid.
+    private var listView: some View {
+        VStack(spacing: 0) {
+            if !model.searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                if showAllTextHits {
+                    // Expanded hits scroll in their own strip so the table
+                    // never collapses underneath them.
+                    ScrollView {
+                        fullTextResults
                     }
+                    .frame(maxHeight: 240)
+                } else {
+                    fullTextResults
                 }
-                .background {
-                    // Esc clears the selection. A local key monitor scoped
-                    // to this window — SwiftUI's .keyboardShortcut(.escape)
-                    // never fires here (Escape is routed as cancelOperation,
-                    // not a key equivalent, outside dialogs).
-                    EscapeCatcher {
-                        guard !selection.isEmpty else { return false }
-                        selection.clear()
-                        return true
-                    }
+            }
+            Table(model.listRows, selection: $listSelection, sortOrder: $model.listSortOrder) {
+                TableColumn("Title", value: \.title) { row in
+                    Text(row.title)
+                        .fontWeight(.medium)
                 }
-                .onChange(of: model.filteredItems) { _, newItems in
-                    selection.prune(to: newItems.map(\.id))
+                TableColumn("Author", value: \.authors) { row in
+                    Text(row.authors.isEmpty ? "—" : row.authors)
+                        .foregroundStyle(row.authors.isEmpty ? .secondary : .primary)
+                }
+                TableColumn("Date Added", value: \.addedSortKey) { row in
+                    Text(
+                        row.addedAt.map { $0.formatted(date: .abbreviated, time: .omitted) }
+                            ?? "—"
+                    )
+                    .foregroundStyle(.secondary)
+                }
+                .width(min: 90, ideal: 120, max: 180)
+                TableColumn("Last Read", value: \.lastReadSortKey) { row in
+                    Text(
+                        row.lastReadAt.map { $0.formatted(.relative(presentation: .named)) }
+                            ?? "—"
+                    )
+                    .foregroundStyle(.secondary)
+                }
+                .width(min: 90, ideal: 120, max: 180)
+            }
+            .contextMenu(forSelectionType: String.self) { ids in
+                contextMenuContent(for: model.items(withIDs: ids))
+            } primaryAction: { ids in
+                for item in model.items(withIDs: ids) {
+                    open(item)
                 }
             }
         }
@@ -482,13 +610,22 @@ public struct LibraryView: View {
         let flags = NSApp.currentEvent?.modifierFlags ?? []
         let modifiers: LibrarySelection.Modifiers =
             flags.contains(.command) ? .command : flags.contains(.shift) ? .shift : .none
-        selection.click(item.id, modifiers: modifiers, orderedIDs: model.filteredItems.map(\.id))
+        selection.click(item.id, modifiers: modifiers, orderedIDs: visibleOrderedIDs)
+    }
+
+    /// The ids in current visual order (⇧-click ranges follow what's on
+    /// screen — in the sectioned grid that's the section order, duplicates
+    /// included where a book appears under several sub-tags).
+    private var visibleOrderedIDs: [String] {
+        model.effectiveViewMode == .sectioned
+            ? model.tagSections.flatMap { $0.items.map(\.id) }
+            : model.filteredItems.map(\.id)
     }
 
     private func openKeepingSelection(_ item: LibraryItem) {
         if !selection.contains(item.id) {
             selection.click(
-                item.id, modifiers: .none, orderedIDs: model.filteredItems.map(\.id)
+                item.id, modifiers: .none, orderedIDs: visibleOrderedIDs
             )
         }
         open(item)
@@ -506,23 +643,31 @@ public struct LibraryView: View {
     /// it will hit so bulk edits are never a surprise.
     @ViewBuilder
     private func cellContextMenu(for item: LibraryItem) -> some View {
-        let targets = contextTargets(for: item)
-        let suffix = targets.count > 1 ? " \(targets.count) Books" : ""
-        Button("Open\(suffix) in Reader") {
-            for target in targets { open(target) }
-        }
-        Menu("Tags") { tagMenu(for: targets) }
-        Menu("Collections") { collectionMenu(for: targets) }
-        Divider()
-        Button("Reveal\(suffix) in Finder") {
-            model.revealInFinder(targets)
-        }
-        // Only the app's own imports can be removed — never Calibre books.
-        if targets.allSatisfy({ $0.source == .imported }) {
+        contextMenuContent(for: contextTargets(for: item))
+    }
+
+    /// The shared context-menu body: cover cells and the list view's Table
+    /// build the same actions from their respective targets.
+    @ViewBuilder
+    private func contextMenuContent(for targets: [LibraryItem]) -> some View {
+        if !targets.isEmpty {
+            let suffix = targets.count > 1 ? " \(targets.count) Books" : ""
+            Button("Open\(suffix) in Reader") {
+                for target in targets { open(target) }
+            }
+            Menu("Tags") { tagMenu(for: targets) }
+            Menu("Collections") { collectionMenu(for: targets) }
             Divider()
-            Button("Remove\(suffix.isEmpty ? "" : suffix) from Library", role: .destructive) {
-                model.removeImportedItems(targets)
-                selection.prune(to: model.filteredItems.map(\.id))
+            Button("Reveal\(suffix) in Finder") {
+                model.revealInFinder(targets)
+            }
+            // Only the app's own imports can be removed — never Calibre books.
+            if targets.allSatisfy({ $0.source == .imported }) {
+                Divider()
+                Button("Remove\(suffix.isEmpty ? "" : suffix) from Library", role: .destructive) {
+                    model.removeImportedItems(targets)
+                    selection.prune(to: model.filteredItems.map(\.id))
+                }
             }
         }
     }

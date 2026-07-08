@@ -17,6 +17,9 @@ public struct BookRecord: Codable, Hashable, Sendable,
     public var authors: String?
     public var modifiedAt: Int64
     public var deletedAt: Int64?
+    /// When the row was first inserted (unix ms) — "date added" for the
+    /// app's own imports. Never bumped after insert.
+    public var createdAt: Int64?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -26,6 +29,7 @@ public struct BookRecord: Codable, Hashable, Sendable,
         case authors
         case modifiedAt = "modified_at"
         case deletedAt = "deleted_at"
+        case createdAt = "created_at"
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {

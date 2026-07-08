@@ -95,7 +95,8 @@ public final class CalibreLibrary: Sendable {
                 let bookRows = try Row.fetchAll(
                     db,
                     sql: """
-                        SELECT b.id, b.uuid, b.title, b.sort, b.path, b.has_cover, b.pubdate
+                        SELECT b.id, b.uuid, b.title, b.sort, b.path, b.has_cover, b.pubdate,
+                               b.timestamp
                         FROM books b
                         WHERE EXISTS (
                             SELECT 1 FROM data d WHERE d.book = b.id AND d.format = 'PDF'
@@ -158,7 +159,8 @@ public final class CalibreLibrary: Sendable {
                         calibreTags: tagsByBook[id] ?? [],
                         relativePDFPaths: (pdfNamesByBook[id] ?? []).map { "\(path)/\($0).pdf" },
                         coverRelativePath: hasCover ? "\(path)/cover.jpg" : nil,
-                        pubdate: Self.parsePubdate(row["pubdate"])
+                        pubdate: Self.parseDate(row["pubdate"]),
+                        addedAt: Self.parseDate(row["timestamp"])
                     )
                 }
             }
@@ -176,12 +178,12 @@ public final class CalibreLibrary: Sendable {
         libraryRoot.appendingPathComponent(relativePath, isDirectory: false)
     }
 
-    // MARK: - Pubdate parsing
+    // MARK: - Date parsing
 
-    /// Parses Calibre pubdate strings such as `2015-03-14 00:00:00+00:00`.
-    /// Calibre uses `0101-01-01 …` as its "undefined date" sentinel; that (and
-    /// anything unparseable) yields nil.
-    private static func parsePubdate(_ raw: String?) -> Date? {
+    /// Parses Calibre date strings (`pubdate`, `timestamp`) such as
+    /// `2015-03-14 00:00:00+00:00`. Calibre uses `0101-01-01 …` as its
+    /// "undefined date" sentinel; that (and anything unparseable) yields nil.
+    private static func parseDate(_ raw: String?) -> Date? {
         guard let raw, !raw.isEmpty else { return nil }
         if raw.hasPrefix("0101-01-01") { return nil }  // Calibre UNDEFINED_DATE
 

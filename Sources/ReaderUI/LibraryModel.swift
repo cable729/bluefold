@@ -22,6 +22,9 @@ public struct LibraryItem: Identifiable, Equatable, Sendable {
     public var calibreTags: [String]
     public var fileURL: URL
     public var coverURL: URL?
+    /// When the book entered the library: Calibre's `timestamp` for Calibre
+    /// books, the overlay row's `created_at` for the app's own imports.
+    public var addedAt: Date?
 }
 
 /// One full-text search match in a library book (M13 "In Book Text").
@@ -69,6 +72,38 @@ public final class LibraryModel {
     public var filter: LibraryFilter = .all {
         didSet { if filter != oldValue { rescope() } }
     }
+
+    // View modes (round 7): grid / sortable list / sectioned-by-tag.
+    /// How the detail area renders; persisted per user.
+    public var viewMode: LibraryViewMode = .grid {
+        didSet {
+            guard viewMode != oldValue else { return }
+            persistViewPreferences()
+        }
+    }
+    /// Column sort of the list view. Stored on the model so rows are
+    /// re-sorted once per change, never per body evaluation; persisted.
+    public var listSortOrder: [KeyPathComparator<LibraryListRow>] =
+        LibraryListRow.defaultSortOrder
+    {
+        didSet {
+            guard listSortOrder != oldValue else { return }
+            listRows = listRows.sorted(using: listSortOrder)
+            persistViewPreferences()
+        }
+    }
+    /// The list view's rows: `filteredItems` joined with reading state,
+    /// pre-sorted. STORED (see `filteredItems` note below). internal(set):
+    /// rebuilt from LibraryViewModes.swift.
+    public internal(set) var listRows: [LibraryListRow] = []
+    /// The sectioned view's groups. Only populated inside a tag scope.
+    public internal(set) var tagSections: [LibraryTagSection] = []
+    /// Last-read time per item id (reading_state join), refreshed together
+    /// with the overlay data.
+    private(set) var lastReadByItemID: [String: Date] = [:]
+    /// False for tests: view-mode/sort preferences never touch the real
+    /// UserDefaults from a test process.
+    @ObservationIgnored var persistsViewPreferences = false
 
     // Overlay data (the app's own, synced later via CloudKit).
     public private(set) var tagTree: [TagNode] = []
@@ -137,6 +172,10 @@ public final class LibraryModel {
         needsSetup = !UserDefaults.standard.bool(forKey: Self.setupDoneKey)
         if !needsSetup, let stored = UserDefaults.standard.string(forKey: Self.calibrePathKey) {
             calibreRoot = URL(fileURLWithPath: stored, isDirectory: true)
+        }
+        if !AppStores.isTestProcess {
+            loadViewPreferences()
+            persistsViewPreferences = true
         }
     }
 
@@ -275,16 +314,17 @@ public final class LibraryModel {
     /// cheap enough to run per keystroke.
     private func applySearchFilter() {
         let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !query.isEmpty else {
+        if query.isEmpty {
             filteredItems = scopedItems
-            return
+        } else {
+            filteredItems = scopedItems.filter { item in
+                item.title.lowercased().contains(query)
+                    || item.authors.contains { $0.lowercased().contains(query) }
+                    || item.calibreTags.contains { $0.lowercased().contains(query) }
+                    || (itemTags[item.id] ?? []).contains { $0.name.lowercased().contains(query) }
+            }
         }
-        filteredItems = scopedItems.filter { item in
-            item.title.lowercased().contains(query)
-                || item.authors.contains { $0.lowercased().contains(query) }
-                || item.calibreTags.contains { $0.lowercased().contains(query) }
-                || (itemTags[item.id] ?? []).contains { $0.name.lowercased().contains(query) }
-        }
+        rebuildDerivedViewData()
     }
 
     public func attachCalibreFolder(_ url: URL) {
@@ -342,7 +382,8 @@ public final class LibraryModel {
                     authors: book.authors,
                     calibreTags: book.calibreTags,
                     fileURL: root.appendingPathComponent(pdfPath),
-                    coverURL: book.coverRelativePath.map { root.appendingPathComponent($0) }
+                    coverURL: book.coverRelativePath.map { root.appendingPathComponent($0) },
+                    addedAt: book.addedAt
                 )
             }
 
@@ -524,7 +565,8 @@ public final class LibraryModel {
                 authors: [],
                 calibreTags: [],
                 fileURL: URL(fileURLWithPath: ref.pathHint),
-                coverURL: nil
+                coverURL: nil,
+                addedAt: book.createdAt.map { Date(timeIntervalSince1970: Double($0) / 1000) }
             )
             items.append(item)
             bookRowIDs[item.id] = rowID
@@ -542,6 +584,14 @@ public final class LibraryModel {
         itemTags = [:]
         for (itemID, rowID) in bookRowIDs {
             itemTags[itemID] = (try? store.tags(forBook: rowID)) ?? []
+        }
+        lastReadByItemID = [:]
+        if let times = try? store.lastReadTimes() {
+            for (itemID, rowID) in bookRowIDs {
+                if let ms = times[rowID] {
+                    lastReadByItemID[itemID] = Date(timeIntervalSince1970: Double(ms) / 1000)
+                }
+            }
         }
     }
 

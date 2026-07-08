@@ -24,7 +24,8 @@ private func makeFixtureLibrary() throws -> URL {
                     sort TEXT,
                     path TEXT,
                     has_cover BOOL DEFAULT 0,
-                    pubdate TIMESTAMP
+                    pubdate TIMESTAMP,
+                    timestamp TIMESTAMP
                 );
                 CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT);
                 CREATE TABLE books_authors_link (book INTEGER, author INTEGER);
@@ -34,18 +35,21 @@ private func makeFixtureLibrary() throws -> URL {
                 """
         )
 
-        // Book 1: two authors, two tags, PDF, cover, real pubdate.
+        // Book 1: two authors, two tags, PDF, cover, real pubdate + timestamp.
         try db.execute(
             sql: """
-                INSERT INTO books (id, uuid, title, sort, path, has_cover, pubdate) VALUES
+                INSERT INTO books (id, uuid, title, sort, path, has_cover, pubdate, timestamp) VALUES
                 (1, 'uuid-analysis', 'Advanced Analysis', 'Advanced Analysis',
-                 'Jane Doe/Advanced Analysis (1)', 1, '2015-03-14 00:00:00+00:00'),
+                 'Jane Doe/Advanced Analysis (1)', 1, '2015-03-14 00:00:00+00:00',
+                 '2021-06-01 10:30:00+00:00'),
                 (2, 'uuid-epub-only', 'EPUB Only Novel', 'EPUB Only Novel',
-                 'Some Author/EPUB Only Novel (2)', 1, '2020-01-01 00:00:00+00:00'),
+                 'Some Author/EPUB Only Novel (2)', 1, '2020-01-01 00:00:00+00:00',
+                 '2020-01-02 00:00:00+00:00'),
                 (3, 'uuid-manifolds', 'Introduction to Manifolds', 'Introduction to Manifolds',
-                 'John Smith/Introduction to Manifolds (3)', 0, '0101-01-01 00:00:00+00:00'),
+                 'John Smith/Introduction to Manifolds (3)', 0, '0101-01-01 00:00:00+00:00',
+                 '0101-01-01 00:00:00+00:00'),
                 (4, 'uuid-unicode', 'Théorie des Ensembles — 集合論', 'Zébra sort key',
-                 'Élodie Müller/Théorie des Ensembles (4)', 1, NULL);
+                 'Élodie Müller/Théorie des Ensembles (4)', 1, NULL, NULL);
 
                 INSERT INTO authors (id, name) VALUES
                 (1, 'Jane Doe'), (2, 'John Smith'), (3, 'Some Author'), (4, 'Élodie Müller');
@@ -108,6 +112,13 @@ struct CalibreLibraryTests {
         #expect(parts.year == 2015)
         #expect(parts.month == 3)
         #expect(parts.day == 14)
+
+        // Date added (books.timestamp) — the library list view's column.
+        let added = try #require(book.addedAt)
+        let addedParts = calendar.dateComponents([.year, .month, .day], from: added)
+        #expect(addedParts.year == 2021)
+        #expect(addedParts.month == 6)
+        #expect(addedParts.day == 1)
     }
 
     @Test("book with no tags/cover and Calibre's undefined pubdate")
@@ -121,6 +132,7 @@ struct CalibreLibraryTests {
         #expect(book.calibreTags.isEmpty)
         #expect(book.coverRelativePath == nil)
         #expect(book.pubdate == nil)  // '0101-01-01 …' sentinel means undefined
+        #expect(book.addedAt == nil)  // same sentinel on books.timestamp
         #expect(book.authors == ["John Smith"])
         #expect(book.relativePDFPaths == [
             "John Smith/Introduction to Manifolds (3)/Introduction to Manifolds - John Smith.pdf"
