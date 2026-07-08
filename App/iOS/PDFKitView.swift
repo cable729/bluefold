@@ -1,73 +1,82 @@
 import PDFKit
+import ReaderCore
+import ReaderUI
 import SwiftUI
 import UIKit
 
 /// UIKit PDFView wrapper for the active tab. Exactly one of these is alive at
-/// a time (enforced by ReaderView's `.id(tab.id)`): switching tabs dismantles
-/// it, capturing the precise position via `currentDestination` on teardown.
+/// a time (enforced by ReaderView's `.id(...)`, which also keys on the theme
+/// so theme switches rebuild the render caches): switching tabs dismantles
+/// it, capturing the precise position back into the tab state.
 struct PDFKitView: UIViewRepresentable {
-    let url: URL
-    let pageIndex: Int
-    let destinationPoint: CGPoint?
-    let onPageChange: @MainActor (Int) -> Void
-    let onTeardown: @MainActor (Int, CGPoint?) -> Void
+    let tab: TabState
+    let document: PDFDocument
+    unowned let model: ReaderSessionModel
+    let backgroundColor: UIColor
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onPageChange: onPageChange, onTeardown: onTeardown)
+        Coordinator(tabID: tab.id, model: model)
     }
 
-    func makeUIView(context: Context) -> PDFView {
-        let view = PDFView()
+    func makeUIView(context: Context) -> ReaderPDFViewIOS {
+        let view = ReaderPDFViewIOS()
         view.usePageViewController(false)
-        view.autoScales = true
         view.displayMode = .singlePageContinuous
         view.displayDirection = .vertical
-        view.document = PDFDocument(url: url)
-        context.coordinator.observePageChanges(of: view)
-        restorePosition(in: view)
+        view.backgroundColor = backgroundColor
+        view.autoScales = tab.autoScales
+        if !tab.autoScales {
+            view.scaleFactor = tab.scaleFactor
+        }
+        view.document = document
+
+        view.onLinkActivated = { [weak model] target, current in
+            model?.linkActivated(target: target, current: current)
+        }
+
+        let coordinator = context.coordinator
+        coordinator.view = view
+        coordinator.observePageChanges(of: view)
+        model.activeController = coordinator
+
+        // Restore via the shared validated-point jump (a raw unspecified
+        // destination point silently no-ops on some documents). Deferred one
+        // runloop turn so it survives PDFView's initial layout pass.
+        let restore = tab.currentNavEntry
+        if restore.pageIndex > 0 || restore.point != nil {
+            DispatchQueue.main.async { [weak view] in
+                guard let view, let document = view.document else { return }
+                view.go(to: restore, in: document)
+            }
+        }
         return view
     }
 
-    func updateUIView(_ uiView: PDFView, context: Context) {
-        // Tab identity is pinned via .id(tab.id); nothing to reconcile.
+    func updateUIView(_ uiView: ReaderPDFViewIOS, context: Context) {
+        // Tab identity is pinned via .id; nothing to reconcile.
     }
 
-    static func dismantleUIView(_ uiView: PDFView, coordinator: Coordinator) {
-        coordinator.captureState(from: uiView)
-    }
-
-    /// Restores the stored page/point with a PDFDestination. Deferred one
-    /// runloop turn so it survives PDFView's initial layout pass.
-    private func restorePosition(in view: PDFView) {
-        guard
-            let document = view.document,
-            document.pageCount > 0,
-            pageIndex > 0 || destinationPoint != nil,
-            let page = document.page(at: min(pageIndex, document.pageCount - 1))
-        else { return }
-        let point =
-            destinationPoint
-            ?? CGPoint(x: kPDFDestinationUnspecifiedValue, y: kPDFDestinationUnspecifiedValue)
-        let destination = PDFDestination(page: page, at: point)
-        DispatchQueue.main.async { [weak view] in
-            view?.go(to: destination)
+    static func dismantleUIView(_ uiView: ReaderPDFViewIOS, coordinator: Coordinator) {
+        coordinator.captureNow()
+        if coordinator.model?.activeController === coordinator {
+            coordinator.model?.activeController = nil
         }
+        uiView.onLinkActivated = nil
+        uiView.document = nil
     }
 
     @MainActor
-    final class Coordinator: NSObject {
-        private let onPageChange: @MainActor (Int) -> Void
-        private let onTeardown: @MainActor (Int, CGPoint?) -> Void
+    final class Coordinator: NSObject, ActivePDFNavigating {
+        let tabID: UUID
+        weak var model: ReaderSessionModel?
+        weak var view: ReaderPDFViewIOS?
 
-        init(
-            onPageChange: @escaping @MainActor (Int) -> Void,
-            onTeardown: @escaping @MainActor (Int, CGPoint?) -> Void
-        ) {
-            self.onPageChange = onPageChange
-            self.onTeardown = onTeardown
+        init(tabID: UUID, model: ReaderSessionModel) {
+            self.tabID = tabID
+            self.model = model
         }
 
-        func observePageChanges(of view: PDFView) {
+        func observePageChanges(of view: ReaderPDFViewIOS) {
             // Selector-based: .PDFViewPageChanged is posted on the main
             // thread, where this MainActor coordinator lives.
             NotificationCenter.default.addObserver(
@@ -80,25 +89,29 @@ struct PDFKitView: UIViewRepresentable {
 
         @objc private func pageChanged(_ notification: Notification) {
             guard
-                let view = notification.object as? PDFView,
+                let view,
                 let document = view.document,
                 let page = view.currentPage
             else { return }
-            onPageChange(document.index(for: page))
+            model?.updatePage(tabID: tabID, pageIndex: document.index(for: page))
         }
 
-        func captureState(from view: PDFView) {
+        // MARK: ActivePDFNavigating
+
+        var liveNavEntry: NavEntry? {
+            view?.currentNavEntry()
+        }
+
+        func execute(_ entry: NavEntry) {
+            guard let view, let document = view.document else { return }
+            view.go(to: entry, in: document)
+        }
+
+        /// Persists the exact reading position back into the tab.
+        func captureNow() {
             NotificationCenter.default.removeObserver(self)
-            guard
-                let document = view.document,
-                let destination = view.currentDestination,
-                let page = destination.page
-            else { return }
-            let raw = destination.point
-            let point: CGPoint? =
-                (raw.x == kPDFDestinationUnspecifiedValue
-                    || raw.y == kPDFDestinationUnspecifiedValue) ? nil : raw
-            onTeardown(document.index(for: page), point)
+            guard let view, let liveNavEntry else { return }
+            model?.capture(tabID: tabID, entry: liveNavEntry, autoScales: view.autoScales)
         }
 
         deinit {
