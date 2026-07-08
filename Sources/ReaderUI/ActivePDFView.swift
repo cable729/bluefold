@@ -51,10 +51,20 @@ struct ActivePDFView: NSViewRepresentable {
             view.go(to: restore, in: document)
         }
 
+        // Clicking a pane focuses it — sidebar, status bar, and commands
+        // follow the focused pane (round-14 split semantics). Deferred one
+        // hop: focusPane mutates observable state (see the note below).
+        let tabID = tab.id
+        view.onInteract = { [weak model] in
+            DispatchQueue.main.async { model?.focusPane(containingTab: tabID) }
+        }
+
         context.coordinator.view = view
         context.coordinator.observePageChanges(of: view)
         if isPrimary {
-            model.activeController = context.coordinator
+            model.primaryController = context.coordinator
+        } else {
+            model.splitController = context.coordinator
         }
         // The document is resident now: give EVERY tab of this book its
         // strip breadcrumb — restored background tabs sat as "p.N" until
@@ -73,10 +83,14 @@ struct ActivePDFView: NSViewRepresentable {
 
     static func dismantleNSView(_ view: ReaderPDFView, coordinator: Coordinator) {
         coordinator.captureNow()
-        if coordinator.model?.activeController === coordinator {
-            coordinator.model?.activeController = nil
+        if coordinator.model?.primaryController === coordinator {
+            coordinator.model?.primaryController = nil
+        }
+        if coordinator.model?.splitController === coordinator {
+            coordinator.model?.splitController = nil
         }
         view.onLinkActivated = nil
+        view.onInteract = nil
         view.document = nil
     }
 

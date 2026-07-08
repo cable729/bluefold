@@ -12,6 +12,9 @@ struct TabDisplayItem: Equatable {
     let isActive: Bool
     /// Whether this tab is currently shown in the split pane.
     var isSplit = false
+    /// Which side of the primary the split pane sits on (nil unless
+    /// `isSplit`) — the context menu's "Move Split to …" needs it.
+    var splitSide: SplitSide? = nil
     /// Adjacent tabs with the same key render as a group: the title shown
     /// once in a header spanning the run, breadcrumbs per tab beneath.
     let groupKey: String
@@ -576,11 +579,17 @@ final class TabStripNSView: NSView {
     // MARK: - Context menu (per item; built here to keep actions in one place)
 
     func menu(for item: TabItemNSView) -> NSMenu {
+        menu(forTabID: item.tabID)
+    }
+
+    /// Context menu for one tab — item views AND group headers route here
+    /// (round 14: right-clicking a header-covered tab produced nothing).
+    func menu(forTabID tabID: UUID) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
         // Bulk action when the right-clicked tab is part of a multi-selection.
-        if multiSelection.count > 1, multiSelection.contains(item.tabID) {
+        if multiSelection.count > 1, multiSelection.contains(tabID) {
             let ids = items.map(\.id).filter { multiSelection.contains($0) }
             menu.addItem(
                 withTitle: "Close \(ids.count) Tabs", action: nil, keyEquivalent: ""
@@ -589,8 +598,13 @@ final class TabStripNSView: NSView {
         }
 
         menu.addItem(withTitle: "Duplicate Tab", action: nil, keyEquivalent: "")
-            .setHandler { [weak self] in self?.actions.duplicate(item.tabID) }
-        if items.first(where: { $0.id == item.tabID })?.isSplit == true {
+            .setHandler { [weak self] in self?.actions.duplicate(tabID) }
+        if let item = items.first(where: { $0.id == tabID }), item.isSplit {
+            let otherSide: SplitSide = item.splitSide == .trailing ? .leading : .trailing
+            menu.addItem(
+                withTitle: otherSide == .leading ? "Move Split to Left Side" : "Move Split to Right Side",
+                action: nil, keyEquivalent: ""
+            ).setHandler { [weak self] in self?.actions.openInSplit(tabID, otherSide) }
             menu.addItem(withTitle: "Close Split View", action: nil, keyEquivalent: "")
                 .setHandler { [weak self] in self?.actions.closeSplit() }
         } else {
@@ -600,31 +614,31 @@ final class TabStripNSView: NSView {
                 withTitle: "Split Right", action: nil, keyEquivalent: ""
             )
             splitRight.setHandler { [weak self] in
-                self?.actions.openInSplit(item.tabID, .trailing)
+                self?.actions.openInSplit(tabID, .trailing)
             }
             splitRight.isEnabled = items.count > 1
             let splitLeft = menu.addItem(
                 withTitle: "Split Left", action: nil, keyEquivalent: ""
             )
             splitLeft.setHandler { [weak self] in
-                self?.actions.openInSplit(item.tabID, .leading)
+                self?.actions.openInSplit(tabID, .leading)
             }
             splitLeft.isEnabled = items.count > 1
         }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Close Tab", action: nil, keyEquivalent: "")
-            .setHandler { [weak self] in self?.actions.close(item.tabID) }
+            .setHandler { [weak self] in self?.actions.close(tabID) }
         let closeOthers = menu.addItem(
             withTitle: "Close Other Tabs", action: nil, keyEquivalent: ""
         )
-        closeOthers.setHandler { [weak self] in self?.actions.closeOthers(item.tabID) }
+        closeOthers.setHandler { [weak self] in self?.actions.closeOthers(tabID) }
         closeOthers.isEnabled = items.count > 1
         menu.addItem(.separator())
         menu.addItem(withTitle: "Move to New Window", action: nil, keyEquivalent: "")
             .setHandler { [weak self] in
                 guard let self else { return }
                 let below = self.window?.frame.center ?? .zero
-                self.actions.detachToNewWindow(item.tabID, below)
+                self.actions.detachToNewWindow(tabID, below)
             }
         return menu
     }
@@ -644,6 +658,10 @@ final class TabItemNSView: NSView {
     private let closeButton = NSButton()
     private let activeBar = NSView()
     private let textStack = NSStackView()
+    private let titleRow = NSStackView()
+    /// Marks the tab shown in the split pane (round 14: it was
+    /// indistinguishable from any inactive tab).
+    private let splitBadge = NSImageView()
     private var isActive = false
     private var isGrouped = false
     private var isMultiSelected = false
@@ -666,10 +684,25 @@ final class TabItemNSView: NSView {
         breadcrumbField.lineBreakMode = .byTruncatingHead
         breadcrumbField.setAccessibilityIdentifier("tab-breadcrumb")
 
+        splitBadge.image = NSImage(
+            systemSymbolName: "rectangle.split.2x1",
+            accessibilityDescription: "Shown in split pane"
+        )
+        splitBadge.symbolConfiguration = .init(pointSize: 9, weight: .medium)
+        splitBadge.contentTintColor = .controlAccentColor
+        splitBadge.isHidden = true
+        splitBadge.setAccessibilityIdentifier("tab-split-badge")
+
+        titleRow.orientation = .horizontal
+        titleRow.alignment = .firstBaseline
+        titleRow.spacing = 3
+        titleRow.addArrangedSubview(splitBadge)
+        titleRow.addArrangedSubview(titleField)
+
         textStack.orientation = .vertical
         textStack.alignment = .leading
         textStack.spacing = 1
-        textStack.addArrangedSubview(titleField)
+        textStack.addArrangedSubview(titleRow)
         textStack.addArrangedSubview(breadcrumbField)
         textStack.translatesAutoresizingMaskIntoConstraints = false
 
@@ -716,6 +749,7 @@ final class TabItemNSView: NSView {
         titleField.font = .systemFont(ofSize: 12, weight: item.isActive ? .semibold : .regular)
         breadcrumbField.stringValue = item.breadcrumb
         breadcrumbField.isHidden = item.breadcrumb.isEmpty
+        splitBadge.isHidden = !item.isSplit
         isActive = item.isActive
         setAccessibilityIdentifier("tab-\(item.title)")
         setAccessibilityTitle(item.title)
@@ -726,7 +760,7 @@ final class TabItemNSView: NSView {
     func setGrouped(_ grouped: Bool) {
         guard grouped != isGrouped else { return }
         isGrouped = grouped
-        titleField.isHidden = grouped
+        titleRow.isHidden = grouped
         refreshChrome()
     }
 
@@ -844,6 +878,13 @@ final class TabGroupHeaderView: NSView {
         if let firstTabID {
             owner.actions.select(firstTabID)
         }
+    }
+
+    /// The header is the group's visible "tab": right-click must work here
+    /// too (round 14 — a header-covered tab had no reachable menu).
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let firstTabID else { return nil }
+        return owner.menu(forTabID: firstTabID)
     }
 }
 

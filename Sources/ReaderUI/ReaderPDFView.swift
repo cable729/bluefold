@@ -39,7 +39,12 @@ final class ReaderPDFView: PDFView {
         super.keyDown(with: event)
     }
 
+    /// Fired on any mouse-down, before link handling — clicking a pane
+    /// focuses it (round-14 split semantics).
+    var onInteract: (() -> Void)?
+
     override func mouseDown(with event: NSEvent) {
+        onInteract?()
         let viewPoint = convert(event.locationInWindow, from: nil)
         if let target = linkTarget(atViewPoint: viewPoint), let onLinkActivated {
             let inNewTab = event.modifierFlags.contains(.command)

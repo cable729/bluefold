@@ -148,8 +148,9 @@ public struct ReaderWindowView: View {
             // Deep links staged before any scene existed flush through this.
             DeepLinkRouter.shared.registerPresenter { openWindow(id: "reader", value: $0) }
         }
-        .onChange(of: model.activeTabID) { _, _ in
-            // Find state is per-document; a tab switch invalidates it.
+        .onChange(of: model.focusedTabID) { _, _ in
+            // Find state is per-document; a tab OR pane-focus switch changes
+            // which document the sidebar is looking at.
             find.cancel()
         }
     }
@@ -161,31 +162,29 @@ public struct ReaderWindowView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let tab = model.activeTab {
-            if let document = activeDocument {
-                // Keyed on the RESOLVED theme too: a theme switch (or a
-                // system appearance flip in auto mode) rebuilds the PDFView
-                // so every tile re-renders through the new page filter.
-                let primary = ActivePDFView(tab: tab, document: document, model: model)
-                    .id("\(tab.id)-\(ThemeManager.shared.resolvedTheme.rawValue)")
+        if let tab = model.primaryTab {
+            if let document = model.provider.document(for: model.url(for: tab)) {
                 if let splitTab = model.splitTab,
                    let splitDocument = model.provider.document(for: model.url(for: splitTab)) {
                     // The split pane sits leading OR trailing of the primary
-                    // (Split Left / Split Right).
+                    // (Split Left / Split Right). Both panes carry a header
+                    // while split — it names the tab, shows which pane has
+                    // focus, and is the pane's right-click surface.
                     HSplitView {
                         if model.splitSide == .leading {
-                            splitPane(tab: splitTab, document: splitDocument)
+                            pane(tab: splitTab, document: splitDocument, role: .split)
                                 .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
                         }
-                        primary
+                        pane(tab: tab, document: document, role: .primary)
                             .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
                         if model.splitSide == .trailing {
-                            splitPane(tab: splitTab, document: splitDocument)
+                            pane(tab: splitTab, document: splitDocument, role: .split)
                                 .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
                         }
                     }
                 } else {
-                    primary
+                    // Unsplit: no header — the strip is the tab chrome.
+                    pdfView(tab: tab, document: document, role: .primary)
                 }
             } else {
                 ContentUnavailableView {
@@ -220,34 +219,76 @@ public struct ReaderWindowView: View {
         }
     }
 
-    /// Secondary pane: a slim header naming the tab (with a close-split
-    /// button) over its own live PDF view.
-    private func splitPane(tab: TabState, document: PDFDocument) -> some View {
-        VStack(spacing: 0) {
+    /// One pane of a split window: a slim header (title, focus indicator,
+    /// right-click menu) over its live PDF view. Both panes render this so
+    /// focus is always visible and every pane is directly manipulable —
+    /// round 14: the split pane's tab felt unreachable.
+    private func pane(tab: TabState, document: PDFDocument, role: ReaderPane) -> some View {
+        let isFocused = model.focusedPane == role
+        return VStack(spacing: 0) {
             HStack(spacing: 6) {
+                if isFocused {
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(width: 6, height: 6)
+                        .accessibilityLabel("Focused pane")
+                }
                 Text(URL(fileURLWithPath: tab.pathHint)
                     .deletingPathExtension().lastPathComponent)
                     .font(.caption)
+                    .fontWeight(isFocused ? .semibold : .regular)
+                    .foregroundStyle(isFocused ? .primary : .secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
-                Button {
-                    model.closeSplit()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .bold))
+                if role == .split {
+                    Button {
+                        model.closeSplit()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9, weight: .bold))
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("close-split")
+                    .help("Close split view (keeps the tab)")
                 }
-                .buttonStyle(.borderless)
-                .accessibilityIdentifier("close-split")
-                .help("Close split view")
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(.bar)
+            .background(isFocused ? AnyShapeStyle(Color.accentColor.opacity(0.12)) : AnyShapeStyle(.bar))
+            .contentShape(Rectangle())
+            .onTapGesture { model.focusPane(role) }
+            .contextMenu { paneMenu(tab: tab, role: role) }
             Divider()
-            ActivePDFView(tab: tab, document: document, model: model, isPrimary: false)
-                .id("split-\(tab.id)-\(ThemeManager.shared.resolvedTheme.rawValue)")
+            pdfView(tab: tab, document: document, role: role)
         }
+    }
+
+    /// The pane header's right-click menu — the same verbs as the tab
+    /// strip, reachable where the owner actually looks in split view.
+    @ViewBuilder
+    private func paneMenu(tab: TabState, role: ReaderPane) -> some View {
+        Button("Close Tab") { model.closeTab(id: tab.id) }
+        Button("Move to New Window") {
+            if let newID = SessionCoordinator.shared.detachTabToNewWindow(
+                tab.id, from: model.windowID
+            ) {
+                openWindow(id: "reader", value: newID)
+            }
+        }
+        Divider()
+        Button(model.splitSide == .trailing ? "Move Split to Left Side" : "Move Split to Right Side") {
+            model.moveSplitToOtherSide()
+        }
+        Button("Close Split View") { model.closeSplit() }
+    }
+
+    /// The live PDF view of one pane, keyed on the RESOLVED theme too: a
+    /// theme switch (or a system appearance flip in auto mode) rebuilds the
+    /// PDFView so every tile re-renders through the new page filter.
+    private func pdfView(tab: TabState, document: PDFDocument, role: ReaderPane) -> some View {
+        ActivePDFView(tab: tab, document: document, model: model, isPrimary: role == .primary)
+            .id("\(role == .split ? "split-" : "")\(tab.id)-\(ThemeManager.shared.resolvedTheme.rawValue)")
     }
 
     private var activeTitle: String {

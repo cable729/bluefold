@@ -45,6 +45,13 @@ public extension ActivePDFControlling {
     func goToNextPage() {}
 }
 
+/// Which pane of a (possibly split) reader window has focus. Ephemeral view
+/// state — not persisted; restores default to the primary pane.
+public enum ReaderPane: Sendable {
+    case primary
+    case split
+}
+
 @Observable
 @MainActor
 public final class ReaderWindowModel {
@@ -63,9 +70,22 @@ public final class ReaderWindowModel {
     @ObservationIgnored
     public var onMutation: (() -> Void)?
 
-    /// The active tab's live view; registered on creation, dropped on teardown.
+    /// The primary pane's live view; registered on creation, dropped on
+    /// teardown.
     @ObservationIgnored
-    public weak var activeController: ActivePDFControlling?
+    public weak var primaryController: ActivePDFControlling?
+    /// The split pane's live view, while the window is split.
+    @ObservationIgnored
+    public weak var splitController: ActivePDFControlling?
+
+    /// The FOCUSED pane's live view — every "act on what I'm reading"
+    /// operation (history, section skip, bookmarks, copy link, palettes)
+    /// routes through this. The setter keeps old call sites and test fakes
+    /// working: it registers the primary pane's controller.
+    public var activeController: ActivePDFControlling? {
+        get { focusedPane == .split ? (splitController ?? primaryController) : primaryController }
+        set { primaryController = newValue }
+    }
 
     /// The NSWindow hosting this model's scene (registered by the window's
     /// key-event bridge; used to focus another window's tab from the palette).
@@ -125,9 +145,41 @@ public final class ReaderWindowModel {
         return pendingFrame
     }
 
-    public var activeTab: TabState? {
+    /// Which pane the user is working in. Clicking a pane focuses it; the
+    /// sidebar, status bar, history, and every command follow this.
+    public private(set) var focusedPane: ReaderPane = .primary
+
+    /// The tab shown in the PRIMARY pane (what `activeTabID` stores; the
+    /// name predates split view and persists in session.json).
+    public var primaryTab: TabState? {
         guard let activeTabID else { return nil }
         return tabs.first { $0.id == activeTabID }
+    }
+
+    /// The FOCUSED pane's tab — "the tab you're reading". Everything that
+    /// acts on the current document (sidebar, status bar, commands,
+    /// bookmarks, history, palettes) reads this, so focus switches carry
+    /// the whole UI with them.
+    public var activeTab: TabState? {
+        focusedPane == .split ? (splitTab ?? primaryTab) : primaryTab
+    }
+
+    /// Observable identity of the focused tab (sidebar find + UI resets
+    /// watch this instead of `activeTabID`, which only names the primary).
+    public var focusedTabID: UUID? { activeTab?.id }
+
+    /// Moves focus to a pane (no-op when the pane isn't on screen).
+    public func focusPane(_ pane: ReaderPane) {
+        let resolved: ReaderPane = (pane == .split && splitTabID == nil) ? .primary : pane
+        guard focusedPane != resolved else { return }
+        focusedPane = resolved
+        refreshBookmarks()
+    }
+
+    /// Focus routed by tab identity — panes report interaction with the
+    /// tab they show.
+    public func focusPane(containingTab id: UUID) {
+        focusPane(id == splitTabID ? .split : .primary)
     }
 
     // MARK: - Split view
@@ -145,22 +197,24 @@ public final class ReaderWindowModel {
         return tabs.first { $0.id == splitTabID }
     }
 
-    /// Shows a tab in the secondary pane, on `side` of the primary.
-    /// Splitting the active tab first moves activation to another tab so the
-    /// two panes never show the same tab (two live views over one TabState
-    /// would fight over its position).
+    /// Shows a tab in the secondary pane, on `side` of the primary, and
+    /// focuses it. Splitting the primary tab first moves the primary pane to
+    /// another tab so the two panes never show the same tab (two live views
+    /// over one TabState would fight over its position).
     public func openInSplit(tabID: UUID, side: SplitSide = .trailing) {
         guard tabs.contains(where: { $0.id == tabID }) else { return }
         if tabID == activeTabID {
             if let other = tabs.first(where: { $0.id != tabID }) {
-                selectTab(id: other.id)
+                activeTabID = other.id
             } else {
                 return // only tab in the window: nothing to split against
             }
         }
         splitTabID = tabID
         splitSide = side
+        focusedPane = .split
         refreshPins()
+        refreshBookmarks()
         onMutation?()
     }
 
@@ -180,6 +234,7 @@ public final class ReaderWindowModel {
         tabs.insert(copy, at: index + 1)
         splitTabID = copy.id
         splitSide = side
+        focusedPane = .split
         refreshPins()
         refreshBreadcrumb(tabID: copy.id)
         onMutation?()
@@ -189,7 +244,16 @@ public final class ReaderWindowModel {
     public func closeSplit() {
         guard splitTabID != nil else { return }
         splitTabID = nil
+        focusedPane = .primary
         refreshPins()
+        refreshBookmarks()
+        onMutation?()
+    }
+
+    /// Moves an open split pane to the other side of the primary.
+    public func moveSplitToOtherSide() {
+        guard splitTabID != nil else { return }
+        splitSide = splitSide == .trailing ? .leading : .trailing
         onMutation?()
     }
 
@@ -264,7 +328,15 @@ public final class ReaderWindowModel {
 
     public func selectTab(id: UUID) {
         guard tabs.contains(where: { $0.id == id }) else { return }
-        activeTabID = id
+        if id == splitTabID {
+            // The tab is already on screen in the split pane: focus it there
+            // instead of also making it the primary (one TabState rendered by
+            // two live views fights over its position — round-14 owner bug).
+            focusPane(.split)
+        } else {
+            activeTabID = id
+            focusedPane = .primary
+        }
         refreshPins()
         refreshBookmarks()
         refreshBreadcrumb(tabID: id)
@@ -295,8 +367,11 @@ public final class ReaderWindowModel {
     private func cycleTab(by offset: Int) {
         guard !tabs.isEmpty else { return }
         guard
-            let activeTabID,
-            let index = tabs.firstIndex(where: { $0.id == activeTabID })
+            // Cycle from the FOCUSED tab: starting from the primary while
+            // the split pane is focused would re-select the split tab
+            // forever (selectTab on it only moves focus).
+            let fromID = activeTab?.id,
+            let index = tabs.firstIndex(where: { $0.id == fromID })
         else {
             selectTab(id: tabs[0].id)
             return
@@ -312,13 +387,11 @@ public final class ReaderWindowModel {
         let closed = tabs.remove(at: index)
         if splitTabID == id {
             splitTabID = nil
+            focusedPane = .primary
         }
 
         if activeTabID == id {
-            // Neighbor preference: the tab that took the closed tab's slot,
-            // else the new last tab, else none.
-            let successor = tabs.indices.contains(index) ? tabs[index] : tabs.last
-            activeTabID = successor?.id
+            promotePrimarySuccessor(closing: index)
         }
         refreshPins()
 
@@ -595,12 +668,13 @@ public final class ReaderWindowModel {
         onMutation?()
     }
 
-    /// Closes the active tab; returns false when there is none (caller may
-    /// close the window instead, browser-style).
+    /// Closes the FOCUSED tab (⌘W in the split pane closes that pane's tab);
+    /// returns false when there is none (caller may close the window
+    /// instead, browser-style).
     @discardableResult
     public func closeActiveTab() -> Bool {
-        guard let activeTabID else { return false }
-        closeTab(id: activeTabID)
+        guard let focused = activeTab else { return false }
+        closeTab(id: focused.id)
         return true
     }
 
@@ -647,14 +721,20 @@ public final class ReaderWindowModel {
                 tab.history.push(current)
                 tab.apply(entry)
             }
-            let executor = controller
-                ?? (source.id == activeTabID ? activeController : nil)
+            let executor = controller ?? paneController(forTab: source.id)
             executor?.execute(entry)
             // The page-change notification won't refresh the strip label:
             // its guard sees the pageIndex we just applied and bails. The
             // breadcrumb stayed stale until the user scrolled (round 9).
             refreshBreadcrumb(tabID: source.id)
         }
+    }
+
+    /// The live view showing a tab, if that tab is on screen in a pane.
+    private func paneController(forTab id: UUID) -> ActivePDFControlling? {
+        if id == splitTabID { return splitController }
+        if id == activeTabID { return primaryController }
+        return nil
     }
 
     /// Records a jump initiated by chrome (outline click, thumbnail, search
@@ -699,7 +779,7 @@ public final class ReaderWindowModel {
             tabs[index].pageIndex != pageIndex
         else { return }
         tabs[index].pageIndex = pageIndex
-        if tabID == activeTabID {
+        if tabID == activeTabID || tabID == splitTabID {
             persistReadingState(for: tabs[index])
         }
         refreshBreadcrumb(tabID: tabID)
@@ -725,15 +805,35 @@ public final class ReaderWindowModel {
         let tab = tabs.remove(at: index)
         if splitTabID == id {
             splitTabID = nil
+            focusedPane = .primary
         }
         if activeTabID == id {
-            let successor = tabs.indices.contains(index) ? tabs[index] : tabs.last
-            activeTabID = successor?.id
+            promotePrimarySuccessor(closing: index)
         }
         refreshPins()
         refreshBookmarks()
         onMutation?()
         return tab
+    }
+
+    /// Picks the primary pane's next tab after its current one left the
+    /// strip: the tab that took the vacated slot, else the last tab —
+    /// skipping the split pane's tab (it is already on screen; showing it in
+    /// both panes would double-render one TabState). When the split tab is
+    /// all that remains, it collapses back into the primary pane.
+    private func promotePrimarySuccessor(closing index: Int) {
+        let slotTab = tabs.indices.contains(index) ? tabs[index] : tabs.last
+        if let slotTab, slotTab.id != splitTabID {
+            activeTabID = slotTab.id
+        } else if let fallback = tabs.last(where: { $0.id != splitTabID }) {
+            activeTabID = fallback.id
+        } else if let splitID = splitTabID {
+            activeTabID = splitID
+            splitTabID = nil
+            focusedPane = .primary
+        } else {
+            activeTabID = nil
+        }
     }
 
     /// Adopts a tab detached from another window, keeping its position,
@@ -772,8 +872,8 @@ public final class ReaderWindowModel {
     /// what is visible.
     private func refreshPins() {
         var pinned: Set<String> = []
-        if let activeTab {
-            pinned.insert(activeTab.pathHint)
+        if let primaryTab {
+            pinned.insert(primaryTab.pathHint)
         }
         if let splitTab {
             pinned.insert(splitTab.pathHint)

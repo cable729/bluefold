@@ -44,7 +44,8 @@ struct TabBarView: View {
     /// items into the NSView.
     private var displayItems: [TabDisplayItem] {
         model.tabs.map { tab in
-            TabDisplayItem(
+            let isSplit = tab.id == model.splitTabID
+            return TabDisplayItem(
                 id: tab.id,
                 title: URL(fileURLWithPath: tab.pathHint)
                     .deletingPathExtension()
@@ -52,9 +53,16 @@ struct TabBarView: View {
                 breadcrumb: tab.breadcrumb.flatMap {
                     $0.isEmpty ? nil : $0
                 } ?? "p.\(tab.pageIndex + 1)",
-                isActive: tab.id == model.activeTabID,
-                isSplit: tab.id == model.splitTabID,
-                groupKey: tab.pathHint
+                // The FOCUSED pane's tab is the highlighted one — the strip
+                // follows pane focus, not just the primary pane.
+                isActive: tab.id == model.activeTab?.id,
+                isSplit: isSplit,
+                splitSide: isSplit ? model.splitSide : nil,
+                // The split tab never joins a same-book group: hidden under
+                // a spanning header it lost its title, its context menu, and
+                // its drag handle (round 14 — "can't move it or get rid of
+                // it" after ⌘\ grouped the duplicate with its twin).
+                groupKey: isSplit ? "split-\(tab.id.uuidString)" : tab.pathHint
             )
         }
     }
