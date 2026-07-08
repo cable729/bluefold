@@ -49,7 +49,7 @@ struct TabBarView: View {
                 title: URL(fileURLWithPath: tab.pathHint)
                     .deletingPathExtension()
                     .lastPathComponent,
-                breadcrumb: model.tabBreadcrumbs[tab.id].flatMap {
+                breadcrumb: tab.breadcrumb.flatMap {
                     $0.isEmpty ? nil : $0
                 } ?? "p.\(tab.pageIndex + 1)",
                 isActive: tab.id == model.activeTabID,

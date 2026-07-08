@@ -27,6 +27,13 @@ public struct TabState: Codable, Equatable, Identifiable, Sendable {
     /// Raw value of PDFDisplayMode (stored raw so ReaderCore stays PDFKit-free).
     public var displayModeRaw: Int
 
+    /// Outline breadcrumb of the current position ("Ch 1 › 1A"), for the
+    /// tab strip's second row. PERSISTED: recomputing needs the live
+    /// document, and background tabs must never load one — without this,
+    /// every relaunch showed "p.N" until a tab was activated. Optional so
+    /// older session files keep decoding.
+    public var breadcrumb: String?
+
     public var history: NavigationHistory
 
     public init(
@@ -38,6 +45,7 @@ public struct TabState: Codable, Equatable, Identifiable, Sendable {
         scaleFactor: CGFloat = 1.0,
         autoScales: Bool = true,
         displayModeRaw: Int = 1,
+        breadcrumb: String? = nil,
         history: NavigationHistory = NavigationHistory()
     ) {
         self.id = id
@@ -48,6 +56,7 @@ public struct TabState: Codable, Equatable, Identifiable, Sendable {
         self.scaleFactor = scaleFactor
         self.autoScales = autoScales
         self.displayModeRaw = displayModeRaw
+        self.breadcrumb = breadcrumb
         self.history = history
     }
 

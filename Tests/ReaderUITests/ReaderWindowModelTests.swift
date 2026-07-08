@@ -151,7 +151,7 @@ struct ReaderWindowModelTests {
         let background = model.openTab(
             fileURL: url, activate: false, at: NavEntry(pageIndex: 3)
         )
-        #expect(model.tabBreadcrumbs[background] == "Chapter 2")
+        #expect(model.tabs.first { $0.id == background }?.breadcrumb == "Chapter 2")
     }
 }
 #endif

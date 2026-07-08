@@ -272,7 +272,6 @@ public final class ReaderWindowModel {
     public func closeTab(id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let closed = tabs.remove(at: index)
-        tabBreadcrumbs.removeValue(forKey: id)
         if splitTabID == id {
             splitTabID = nil
         }
@@ -428,14 +427,9 @@ public final class ReaderWindowModel {
 
     // MARK: - Tab strip breadcrumbs
 
-    /// Last known outline breadcrumb per tab, for the strip's second row.
-    /// Transient (not persisted) and kept after document eviction so
-    /// background tabs keep their label without reloading anything.
-    public private(set) var tabBreadcrumbs: [UUID: String] = [:]
-
     /// Refreshes the breadcrumb of every tab showing the document at `url`
     /// — called when a view attaches (the document just became resident),
-    /// so restored background tabs get labels without being activated.
+    /// so background tabs of the same book get labels without activation.
     public func refreshBreadcrumbs(forDocumentAt url: URL) {
         let path = DocumentProvider.canonicalPath(for: url)
         for tab in tabs where tab.pathHint == path {
@@ -444,12 +438,16 @@ public final class ReaderWindowModel {
     }
 
     /// Recomputes a tab's breadcrumb if its document is resident; keeps the
-    /// last known value otherwise. Never loads a document (LRU stays intact).
+    /// last known value otherwise. Never loads a document (LRU stays
+    /// intact). The crumb lives ON TabState and persists with the session —
+    /// recomputing at launch would need the document, so relaunches showed
+    /// "p.N" for every background tab (round 13.5).
     func refreshBreadcrumb(tabID: UUID) {
         guard
-            let tab = tabs.first(where: { $0.id == tabID }),
-            let document = provider.loadedDocument(for: url(for: tab))
+            let index = tabs.firstIndex(where: { $0.id == tabID }),
+            let document = provider.loadedDocument(for: url(for: tabs[index]))
         else { return }
+        let tab = tabs[index]
         // The active document goes through the memoized path; other resident
         // documents take a one-off walk so they never evict its cache.
         let path: [String] =
@@ -461,8 +459,9 @@ public final class ReaderWindowModel {
                 ).filter { !$0.isEmpty }
             }
         let crumb = path.joined(separator: " › ")
-        if tabBreadcrumbs[tabID] != crumb {
-            tabBreadcrumbs[tabID] = crumb
+        if tabs[index].breadcrumb != crumb {
+            tabs[index].breadcrumb = crumb
+            onMutation?()  // persists with the session
         }
     }
 
@@ -654,7 +653,6 @@ public final class ReaderWindowModel {
     func detachTab(id: UUID) -> TabState? {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return nil }
         let tab = tabs.remove(at: index)
-        tabBreadcrumbs.removeValue(forKey: id)
         if splitTabID == id {
             splitTabID = nil
         }
