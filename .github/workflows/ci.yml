@@ -59,3 +59,41 @@ jobs:
             echo "::endgroup::"
           done
           exit "${status}"
+
+  # Job B (M17): the app built and driven for real — XCUITest smoke flows
+  # (session restore, tab dragging) that unit tests cannot see. Runs in
+  # parallel with the unit-test job; app bundle ID gets a .ci suffix so a
+  # runner reused across attempts can never collide with a stale instance.
+  ui-test:
+    name: XCUITest smoke (macOS)
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select latest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+      - name: Run UI tests
+        run: |
+          set -o pipefail
+          xcodebuild -project App/PDFReader.xcodeproj -scheme PDFReader \
+            -configuration Debug -derivedDataPath DerivedData \
+            test PDFREADER_BUNDLE_ID_SUFFIX=.ci 2>&1 | tail -200
+
+  # iOS still has to compile (shared ReaderCore changes routinely touch it).
+  ios-build:
+    name: iOS simulator build
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select latest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild -project App/PDFReader.xcodeproj -scheme PDFReader-iOS \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath DerivedData-iOS \
+            build CODE_SIGNING_ALLOWED=NO 2>&1 | tail -50
