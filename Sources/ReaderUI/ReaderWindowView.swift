@@ -29,7 +29,8 @@ public struct ReaderWindowView: View {
             model: model,
             ui: ui,
             openReaderWindow: { openWindow(id: "reader", value: UUID()) },
-            openLibraryWindow: { openWindow(id: "library") }
+            openLibraryWindow: { openWindow(id: "library") },
+            presentReaderWindow: { openWindow(id: "reader", value: $0) }
         )
     }
 

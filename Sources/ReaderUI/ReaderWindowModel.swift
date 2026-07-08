@@ -240,6 +240,15 @@ public final class ReaderWindowModel {
         cycleTab(by: -1)
     }
 
+    /// Direct tab selection, browser-style: 1-based; 9 always means the
+    /// LAST tab (⌘9 in Safari/Chrome). Out-of-range numbers no-op.
+    public func selectTab(number: Int) {
+        guard !tabs.isEmpty else { return }
+        let index = number >= 9 ? tabs.count - 1 : number - 1
+        guard tabs.indices.contains(index) else { return }
+        selectTab(id: tabs[index].id)
+    }
+
     private func cycleTab(by offset: Int) {
         guard !tabs.isEmpty else { return }
         guard

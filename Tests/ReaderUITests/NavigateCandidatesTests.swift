@@ -39,8 +39,8 @@ struct NavigateCandidatesTests {
     }
 
     @Test func outlineFlattensWithBreadcrumbPaths() {
-        let candidates = NavigateCandidates.assemble(
-            outline: syntheticOutline(), bookmarks: [], tabs: []
+        let candidates = NavigateCandidates.assembleInBook(
+            outline: syntheticOutline(), bookmarks: []
         )
         let titles = candidates.map(\.title)
         #expect(titles == ["Chapter 1", "1A Vector Spaces", "Complex Numbers", "Notation"])
@@ -55,8 +55,8 @@ struct NavigateCandidatesTests {
     }
 
     @Test func destinationlessNodesAreSkippedButKeepPathAlive() {
-        let candidates = NavigateCandidates.assemble(
-            outline: syntheticOutline(), bookmarks: [], tabs: []
+        let candidates = NavigateCandidates.assembleInBook(
+            outline: syntheticOutline(), bookmarks: []
         )
         #expect(!candidates.contains { $0.title == "Appendices" })
         let notation = candidates.first { $0.title == "Notation" }
@@ -64,13 +64,12 @@ struct NavigateCandidatesTests {
     }
 
     @Test func bookmarksUseLabelOrPageFallback() {
-        let candidates = NavigateCandidates.assemble(
+        let candidates = NavigateCandidates.assembleInBook(
             outline: [],
             bookmarks: [
                 BookmarkCandidateInput(page: 11, label: "Key theorem"),
                 BookmarkCandidateInput(page: 41, label: nil),
-            ],
-            tabs: []
+            ]
         )
         #expect(candidates.map(\.title) == ["Key theorem", "Page 42"])
         #expect(candidates[1].action == .jump(NavEntry(pageIndex: 41)))
@@ -84,9 +83,7 @@ struct NavigateCandidatesTests {
         let sibling = UUID()
         let elsewhere = UUID()
 
-        let candidates = NavigateCandidates.assemble(
-            outline: [],
-            bookmarks: [],
+        let candidates = NavigateCandidates.assembleOpen(
             tabs: [
                 TabCandidateInput(
                     windowID: windowA, tabID: active, title: "Axler",
@@ -109,24 +106,44 @@ struct NavigateCandidatesTests {
         #expect(candidates[1].subtitle == "Open Tab — other window — p.10")
     }
 
-    @Test func assemblyOrderIsTabsBookmarksOutline() {
-        let candidates = NavigateCandidates.assemble(
+    @Test func inBookOrderIsBookmarksThenOutline() {
+        let candidates = NavigateCandidates.assembleInBook(
             outline: [OutlineNode(label: "Intro", entry: NavEntry(pageIndex: 0), children: nil)],
-            bookmarks: [BookmarkCandidateInput(page: 3, label: nil)],
+            bookmarks: [BookmarkCandidateInput(page: 3, label: nil)]
+        )
+        #expect(candidates.map(\.title) == ["Page 4", "Intro"])
+    }
+
+    @Test func openOrderIsTabsBooksCollectionsTags() {
+        let candidates = NavigateCandidates.assembleOpen(
             tabs: [
                 TabCandidateInput(
                     windowID: UUID(), tabID: UUID(), title: "Open Book",
                     pageIndex: 0, isActive: false, windowLabel: nil
                 )
-            ]
+            ],
+            books: [BookCandidateInput(title: "Hatcher", path: "/books/hatcher.pdf")],
+            collections: [GroupCandidateInput(id: 1, name: "5140 Algebra", bookCount: 3)],
+            tags: [GroupCandidateInput(id: 2, name: "Analysis", bookCount: 1)]
         )
-        #expect(candidates.map(\.title) == ["Open Book", "Page 4", "Intro"])
+        #expect(candidates.map(\.title) == ["Open Book", "Hatcher", "5140 Algebra", "Analysis"])
+        #expect(candidates[2].action == .openCollection(1))
+        #expect(candidates[2].subtitle == "Collection — 3 books as tabs")
+        #expect(candidates[3].action == .openTag(2))
+        #expect(candidates[3].subtitle == "Tag — 1 book as tabs")
     }
 
-    @Test func libraryBooksComeLastAndSkipOpenOnes() {
-        let candidates = NavigateCandidates.assemble(
-            outline: [OutlineNode(label: "Intro", entry: NavEntry(pageIndex: 0), children: nil)],
-            bookmarks: [],
+    @Test func emptyCollectionsAndTagsAreHidden() {
+        let candidates = NavigateCandidates.assembleOpen(
+            tabs: [],
+            collections: [GroupCandidateInput(id: 1, name: "Empty", bookCount: 0)],
+            tags: [GroupCandidateInput(id: 2, name: "Bare", bookCount: 0)]
+        )
+        #expect(candidates.isEmpty)
+    }
+
+    @Test func libraryBooksFollowTabsAndSkipOpenOnes() {
+        let candidates = NavigateCandidates.assembleOpen(
             tabs: [
                 TabCandidateInput(
                     windowID: UUID(), tabID: UUID(), title: "Axler",
@@ -139,9 +156,8 @@ struct NavigateCandidatesTests {
             ],
             openPaths: ["/books/axler.pdf"]
         )
-        // The open book keeps only its tab row (switch, don't duplicate);
-        // the unopened one gets a quick-open row after the outline.
-        #expect(candidates.map(\.title) == ["Axler", "Intro", "Hatcher"])
+        // The open book keeps only its tab row (switch, don't duplicate).
+        #expect(candidates.map(\.title) == ["Axler", "Hatcher"])
         #expect(
             candidates.last?.action
                 == .openBook(URL(fileURLWithPath: "/books/hatcher.pdf"))

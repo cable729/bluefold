@@ -9,6 +9,10 @@ struct NavigateCandidate: Identifiable, Equatable {
         case selectTab(windowID: UUID, tabID: UUID)
         /// Open a library book (by file path) as a new tab.
         case openBook(URL)
+        /// Open every book of a collection (subtree included) as tabs.
+        case openCollection(Int64)
+        /// Open every book carrying a tag (descendant tags included) as tabs.
+        case openTag(Int64)
     }
 
     let id: String
@@ -52,16 +56,24 @@ struct BookCandidateInput {
     var path: String
 }
 
-/// Assembles the navigate palette's candidate list: open tabs (all windows),
-/// bookmarks of the active book, the flattened outline with breadcrumb
-/// paths, then library books (quick-open). That order is what an empty
-/// query shows.
+/// A collection or tag the palette can open as a batch of tabs.
+struct GroupCandidateInput {
+    var id: Int64
+    var name: String
+    /// Openable books inside (subtree/descendants included).
+    var bookCount: Int
+}
+
+/// Assembles the two palettes' candidate lists. The order of each list is
+/// what an empty query shows.
 enum NavigateCandidates {
-    static func assemble(
-        outline: [OutlineNode],
-        bookmarks: [BookmarkCandidateInput],
+    /// OPEN palette (⌘P/⌘O): open tabs across windows, then library books,
+    /// collections, and tags.
+    static func assembleOpen(
         tabs: [TabCandidateInput],
         books: [BookCandidateInput] = [],
+        collections: [GroupCandidateInput] = [],
+        tags: [GroupCandidateInput] = [],
         openPaths: Set<String> = []
     ) -> [NavigateCandidate] {
         var out: [NavigateCandidate] = []
@@ -79,18 +91,6 @@ enum NavigateCandidates {
             ))
         }
 
-        for (index, bookmark) in bookmarks.enumerated() {
-            out.append(NavigateCandidate(
-                id: "bookmark.\(index).\(bookmark.page)",
-                icon: "bookmark",
-                title: bookmark.label ?? "Page \(bookmark.page + 1)",
-                subtitle: "Bookmark — p.\(bookmark.page + 1)",
-                action: .jump(NavEntry(pageIndex: bookmark.page))
-            ))
-        }
-
-        flatten(outline, path: [], into: &out)
-
         // Books already open anywhere are skipped: their "Open Tab" row is
         // the better action (switch, don't duplicate).
         for book in books where !openPaths.contains(book.path) {
@@ -102,6 +102,45 @@ enum NavigateCandidates {
                 action: .openBook(URL(fileURLWithPath: book.path))
             ))
         }
+
+        for collection in collections where collection.bookCount > 0 {
+            out.append(NavigateCandidate(
+                id: "collection.\(collection.id)",
+                icon: "folder",
+                title: collection.name,
+                subtitle: "Collection — \(collection.bookCount) book\(collection.bookCount == 1 ? "" : "s") as tabs",
+                action: .openCollection(collection.id)
+            ))
+        }
+        for tag in tags where tag.bookCount > 0 {
+            out.append(NavigateCandidate(
+                id: "tag.\(tag.id)",
+                icon: "tag",
+                title: tag.name,
+                subtitle: "Tag — \(tag.bookCount) book\(tag.bookCount == 1 ? "" : "s") as tabs",
+                action: .openTag(tag.id)
+            ))
+        }
+        return out
+    }
+
+    /// IN-BOOK palette (⌘⇧O): bookmarks, then the flattened outline with
+    /// breadcrumb paths.
+    static func assembleInBook(
+        outline: [OutlineNode],
+        bookmarks: [BookmarkCandidateInput]
+    ) -> [NavigateCandidate] {
+        var out: [NavigateCandidate] = []
+        for (index, bookmark) in bookmarks.enumerated() {
+            out.append(NavigateCandidate(
+                id: "bookmark.\(index).\(bookmark.page)",
+                icon: "bookmark",
+                title: bookmark.label ?? "Page \(bookmark.page + 1)",
+                subtitle: "Bookmark — p.\(bookmark.page + 1)",
+                action: .jump(NavEntry(pageIndex: bookmark.page))
+            ))
+        }
+        flatten(outline, path: [], into: &out)
         return out
     }
 

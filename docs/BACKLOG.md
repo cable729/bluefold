@@ -267,6 +267,30 @@ with owner if wanted): one-time first-launch HUD.
 "+" is now a menu: "From Library…" (opens the Library window) /
 "Open File…" (the old panel).
 
+### ✅ DONE 2026-07-08 — Keybindings round 6 (designed live with the owner)
+Owner decisions: split palettes; ⌘1–9 = tabs; collections/tags in the open
+palette; ⌘⇧F = library search. Shipped:
+- **⌘P/⌘O = OPEN palette**: open tabs, library books, collections, tags.
+  Return opens/switches; ⌘Return = background tab(s), palette stays up
+  for queueing; ⌥Return = new window. Collections/tags open every book in
+  their subtree as tabs (evicted files download first, missing skipped).
+- **⌘⇧O = IN-BOOK palette**: sections + bookmarks (VS Code go-to-symbol).
+  Open File… moved to ⌥⌘O.
+- **⌘1–8 tab by position, ⌘9 last tab** (browser); layouts → ⌥⌘1–4.
+- **⌘⇧F = Search All Books**: library window opens with the search field
+  focused (LibrarySearchFocusBridge), from any window.
+- **⌘-click on PDF links opens BACKGROUND tabs** (was: switched); plain
+  click on cross-file links still navigates.
+- Also this round: ⌘O palette focus bug fixed (AppKit first responder
+  released before presenting), and unit tests are permanently fenced off
+  the real library.db (AppStores.isTestProcess + isolation tests) after
+  test fixtures polluted it with junk rows (cleaned; a backup of the
+  pre-cleanup DB is in the fix session's scratchpad).
+- NOT done (parked): user-editable keybindings.json overlay; one-time
+  first-launch shortcuts HUD; merging the 4 duplicate book rows
+  (Calibre + pre-mirror auto-registered twins) — needs owner sign-off,
+  currently harmless (palette dedupes by path).
+
 ### ✅ DONE 2026-07-08 — Quick-open a book from the keyboard (owner request)
 "⌘P, type part of the book name, Return" opens any library book as a tab
 — no library window. Done by seeding the navigate palette with library

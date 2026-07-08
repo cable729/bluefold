@@ -68,8 +68,8 @@ struct QuickOpenIntegrationTests {
         #expect(FileManager.default.fileExists(atPath: path))
 
         // And it surfaces as a palette candidate that opens the file.
-        let candidates = NavigateCandidates.assemble(
-            outline: [], bookmarks: [], tabs: [],
+        let candidates = NavigateCandidates.assembleOpen(
+            tabs: [],
             books: [BookCandidateInput(title: openable[0].title, path: path)],
             openPaths: []
         )

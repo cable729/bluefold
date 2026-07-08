@@ -94,7 +94,16 @@ struct WindowKeyEventBridge: NSViewRepresentable {
                 return event
             }
 
-            // ⌘O — navigate palette (Open File moved to ⌘⇧O).
+            // ⌘1…⌘9 — direct tab selection (browser-style; 9 = last).
+            // A menu binding would be nine items of clutter.
+            if modifiers == .command,
+               let characters = event.charactersIgnoringModifiers,
+               characters.count == 1, let digit = Int(characters), (1...9).contains(digit) {
+                model.selectTab(number: digit)
+                return nil
+            }
+
+            // ⌘O — open palette (Open File moved to ⌥⌘O).
             if modifiers == .command, event.charactersIgnoringModifiers == "o" {
                 // The AppKit PDFView holds first-responder here; unless it
                 // is released, SwiftUI cannot focus the palette's query

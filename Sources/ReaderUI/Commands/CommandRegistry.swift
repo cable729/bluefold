@@ -12,17 +12,22 @@ public struct CommandContext {
     public var ui: ReaderWindowUIState?
     public var openReaderWindow: () -> Void
     public var openLibraryWindow: () -> Void
+    /// Presents a staged reader window by ID (`openWindow(id:"reader",
+    /// value:)`) — palette "open in new window" variants need it.
+    public var presentReaderWindow: (UUID) -> Void
 
     public init(
         model: ReaderWindowModel? = nil,
         ui: ReaderWindowUIState? = nil,
         openReaderWindow: @escaping () -> Void = {},
-        openLibraryWindow: @escaping () -> Void = {}
+        openLibraryWindow: @escaping () -> Void = {},
+        presentReaderWindow: @escaping (UUID) -> Void = { _ in }
     ) {
         self.model = model
         self.ui = ui
         self.openReaderWindow = openReaderWindow
         self.openLibraryWindow = openLibraryWindow
+        self.presentReaderWindow = presentReaderWindow
     }
 
     /// The active tab's live document, if any.
@@ -124,11 +129,12 @@ public enum CommandRegistry {
             isAvailable: { $0.model != nil },
             run: { $0.model?.openTabViaPanel() }
         ))
-        // ⌘O belongs to the navigate palette (VS Code/Obsidian quick-open);
-        // file-open moved to ⌘⇧O.
+        // ⌘O belongs to the open palette (VS Code/Obsidian quick-open) and
+        // ⌘⇧O to the in-book palette (VS Code go-to-symbol); the file panel
+        // lives on ⌥⌘O.
         commands.append(ReaderCommand(
             id: "file.openFile", title: "Open File…", category: .file,
-            chords: [KeyChord("o", [.command, .shift])],
+            chords: [KeyChord("o", [.command, .option])],
             isAvailable: { $0.model != nil },
             run: { $0.model?.openTabViaPanel() }
         ))
@@ -196,10 +202,18 @@ public enum CommandRegistry {
         // ⌘P is freed from Print (VS Code quick-open convention); ⌘O is
         // bound by the window's key monitor, not the menu.
         commands.append(ReaderCommand(
-            id: "nav.openAnything", title: "Go to Anything…", category: .navigation,
+            id: "nav.openAnything", title: "Open Anything…", category: .navigation,
             chords: [KeyChord("p", [.command]), KeyChord("o", [.command])],
             isAvailable: { $0.model != nil },
             run: { $0.ui?.presentPalette(.navigate) }
+        ))
+        // In-book navigation, split from the open palette (owner request):
+        // ⌘⇧O mirrors VS Code's go-to-symbol.
+        commands.append(ReaderCommand(
+            id: "nav.goToSection", title: "Go to Section…", category: .navigation,
+            chords: [KeyChord("o", [.command, .shift])],
+            isAvailable: { $0.activeDocument != nil },
+            run: { $0.ui?.presentPalette(.outline) }
         ))
 
         // MARK: Tabs
@@ -216,6 +230,19 @@ public enum CommandRegistry {
             isAvailable: { ($0.model?.tabs.count ?? 0) > 1 },
             run: { $0.model?.selectPreviousTab() }
         ))
+        // ⌘1…⌘9 switch tabs directly, browser-style (⌘9 = last tab). Bound
+        // by the window key monitor; menus stay uncluttered.
+        for number in 1...9 {
+            commands.append(ReaderCommand(
+                id: "tabs.select.\(number)",
+                title: number == 9 ? "Go to Last Tab" : "Go to Tab \(number)",
+                category: .tabs,
+                chords: [KeyChord(Character("\(number)"), [.command])],
+                installsMenuShortcut: false,
+                isAvailable: { ($0.model?.tabs.count ?? 0) > 1 },
+                run: { $0.model?.selectTab(number: number) }
+            ))
+        }
         commands.append(ReaderCommand(
             id: "tabs.duplicate", title: "Duplicate Tab", category: .tabs,
             isAvailable: { $0.model?.activeTab != nil },
@@ -242,6 +269,8 @@ public enum CommandRegistry {
             isOn: { $0.ui?.showSidebar == true },
             run: { $0.ui?.showSidebar.toggle() }
         ))
+        // ⌥⌘1–4: plain ⌘digits went to direct tab switching (browsers won —
+        // tab switches vastly outnumber layout changes).
         let layouts: [(String, String, PDFDisplayMode, Character)] = [
             ("view.layout.singlePage", "Single Page", .singlePage, "1"),
             ("view.layout.continuous", "Continuous Scroll", .singlePageContinuous, "2"),
@@ -251,7 +280,7 @@ public enum CommandRegistry {
         for (id, title, mode, digit) in layouts {
             commands.append(ReaderCommand(
                 id: id, title: title, category: .view,
-                chords: [KeyChord(digit, [.command])],
+                chords: [KeyChord(digit, [.command, .option])],
                 isAvailable: { $0.activeDocument != nil },
                 isOn: { $0.model?.activeTab?.displayModeRaw == mode.rawValue },
                 run: { $0.model?.setDisplayMode(mode.rawValue) }
@@ -286,6 +315,16 @@ public enum CommandRegistry {
             chords: [KeyChord("f", [.command])],
             isAvailable: { $0.activeDocument != nil && $0.ui != nil },
             run: { $0.ui?.openSearchSidebar() }
+        ))
+        // VS Code/Obsidian global-search convention; full-text over the
+        // whole library (the FTS index), in the library window.
+        commands.append(ReaderCommand(
+            id: "search.allBooks", title: "Search All Books…", category: .search,
+            chords: [KeyChord("f", [.command, .shift])],
+            run: { context in
+                LibrarySearchFocusBridge.shared.request()
+                context.openLibraryWindow()
+            }
         ))
 
         // MARK: Bookmarks

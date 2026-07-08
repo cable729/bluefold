@@ -63,6 +63,13 @@ the project owner's plan file; the milestone list below is self-contained.
   (upsertFileRefs/openableBooks), open books dedupe into their tab row,
   evicted files download first. One library reload is needed post-update
   before never-opened Calibre books appear.
+- [x] **UI-5** Keybindings round 6 (2026-07-08, designed live with owner —
+  see BACKLOG "Keybindings round 6" for the decision log): split palettes
+  (⌘P/⌘O open · ⌘⇧O in-book), ⌘Return/⌥Return background/new-window
+  variants, collections & tags openable from the palette, ⌘1–9 tab
+  switching (layouts → ⌥⌘1–4), ⌘⇧F library-wide search, ⌘-click links →
+  background tabs, ⌘O palette focus fix, and a hard fence keeping unit
+  tests out of the user's real library.db.
 
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); library/tags/search/sync UI pending

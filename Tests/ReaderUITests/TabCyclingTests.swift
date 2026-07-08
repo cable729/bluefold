@@ -26,6 +26,24 @@ struct TabCyclingTests {
         #expect(model.activeTabID == a)  // wraps
     }
 
+    @Test func selectByNumberIsBrowserStyle() {
+        let model = makeModel()
+        let a = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        let b = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/b.pdf"))
+        let c = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/c.pdf"))
+
+        model.selectTab(number: 1)
+        #expect(model.activeTabID == a)
+        model.selectTab(number: 2)
+        #expect(model.activeTabID == b)
+        // ⌘9 = last tab regardless of count (Safari/Chrome).
+        model.selectTab(number: 9)
+        #expect(model.activeTabID == c)
+        // Out of range: no-op, selection stays.
+        model.selectTab(number: 7)
+        #expect(model.activeTabID == c)
+    }
+
     @Test func previousTabWrapsAround() {
         let model = makeModel()
         let a = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))

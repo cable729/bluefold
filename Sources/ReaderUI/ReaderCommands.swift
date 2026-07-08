@@ -19,7 +19,8 @@ public struct ReaderCommands: Commands {
             model: model,
             ui: ui,
             openReaderWindow: { openWindow(id: "reader", value: UUID()) },
-            openLibraryWindow: { openWindow(id: "library") }
+            openLibraryWindow: { openWindow(id: "library") },
+            presentReaderWindow: { openWindow(id: "reader", value: $0) }
         )
     }
 
@@ -37,7 +38,7 @@ public struct ReaderCommands: Commands {
         CommandGroup(replacing: .printItem) {}
 
         CommandGroup(after: .pasteboard) {
-            items(["search.find", "bookmarks.add"])
+            items(["search.find", "search.allBooks", "bookmarks.add"])
         }
 
         CommandMenu("Go") {
@@ -45,7 +46,7 @@ public struct ReaderCommands: Commands {
             Divider()
             items(["nav.previousPage", "nav.nextPage", "nav.goToPage"])
             Divider()
-            items(["nav.openAnything"])
+            items(["nav.openAnything", "nav.goToSection"])
         }
 
         CommandGroup(after: .toolbar) {

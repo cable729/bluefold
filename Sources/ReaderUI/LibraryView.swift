@@ -3,6 +3,16 @@ import ReaderCore
 import ReaderPersistence
 import SwiftUI
 
+/// Cross-window request to focus the library's search field (⌘⇧F "Search
+/// All Books" fires from any reader window; the library scene listens).
+@Observable
+@MainActor
+public final class LibrarySearchFocusBridge {
+    public static let shared = LibrarySearchFocusBridge()
+    public private(set) var token = 0
+    public func request() { token += 1 }
+}
+
 /// The library window: a searchable grid of the Calibre collection.
 /// Double-click (or Return) opens the book in a reader tab, downloading
 /// evicted iCloud files first.
@@ -15,6 +25,7 @@ public struct LibraryView: View {
     @State private var selection = LibrarySelection()
     @State private var showTagsHelp = false
     @State private var showCollectionsHelp = false
+    @FocusState private var searchFocused: Bool
     @Environment(\.openWindow) private var openWindow
 
     private let columns = [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 20)]
@@ -37,8 +48,18 @@ public struct LibraryView: View {
         .navigationTitle("Library")
         .background(ThemeChromeAccessor())  // titlebar tints with the theme
         .searchable(text: $model.searchText, prompt: "Title, author, or tag")
+        .searchFocused($searchFocused)
         .onChange(of: model.searchText) { _, _ in
             model.searchTextChanged()
+        }
+        // ⌘⇧F from any window: land in the search field, ready to type.
+        .onChange(of: LibrarySearchFocusBridge.shared.token) { _, _ in
+            searchFocused = true
+        }
+        .onAppear {
+            if LibrarySearchFocusBridge.shared.token > 0 {
+                searchFocused = true
+            }
         }
         .toolbar {
             ToolbarItemGroup {
