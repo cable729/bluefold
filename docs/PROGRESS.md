@@ -204,20 +204,13 @@ destinations/crops before theorizing.
      library list view + sort + sectioned-by-tag view (owner sketched it —
      see BACKLOG round 7).
 2. **Owner hand-verification debt** (fixes shipped same-day, only lightly
-   hand-tested): tear-off drag wedge failsafes, cross-window drag, split
-   view, ⇤ ⇥ full backward trip through a scan (D&F Galois → front
-   matter), sidebar follow-mode feel, ⇧⏎/⌘⏎ palette variants.
+   hand-tested): split view, ⇤ ⇥ full backward trip through a scan (D&F
+   Galois → front matter), sidebar follow-mode feel, ⇧⏎/⌘⏎ palette
+   variants. VERIFIED by owner 2026-07-08: tab tear-off drag and
+   cross-window tab drag both work by hand.
 3. **Merge PR #1 (ci-hardening) + PR #2 (ci-frugal)** once GitHub billing
    resets; read the per-module PTY log to name the deadlocking CI module;
    then CI job B (XCUITest + iOS sim build) and wire UI tests into
    scripts/verify.sh.
 4. Then: M15 CloudKit (settle bundle identifier FIRST — see BACKLOG
-   "Product / business"), iOS part 2, M18 v0.1.
-2. **Merge PR #1 (ci-hardening)** and read its PTY log to name the hanging
-   CI test; gate or fix it, then add CI job B (xcodebuild UI tests + iOS
-   sim build) and wire UI tests into scripts/verify.sh.
-3. Command palette (⌘P/⌘⇧P), "/" help overlay, tab-cycling and arrow-key
-   shortcuts — implementation was in flight at session end; check
-   `git branch --list 'worktree-agent-*'` for the palette agent's branch.
-4. Then: M15 CloudKit (settle the bundle identifier FIRST — see BACKLOG
    "Product / business"), iOS part 2, M18 v0.1.
