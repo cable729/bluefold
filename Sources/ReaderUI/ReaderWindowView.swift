@@ -48,10 +48,10 @@ public struct ReaderWindowView: View {
                     .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if let document = activeDocument {
-                Divider()
-                ReaderStatusBar(model: model, pageCount: document.pageCount)
-            }
+            // Always present (even with no document) so the theme control
+            // is reachable from an empty window.
+            Divider()
+            ReaderStatusBar(model: model, pageCount: activeDocument?.pageCount)
         }
         .frame(minWidth: 500, minHeight: 400)
         .toolbar {
@@ -97,7 +97,11 @@ public struct ReaderWindowView: View {
             }
         }
         .navigationTitle(activeTitle)
-        .preferredColorScheme(ThemeManager.shared.current == .dark ? .dark : .light)
+        // No .preferredColorScheme here: SwiftUI only re-applies it to the
+        // hosting window reliably while that window is key, so a theme
+        // change made in one window left the others' appearance stale.
+        // ThemeManager sets window.appearance on every registered window
+        // instead (registration happens in WindowAccessor).
         .background(WindowAccessor(model: model))
         .focusedSceneValue(\.readerWindowModel, model)
         .onAppear {
@@ -128,10 +132,11 @@ public struct ReaderWindowView: View {
     private var content: some View {
         if let tab = model.activeTab {
             if let document = activeDocument {
-                // Keyed on theme too: a theme switch rebuilds the PDFView so
-                // every tile re-renders through the new page filter.
+                // Keyed on the RESOLVED theme too: a theme switch (or a
+                // system appearance flip in auto mode) rebuilds the PDFView
+                // so every tile re-renders through the new page filter.
                 ActivePDFView(tab: tab, document: document, model: model)
-                    .id("\(tab.id)-\(ThemeManager.shared.current.rawValue)")
+                    .id("\(tab.id)-\(ThemeManager.shared.resolvedTheme.rawValue)")
             } else {
                 ContentUnavailableView {
                     Label("File Not Available", systemImage: "questionmark.folder")

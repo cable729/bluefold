@@ -10,6 +10,7 @@ import SwiftUI
 /// - System state restoration off (session restore is ours).
 /// - Restores the persisted frame once, then persists frame changes.
 /// - Reports window close to the session coordinator.
+/// - Registers the window with ThemeManager for chrome tinting.
 struct WindowAccessor: NSViewRepresentable {
     unowned let model: ReaderWindowModel
 
@@ -39,6 +40,7 @@ struct WindowAccessor: NSViewRepresentable {
             window.collectionBehavior.insert(.moveToActiveSpace)
             window.tabbingMode = .disallowed
             window.isRestorable = false
+            ThemeManager.shared.register(window)
 
             if let frame = model?.consumePendingFrame() {
                 window.setFrame(frame, display: true)

@@ -108,4 +108,78 @@ struct ThemingTests {
         #expect(color.red > color.blue)
     }
 }
+
+/// ThemeManager resolution + window-chrome application. Serialized: the
+/// manager writes the process-global PageFilterStore and UserDefaults key.
+@Suite("Theme manager", .serialized)
+@MainActor
+struct ThemeManagerTests {
+    /// Fresh manager with the persisted key and page filter cleared afterwards.
+    private func withManager(_ body: (ThemeManager) throws -> Void) rethrows {
+        defer {
+            UserDefaults.standard.removeObject(forKey: "PDFReaderTheme")
+            PageFilterStore.current = .none
+        }
+        UserDefaults.standard.removeObject(forKey: "PDFReaderTheme")
+        try body(ThemeManager())
+    }
+
+    @Test func autoResolvesAndTracksSystemAppearance() {
+        withManager { manager in
+            manager.current = .auto
+            manager.overrideSystemAppearance(isDark: false)
+            #expect(manager.resolvedTheme == .light)
+            #expect(PageFilterStore.current == .none)
+
+            manager.overrideSystemAppearance(isDark: true)
+            #expect(manager.resolvedTheme == .dark)
+            #expect(PageFilterStore.current == .invert)
+        }
+    }
+
+    @Test func concreteThemeIgnoresSystemFlips() {
+        withManager { manager in
+            manager.current = .sepia
+            manager.overrideSystemAppearance(isDark: true)
+            #expect(manager.resolvedTheme == .sepia)
+            #expect(PageFilterStore.current == .warmPaper)
+        }
+    }
+
+    @Test func autoPersistsAndRestores() {
+        defer {
+            UserDefaults.standard.removeObject(forKey: "PDFReaderTheme")
+            PageFilterStore.current = .none
+        }
+        UserDefaults.standard.removeObject(forKey: "PDFReaderTheme")
+        ThemeManager().current = .auto
+        #expect(UserDefaults.standard.string(forKey: "PDFReaderTheme") == "auto")
+        #expect(ThemeManager().current == .auto)
+    }
+
+    @Test func registeredWindowChromeFollowsTheme() {
+        withManager { manager in
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                styleMask: [.titled], backing: .buffered, defer: true
+            )
+            manager.register(window)
+
+            manager.current = .dark
+            #expect(window.appearance?.name == .darkAqua)
+            #expect(window.titlebarAppearsTransparent == false)
+
+            manager.current = .sepia
+            #expect(window.appearance?.name == .aqua)
+            #expect(window.titlebarAppearsTransparent == true)
+            let tan = window.backgroundColor.usingColorSpace(.sRGB)
+            #expect(tan != nil && tan!.redComponent > tan!.blueComponent)
+
+            // Auto: inherit (nil appearance) so the window follows the system.
+            manager.current = .auto
+            #expect(window.appearance == nil)
+            #expect(window.titlebarAppearsTransparent == false)
+        }
+    }
+}
 #endif

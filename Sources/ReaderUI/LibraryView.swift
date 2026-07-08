@@ -33,6 +33,7 @@ public struct LibraryView: View {
         }
         .frame(minWidth: 720, minHeight: 460)
         .navigationTitle("Library")
+        .background(ThemeChromeAccessor())  // titlebar tints with the theme
         .searchable(text: $model.searchText, prompt: "Title, author, or tag")
         .onChange(of: model.searchText) { _, _ in
             model.searchTextChanged()
