@@ -9,7 +9,7 @@
 /* Begin PBXBuildFile section */
 		AA0000000000000000000010 /* ReaderUI in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000011 /* ReaderUI */; };
 		AA0000000000000000000021 /* ReaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000022 /* ReaderCore */; };
-		AA0000000000000000000040 /* ReaderUI in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000041 /* ReaderUI */; };
+		AA0000000000000000000042 /* ReaderUI in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000041 /* ReaderUI */; };
 		AA000000000000000000003D /* ReaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA000000000000000000003C /* ReaderCore */; };
 /* End PBXBuildFile section */
 
@@ -64,7 +64,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA0000000000000000000021 /* ReaderCore in Frameworks */,
-				AA0000000000000000000040 /* ReaderUI in Frameworks */,
+				AA0000000000000000000042 /* ReaderUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

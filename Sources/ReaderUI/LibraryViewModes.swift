@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 import ReaderPersistence
 
@@ -228,4 +227,3 @@ extension LibraryModel {
         return comparators.isEmpty ? nil : comparators
     }
 }
-#endif
