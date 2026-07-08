@@ -185,9 +185,11 @@ public enum CommandRegistry {
             isAvailable: { $0.activeDocument != nil },
             run: { $0.model?.activeController?.goToNextPage() }
         ))
+        // ⌘G is free for this (owner request): the M8 find bar's ⌘G cycling
+        // is gone — the sidebar find cycles with Enter/⇧Enter in its field.
         commands.append(ReaderCommand(
             id: "nav.goToPage", title: "Go to Page…", category: .navigation,
-            chords: [KeyChord("g", [.command, .option])],
+            chords: [KeyChord("g", [.command])],
             isAvailable: { $0.activeDocument != nil },
             run: { $0.ui?.presentPalette(.goToPage) }
         ))

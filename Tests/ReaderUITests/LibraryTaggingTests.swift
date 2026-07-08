@@ -204,5 +204,30 @@ struct LibraryTaggingTests {
         model.searchText = "categorytheory"
         #expect(model.filteredItems.map(\.id) == [homework.id])
     }
+
+    @Test func sidebarTagCountsIncludeDescendants() throws {
+        let (model, dir) = try makeModelWithImports()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        // Algebra ▸ Linear Algebra; one book tagged with each.
+        model.createTag(name: "Algebra")
+        let algebra = try #require(model.allTags.first { $0.name == "Algebra" })
+        model.createTag(name: "Linear Algebra", parent: algebra.id)
+        let linear = try #require(model.allTags.first { $0.name == "Linear Algebra" })
+
+        let homework = try #require(model.items.first { $0.title == "homework-3" })
+        let notes = try #require(model.items.first { $0.title == "lecture-notes" })
+        model.toggleTag(algebra, for: homework)
+        model.toggleTag(linear, for: notes)
+
+        // The badge must equal what clicking the tag shows: subtree included.
+        #expect(model.tagCounts[try #require(algebra.id)] == 2)
+        #expect(model.tagCounts[try #require(linear.id)] == 1)
+
+        // A book tagged with BOTH parent and child counts once at the parent.
+        model.toggleTag(linear, for: homework)
+        #expect(model.tagCounts[try #require(algebra.id)] == 2)
+        #expect(model.tagCounts[try #require(linear.id)] == 2)
+    }
 }
 #endif

@@ -45,11 +45,33 @@ public final class SessionCoordinator {
         AppDataDirectory.url().appendingPathComponent("session.json")
     }
 
+    /// Known-good copy of the previous session, rotated on every successful
+    /// load — a corrupt or wrongly-emptied session.json is never a total loss.
+    static func backupSessionFileURL(for sessionFileURL: URL) -> URL {
+        sessionFileURL.appendingPathExtension("bak")
+    }
+
     private func loadSession() {
-        guard
-            let data = try? Data(contentsOf: sessionFileURL),
-            let snapshot = try? SessionCodec.decode(data)
-        else { return }
+        let backupURL = Self.backupSessionFileURL(for: sessionFileURL)
+        if let snapshot = Self.decodeSession(at: sessionFileURL),
+           !snapshot.windows.isEmpty {
+            stage(snapshot)
+            // This file restored real windows: it becomes the fallback.
+            try? FileManager.default.removeItem(at: backupURL)
+            try? FileManager.default.copyItem(at: sessionFileURL, to: backupURL)
+        } else if let backup = Self.decodeSession(at: backupURL) {
+            // Main file missing, corrupt, or empty while a previous session
+            // had windows — recover rather than silently losing everything.
+            stage(backup)
+        }
+    }
+
+    private static func decodeSession(at url: URL) -> SessionSnapshot? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? SessionCodec.decode(data)
+    }
+
+    private func stage(_ snapshot: SessionSnapshot) {
         for window in snapshot.windows {
             pendingRestore[window.id] = window
             pendingOrder.append(window.id)
@@ -62,7 +84,14 @@ public final class SessionCoordinator {
     /// first restored window if any, else a fresh one. Memoized — scene
     /// bodies re-evaluate.
     public func claimLaunchWindowID() -> UUID {
-        if let launchWindowID { return launchWindowID }
+        // Memoized while the window lives or is restorable. When it's gone
+        // (last window closed, then a Dock-click reopens the default scene),
+        // re-resolve so the reopened window picks up a stashed session
+        // instead of materializing empty under a spent ID.
+        if let launchWindowID,
+           models[launchWindowID] != nil || pendingRestore[launchWindowID] != nil {
+            return launchWindowID
+        }
         let id = pendingOrder.first ?? UUID()
         launchWindowID = id
         return id
@@ -97,8 +126,16 @@ public final class SessionCoordinator {
 
     public func windowClosed(_ windowID: UUID) {
         guard !isTerminating else { return }
-        models.removeValue(forKey: windowID)
+        let closing = models.removeValue(forKey: windowID)
         windowOrder.removeAll { $0 == windowID }
+        // Closing the LAST window must never wipe the session: the app keeps
+        // running, so quitting (or Dock-reopening) afterwards would find
+        // nothing. Stash the window's state instead — reopen or next launch
+        // restores it, browser-style. This was the round-5 session loss.
+        if let closing, models.isEmpty, !closing.tabs.isEmpty {
+            pendingRestore[windowID] = closing.stateSnapshot
+            pendingOrder.append(windowID)
+        }
         if lastFocusedWindowID == windowID {
             lastFocusedWindowID = nil
         }

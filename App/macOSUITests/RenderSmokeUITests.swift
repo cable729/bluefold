@@ -79,6 +79,19 @@ final class RenderSmokeUITests: XCTestCase {
                       "adjacent same-book tabs should get a spanning header")
         XCTAssertEqual(header.title, "Axler")
 
+        // Round-5 regression: the header used to render ABOVE the strip,
+        // overlapping the window titlebar. It must lie inside the strip and
+        // be tall enough to read (round 4: "skinny and hard to see").
+        let stripFrame = strip.frame
+        let headerFrame = header.frame
+        XCTAssertTrue(
+            stripFrame.insetBy(dx: -1, dy: -1).contains(headerFrame),
+            "group header \(headerFrame) must render within the strip \(stripFrame)"
+        )
+        XCTAssertGreaterThanOrEqual(headerFrame.height, 20, "header should be readable")
+
+        dumpScreenshot(of: app.windows.firstMatch, named: "two-row-strip")
+
         // Every tab carries a second-row breadcrumb (page label for
         // outline-less fixtures).
         let breadcrumbs = strip.staticTexts.matching(
@@ -123,5 +136,14 @@ final class RenderSmokeUITests: XCTestCase {
     private func quit(_ app: XCUIApplication) {
         app.typeKey("q", modifierFlags: .command)
         _ = app.wait(for: .notRunning, timeout: 10)
+    }
+
+    /// Saves a window screenshot to $RENDERSMOKE_SHOT_DIR (when set) so a
+    /// human — or an agent without screen-recording rights — can inspect the
+    /// rendered chrome after a run.
+    private func dumpScreenshot(of element: XCUIElement, named name: String) {
+        guard let dir = ProcessInfo.processInfo.environment["RENDERSMOKE_SHOT_DIR"] else { return }
+        let url = URL(fileURLWithPath: dir).appendingPathComponent("\(name).png")
+        try? element.screenshot().pngRepresentation.write(to: url)
     }
 }

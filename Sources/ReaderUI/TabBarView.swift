@@ -19,12 +19,21 @@ struct TabBarView: View {
                 items: displayItems,
                 openWindow: openWindow
             )
-            Button(action: onNewTab) {
+            // "+" merges both ways of opening a tab (round-5 owner request:
+            // it previously only ran the file panel, hiding the library).
+            Menu {
+                Button("From Library…", systemImage: "books.vertical") {
+                    openWindow(id: "library")
+                }
+                Button("Open File…", systemImage: "folder", action: onNewTab)
+            } label: {
                 Image(systemName: "plus")
             }
             .buttonStyle(.borderless)
+            .menuIndicator(.hidden)
+            .fixedSize()
             .padding(.horizontal, 8)
-            .help("Open a PDF in a new tab (⌘T)")
+            .help("New tab — from the library (⇧⌘L) or a file (⌘T / ⌘⇧O)")
         }
         .frame(height: 48)
         .background(.bar)

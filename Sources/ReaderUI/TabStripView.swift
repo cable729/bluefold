@@ -53,7 +53,7 @@ struct TabStripActions {
 @MainActor
 final class TabStripNSView: NSView {
     static let tabHeight: CGFloat = 48
-    static let groupHeaderHeight: CGFloat = 17
+    static let groupHeaderHeight: CGFloat = 22
     static let minTabWidth: CGFloat = 60
     static let maxTabWidth: CGFloat = 220
     static let tearOffDistance: CGFloat = 44
@@ -81,6 +81,10 @@ final class TabStripNSView: NSView {
         self.actions = actions
         super.init(frame: .zero)
         wantsLayer = true
+        // NSViews don't clip subviews by default; without this a mislaid
+        // header/item frame (or an in-flight animation) draws over the
+        // window titlebar (round-4/5 owner screenshots).
+        layer?.masksToBounds = true
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityIdentifier("tab-strip")
@@ -96,6 +100,9 @@ final class TabStripNSView: NSView {
             TabStripRegistry.shared.register(self, for: windowID)
         } else {
             TabStripRegistry.shared.unregister(windowID: windowID)
+            // The strip left its window mid-drag (window closed, hierarchy
+            // rebuilt): a live ghost would float forever.
+            cancelDrag(reason: "left window")
         }
     }
 
@@ -104,6 +111,13 @@ final class TabStripNSView: NSView {
     func update(items: [TabDisplayItem]) {
         guard items != self.items else { return }
         self.items = items
+
+        // The dragged tab vanished from the model (closed from elsewhere,
+        // moved by code): the drag has nothing to commit — end it now,
+        // before its item view is orphaned and stops receiving events.
+        if let drag, !items.contains(where: { $0.id == drag.tabID }) {
+            cancelDrag(reason: "dragged tab removed")
+        }
 
         // Reuse views by tab ID so hover state survives reorders.
         var existing: [UUID: TabItemNSView] = [:]
@@ -181,9 +195,11 @@ final class TabStripNSView: NSView {
         let width = tabWidth
         let ordered = orderedViewsForLayout()
 
-        // Group runs of adjacent same-book tabs — suspended during a drag,
-        // where slot math must stay per-tab.
-        let grouped: [Range<Int>] = drag == nil ? groupRuns(in: ordered) : []
+        // Group runs of adjacent same-book tabs — suspended while a drag is
+        // actually MOVING (slot math must stay per-tab). A plain click also
+        // creates drag state; dissolving groups for it made titles glide in
+        // from nowhere when the group re-formed on mouse-up.
+        let grouped: [Range<Int>] = drag?.didMove == true ? [] : groupRuns(in: ordered)
         var isGrouped = [ObjectIdentifier: Bool]()
         for run in grouped {
             for index in run {
@@ -201,15 +217,13 @@ final class TabStripNSView: NSView {
                 width: width, height: height
             )
             (view as? TabItemNSView)?.setGrouped(inGroup)
-            if view === drag?.itemView, drag?.isTornOff == false {
+            if view === drag?.itemView, drag?.didMove == true, drag?.isTornOff == false {
                 // The dragged tab follows the pointer horizontally.
                 var f = target
                 f.origin.x = drag!.currentTabOriginX(tabWidth: width, stripWidth: bounds.width)
                 view.frame = f
-            } else if animated {
-                view.animator().frame = target
             } else {
-                view.frame = target
+                setFrame(target, of: view, animated: animated)
             }
         }
 
@@ -260,11 +274,18 @@ final class TabStripNSView: NSView {
                 width: CGFloat(run.count) * tabWidth,
                 height: Self.groupHeaderHeight
             )
-            if animated {
-                header.animator().frame = frame
-            } else {
-                header.frame = frame
-            }
+            setFrame(frame, of: header, animated: animated)
+        }
+    }
+
+    /// Animated frame changes, EXCEPT a view's very first placement: a view
+    /// added this cycle still sits at .zero, and animating from there makes
+    /// its text glide in from the strip's corner (round-4 "looks awful").
+    private func setFrame(_ frame: NSRect, of view: NSView, animated: Bool) {
+        if animated, view.frame != .zero {
+            view.animator().frame = frame
+        } else {
+            view.frame = frame
         }
     }
 
@@ -274,15 +295,20 @@ final class TabStripNSView: NSView {
     }
 
     private var tabWidth: CGFloat {
-        let visible = CGFloat(max(itemViews.filter { !$0.isHidden }.count, 1))
-        return max(Self.minTabWidth, min(Self.maxTabWidth, bounds.width / visible))
+        // A torn-off tab leaves the flow (its slot closes) but is never
+        // hidden: hiding the view that owns the mouse-tracking session can
+        // stop mouseDragged/mouseUp delivery — the round-4/5 stuck-ghost
+        // wedge. It stays in place at alpha 0 instead.
+        let inFlow = CGFloat(max(itemViews.count - (drag?.isTornOff == true ? 1 : 0), 1))
+        return max(Self.minTabWidth, min(Self.maxTabWidth, bounds.width / inFlow))
     }
 
     /// Item views in visual order: model order, adjusted by the in-flight
     /// drag preview (dragged tab occupies its provisional slot).
     private func orderedViewsForLayout() -> [NSView] {
-        guard let drag, !drag.isTornOff else {
-            return itemViews.filter { !$0.isHidden }
+        guard let drag else { return itemViews }
+        if drag.isTornOff {
+            return itemViews.filter { $0 !== drag.itemView }
         }
         var views = itemViews.filter { $0 !== drag.itemView }
         let slot = max(0, min(drag.previewIndex, views.count))
@@ -358,6 +384,61 @@ final class TabStripNSView: NSView {
             previewIndex: itemViews.firstIndex(of: item) ?? 0,
             currentInStrip: inStrip
         )
+        installDragMonitors()
+    }
+
+    // MARK: - Drag failsafe monitors
+    //
+    // The item view owns the mouse-tracking session, but its mouseUp has been
+    // observed to go missing (round-4/5: pointer released over another app →
+    // ghost panel stuck floating, tab invisible, only a relaunch recovered).
+    // While a drag is live, two NSEvent monitors guarantee the drag finishes:
+    // a local one (mouseUp delivered anywhere in this app) and a global one
+    // (mouseUp delivered to another app).
+
+    private var dragMonitors: [Any] = []
+
+    private func installDragMonitors() {
+        removeDragMonitors()
+        let local = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseUp],
+            handler: { [weak self] event in
+                if let self, self.drag != nil {
+                    Self.dragLog("failsafe: local-monitor mouseUp")
+                    self.endPress(with: event)
+                }
+                return event
+            }
+        )
+        let global = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseUp],
+            handler: { [weak self] _ in
+                guard let self, self.drag != nil else { return }
+                Self.dragLog("failsafe: global-monitor mouseUp")
+                self.finishDrag(atScreen: NSEvent.mouseLocation)
+            }
+        )
+        dragMonitors = [local, global].compactMap { $0 }
+    }
+
+    private func removeDragMonitors() {
+        for monitor in dragMonitors {
+            NSEvent.removeMonitor(monitor)
+        }
+        dragMonitors.removeAll()
+    }
+
+    /// Abandons a drag without committing anything (dragged tab vanished,
+    /// strip left its window): the ghost closes, the tab reappears.
+    private func cancelDrag(reason: String) {
+        guard let drag else { return }
+        Self.dragLog("cancelDrag reason=\(reason)")
+        drag.ghost?.close()
+        drag.itemView.alphaValue = 1
+        self.drag = nil
+        removeDragMonitors()
+        TabStripRegistry.shared.updateDropTarget(at: nil, excluding: nil)
+        needsLayout = true
     }
 
     func continuePress(with event: NSEvent) {
@@ -381,7 +462,7 @@ final class TabStripNSView: NSView {
                 drag.ghost?.close()
                 drag.ghost = nil
                 drag.isTornOff = false
-                drag.itemView.isHidden = false
+                drag.itemView.alphaValue = 1
             }
             // Provisional slot from the tab's midpoint.
             let midX = drag.currentTabOriginX(tabWidth: tabWidth, stripWidth: bounds.width)
@@ -392,8 +473,10 @@ final class TabStripNSView: NSView {
         } else {
             if !drag.isTornOff {
                 drag.isTornOff = true
-                drag.itemView.isHidden = true
                 drag.ghost = TabGhostPanel(snapshotting: drag.itemView)
+                // Invisible, NOT hidden: the view owns the mouse-tracking
+                // session, and a hidden view can lose its mouseUp.
+                drag.itemView.alphaValue = 0
                 layoutItems(animated: true) // remaining tabs close the gap
             }
             let screen = screenPoint(for: event)
@@ -408,19 +491,26 @@ final class TabStripNSView: NSView {
 
     func endPress(with event: NSEvent) {
         Self.dragLog("endPress loc=\(event.locationInWindow) drag=\(drag.map { "didMove=\($0.didMove) tornOff=\($0.isTornOff)" } ?? "nil")")
+        finishDrag(atScreen: screenPoint(for: event))
+    }
+
+    /// Commits the drag: reorder in-band, move/detach when torn off. Every
+    /// way a drag can end — the item's own mouseUp or either failsafe
+    /// monitor — funnels here; the first caller wins, the rest no-op.
+    private func finishDrag(atScreen screen: CGPoint) {
         guard let drag else { return }
+        removeDragMonitors()
         defer {
             self.drag = nil
             TabStripRegistry.shared.updateDropTarget(at: nil, excluding: nil)
             layoutItems(animated: true)
         }
         drag.ghost?.close()
-        drag.itemView.isHidden = false
+        drag.itemView.alphaValue = 1
 
         guard drag.didMove else { return } // plain click; select already ran
 
         if drag.isTornOff {
-            let screen = screenPoint(for: event)
             if let (targetID, targetStrip) = TabStripRegistry.shared.strip(at: screen) {
                 if targetID == windowID {
                     return // dropped back on our own strip: no-op
@@ -678,8 +768,8 @@ final class TabGroupHeaderView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.quaternaryLabelColor
-            .withAlphaComponent(0.12).cgColor
-        titleField.font = .systemFont(ofSize: 10, weight: .medium)
+            .withAlphaComponent(0.18).cgColor
+        titleField.font = .systemFont(ofSize: 11, weight: .medium)
         titleField.textColor = .secondaryLabelColor
         titleField.lineBreakMode = .byTruncatingMiddle
         titleField.alignment = .center
@@ -689,6 +779,9 @@ final class TabGroupHeaderView: NSView {
             titleField.centerXAnchor.constraint(equalTo: centerXAnchor),
             titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
             titleField.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 6),
+            // Without a trailing bound a long title keeps its intrinsic
+            // width and (unclipped) renders past the header's edge.
+            titleField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -6),
         ])
         setAccessibilityElement(true)
         setAccessibilityRole(.group)

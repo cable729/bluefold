@@ -113,6 +113,103 @@ struct SessionCoordinatorTests {
         #expect(third.takeRemainingRestoreIDs().count == 1)
     }
 
+    // MARK: - Round-5 session loss (last-window close must not wipe the session)
+
+    @Test func closingLastWindowKeepsSessionRecoverable() throws {
+        let file = try makeTempSessionFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+
+        let coordinator = SessionCoordinator(sessionFileURL: file)
+        let window = coordinator.claimLaunchWindowID()
+        coordinator.model(for: window).openTab(fileURL: URL(fileURLWithPath: "/tmp/axler.pdf"))
+        coordinator.windowClosed(window)  // last window: app keeps running
+        coordinator.saveNow()
+
+        let reloaded = SessionCoordinator(sessionFileURL: file)
+        let restored = reloaded.model(for: reloaded.claimLaunchWindowID())
+        #expect(restored.tabs.first?.pathHint.hasSuffix("axler.pdf") == true)
+    }
+
+    @Test func dockReopenAfterLastWindowCloseRestoresTabs() throws {
+        let file = try makeTempSessionFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+
+        let coordinator = SessionCoordinator(sessionFileURL: file)
+        let window = coordinator.claimLaunchWindowID()
+        coordinator.model(for: window).openTab(fileURL: URL(fileURLWithPath: "/tmp/axler.pdf"))
+        coordinator.windowClosed(window)
+
+        // Dock click reopens the default scene in the SAME process; the
+        // launch ID must resolve to the stashed window, not a spent one.
+        let reopened = coordinator.model(for: coordinator.claimLaunchWindowID())
+        #expect(reopened.tabs.first?.pathHint.hasSuffix("axler.pdf") == true)
+    }
+
+    @Test func corruptSessionFileFallsBackToBackup() throws {
+        let file = try makeTempSessionFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+
+        let first = SessionCoordinator(sessionFileURL: file)
+        first.model(for: first.claimLaunchWindowID())
+            .openTab(fileURL: URL(fileURLWithPath: "/tmp/axler.pdf"))
+        first.saveNow()
+
+        // A successful load rotates the backup…
+        _ = SessionCoordinator(sessionFileURL: file)
+        // …so when the main file is later mangled, the session still loads.
+        try Data("garbage".utf8).write(to: file)
+        let recovered = SessionCoordinator(sessionFileURL: file)
+        let model = recovered.model(for: recovered.claimLaunchWindowID())
+        #expect(model.tabs.first?.pathHint.hasSuffix("axler.pdf") == true)
+    }
+
+    @Test func emptiedSessionFileFallsBackToBackup() throws {
+        let file = try makeTempSessionFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+
+        let first = SessionCoordinator(sessionFileURL: file)
+        first.model(for: first.claimLaunchWindowID())
+            .openTab(fileURL: URL(fileURLWithPath: "/tmp/axler.pdf"))
+        first.saveNow()
+        _ = SessionCoordinator(sessionFileURL: file)  // rotates the backup
+
+        // A bug (or interrupted run) writes a windowless session.
+        let second = SessionCoordinator(
+            sessionFileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("empty-\(UUID().uuidString).json")
+        )
+        try SessionCodec.encode(second.snapshot()).write(to: file)
+
+        let recovered = SessionCoordinator(sessionFileURL: file)
+        let model = recovered.model(for: recovered.claimLaunchWindowID())
+        #expect(model.tabs.first?.pathHint.hasSuffix("axler.pdf") == true)
+    }
+
+    @Test func stagedDetachSurvivesQuitWithoutPresentation() throws {
+        let file = try makeTempSessionFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+
+        let coordinator = SessionCoordinator(sessionFileURL: file)
+        let source = coordinator.claimLaunchWindowID()
+        let model = coordinator.model(for: source)
+        model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        model.openTab(fileURL: URL(fileURLWithPath: "/tmp/b.pdf"))
+
+        // Tear-off staged a window that the scene never presented (the
+        // round-4 wedge), then the app quit.
+        let detached = coordinator.detachTabToNewWindow(
+            model.tabs[1].id, from: source, at: CGPoint(x: 100, y: 100)
+        )
+        #expect(detached != nil)
+        coordinator.prepareForTermination()
+
+        let reloaded = SessionCoordinator(sessionFileURL: file)
+        _ = reloaded.claimLaunchWindowID()
+        let allIDs = [reloaded.claimLaunchWindowID()] + reloaded.takeRemainingRestoreIDs()
+        let totalTabs = allIDs.map { reloaded.model(for: $0).tabs.count }.reduce(0, +)
+        #expect(totalTabs == 2)  // no tab may be lost by an unpresented stage
+    }
+
     @Test func modelsShareOneProvider() {
         let coordinator = SessionCoordinator(
             sessionFileURL: FileManager.default.temporaryDirectory

@@ -8,7 +8,7 @@ public enum PaletteMode: Equatable, Sendable {
     case navigate
     /// ⌘⇧P — fuzzy search over the command table.
     case commands
-    /// ⌥⌘G — jump to a page number.
+    /// ⌘G — jump to a page number.
     case goToPage
 }
 

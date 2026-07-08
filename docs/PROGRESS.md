@@ -43,6 +43,22 @@ the project owner's plan file; the milestone list below is self-contained.
   - **Library polish** (agent): selection made instant (root cause: `filteredItems` was a computed property re-running SQLite scope queries per body evaluation; now stored + Equatable cell content), ⌘/⇧ multi-select with contextual action bar (Remove only for app-owned imports), drag-to-tag/collection, Untagged / Not-in-any-collection smart filters with counts, tags-vs-collections help popovers, covers survive scroll (`.task(id:)` cancellation broke retries permanently; per-URL coalescing loader), right-click Reveal in Finder, debounced live FTS.
   - **Status bar** (agent): `‹ [page] / N ›` arrows wired to PDFView paging; reusable `.instantHint` hover hints (150ms) because `.help()` felt like seconds.
 
+- [x] **UI-4** Feedback round 5 (2026-07-08): P0 session loss FIXED — root
+  cause was last-window-close wiping session.json while the app kept running
+  (not the staged-detach hypothesis; that path was fine and is now
+  test-pinned). Last-closed window with tabs is stashed back into
+  pendingRestore (browser-style), claimLaunchWindowID re-resolves spent IDs,
+  session.json.bak rotates on good loads with corrupt/empty fallback. Tab
+  strip: layer clipping, header trailing constraint + 22pt/11pt sizing,
+  first-layout never animates, grouping suspends only when a drag MOVES
+  (kills the title-glide), torn-off tab uses alpha 0 instead of isHidden
+  (hidden views can drop the drag's own tracking events — the wedge), plus
+  local+global mouseUp monitor failsafes; every drag end funnels through
+  finishDrag. ⌘G = Go to Page (⌥⌘G retired; find cycles via Enter/⇧Enter).
+  Discoverability: toolbar ⌘-button for the palette + empty-state hint line.
+  "+" is a menu (From Library… / Open File…). Library tags show subtree
+  book-count badges (LibraryModel.tagCounts).
+
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); library/tags/search/sync UI pending
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `PDFReaderUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but local XCUITest synthesis can't drive them (see quirks below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI/human hands end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test PDFREADER_BUNDLE_ID_SUFFIX=.uitest<N>`. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
@@ -118,12 +134,15 @@ app bugs:
 - `./scripts/verify.sh` — the one-command quality gate (tests + both app builds + launch smoke)
 
 ## Next step
-1. **Morning human pass** (the overnight GUI-verification debt, ~15 min):
-   tab dragging by hand (reorder / tear-off / cross-window / single-tab
-   move), two-row tabs + group headers, split view, theme sync + sepia
-   titlebar + auto mode, live sidebar find with breadcrumbs, library
-   selection/drag-to-tag/smart filters/fast-scroll covers, status-bar
-   arrows + instant hints.
+1. **Owner hand-pass on the round-5 fixes** (a demo instance with grouped
+   tabs may still be running from the fix session; scratch session, safe to
+   ⌘Q): tear-off drag by hand — the ghost must never wedge (alpha-0 +
+   monitor failsafes are in, but only a human can synthesize the original
+   failure); grouped-header look at 22pt (owner wanted a live design pass);
+   click a grouped tab — title must NOT glide in; close last window → Dock
+   reopen → tabs must come back; ⌘G go-to-page; "+" menu; library tag
+   badges. Plus the still-unverified round-3 items: cross-window drag,
+   split view, live find breadcrumbs.
 2. **Merge PR #1 (ci-hardening)** and read its PTY log to name the hanging
    CI test; gate or fix it, then add CI job B (xcodebuild UI tests + iOS
    sim build) and wire UI tests into scripts/verify.sh.

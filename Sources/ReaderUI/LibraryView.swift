@@ -195,6 +195,8 @@ public struct LibraryView: View {
     private func tagRow(_ node: TagNode) -> some View {
         let filterValue: LibraryFilter = node.tag.id.map { LibraryFilter.tag($0) } ?? .all
         return Label(node.tag.name, systemImage: "tag")
+            // .badge(0) renders nothing, so empty tags stay clean.
+            .badge(node.tag.id.flatMap { model.tagCounts[$0] } ?? 0)
             .tag(filterValue)
             .draggable(Self.tagDragPrefix + String(node.tag.id ?? -1)) {
                 Label(node.tag.name, systemImage: "tag")

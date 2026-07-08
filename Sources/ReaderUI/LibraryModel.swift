@@ -194,6 +194,9 @@ public final class LibraryModel {
     /// Sidebar badge counts for the smart filters.
     public private(set) var untaggedCount = 0
     public private(set) var notInAnyCollectionCount = 0
+    /// Books matched per tag id — descendant tags included, so each badge
+    /// equals what selecting that tag shows.
+    public private(set) var tagCounts: [Int64: Int] = [:]
 
     /// Recomputes the filter scope (SQLite) and the smart-filter counts,
     /// then reapplies the search text. Call after any data change.
@@ -228,8 +231,43 @@ public final class LibraryModel {
         notInAnyCollectionCount = items.count(
             where: { bookRowIDs[$0.id].map(uncollectedIDs.contains) ?? true }
         )
+        tagCounts = Self.tagCounts(
+            tree: tagTree, itemTags: itemTags, liveItemIDs: Set(items.map(\.id))
+        )
 
         applySearchFilter()
+    }
+
+    /// Distinct books per tag. A book counts toward every ANCESTOR of its
+    /// tags too, because selecting a tag scopes to its whole subtree — the
+    /// badge must equal what the click shows. Pure, for direct testing.
+    static func tagCounts(
+        tree: [TagNode],
+        itemTags: [String: [TagRecord]],
+        liveItemIDs: Set<String>
+    ) -> [Int64: Int] {
+        var directItems: [Int64: Set<String>] = [:]
+        for (itemID, tags) in itemTags where liveItemIDs.contains(itemID) {
+            for tag in tags {
+                guard let id = tag.id else { continue }
+                directItems[id, default: []].insert(itemID)
+            }
+        }
+        var counts: [Int64: Int] = [:]
+        func gather(_ node: TagNode) -> Set<String> {
+            var books = node.tag.id.flatMap { directItems[$0] } ?? []
+            for child in node.children {
+                books.formUnion(gather(child))
+            }
+            if let id = node.tag.id {
+                counts[id] = books.count
+            }
+            return books
+        }
+        for root in tree {
+            _ = gather(root)
+        }
+        return counts
     }
 
     /// Narrows the cached scope by the search text (metadata match — the

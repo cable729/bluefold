@@ -29,7 +29,7 @@ Conventions borrowed from VS Code (palettes, quick-open), Safari/Chrome
 | ← / → | Previous / Next page | Handled in `ReaderPDFView.keyDown` so it works in continuous display modes too (PDFView only paged in single-page mode). Bare arrows only — ⇧/⌘-modified arrows and text fields keep their normal behavior. |
 | ↑ / ↓ | Scroll (PDFView native; pages in single-page mode) | |
 | Space / ⇧Space | Scroll down / up a screen (PDFView native) | |
-| ⌥⌘G | Go to Page… | Same key as Preview. Also available in the bottom-bar page field. |
+| ⌘G | Go to Page… | Owner request (was ⌥⌘G). ⌘G was free: find next/previous cycles with Enter/⇧Enter inside the search field. Also available in the bottom-bar page field. |
 | ⌘P (or ⌘O) | Go to Anything… — navigate palette | Fuzzy search over the outline (with breadcrumb paths), bookmarks, and every open tab in every window. VS Code ⌘P / Obsidian ⌘O. |
 
 ## Tabs
@@ -96,5 +96,8 @@ title-match first, breadcrumb-match second.
 - **Arrows**: deliberately NOT menu shortcuts — a menu binding would steal
   arrow keys from every text field in the window. Table entries carry the
   chords for documentation; `ReaderPDFView.keyDown` owns the behavior.
-- Not yet bound anywhere (future candidates): ⌘G/⌘⇧G find next/previous,
+- **⌘G**: reassigned to Go to Page (owner request, 2026-07-08). Preview's
+  ⌘G = find-next convention is intentionally dropped — find next/previous
+  live on Enter/⇧Enter in the search field. Don't rebind ⌘G to find.
+- Not yet bound anywhere (future candidates): ⌘⇧G find previous,
   ⌘+/⌘−/⌘0 zoom, ⌘9 zoom-to-fit, ⌘⌥←/→ or ⌘1..9 direct tab selection.

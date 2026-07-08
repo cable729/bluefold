@@ -83,6 +83,9 @@ end-of-session feedback after using the app.
   (task(id:) cancels on disappear); consider prefetching, retry-on-appear,
   or loading through a small request queue that survives cell recycling.
 - ✅ DONE 2026-07-08 — **Right-click → Reveal in Finder** (NSWorkspace.activateFileViewerSelecting).
+- ✅ DONE 2026-07-08 (round 5) — **Tag rows show matched-book counts** in the
+  sidebar, descendant tags included so each badge equals what clicking the
+  tag shows; zero-count tags show no badge (`LibraryModel.tagCounts`).
 
 ### Deep linking / anchors (owner question, answered)
 PDFs expose anchors we can link to: **named destinations** (hyperref's
@@ -221,46 +224,59 @@ macOS apps (Docker is impossible — macOS doesn't containerize):
 
 ## Feedback round 5 (2026-07-08, pre-session-handoff) — TOP PRIORITY FIRST
 
-### P0: tab strip glitch persists across relaunch + SESSION LOSS
-Owner screenshot: two same-book tabs grouped; the group-header title
-renders ABOVE the strip over the window titlebar (deterministic — survives
-relaunch, so it's the header frame/clipping bug, not stale drag state); a
-stray floating white panel remains on the right (stuck TabGhostPanel from
-the failed tear-off). Worse: relaunching CLEARED THE OWNER'S SESSION.
-Investigate in this order:
-1. Session loss: likeliest chain is the failed tear-off — detachTab removed
-   the tab and staged a window in pendingRestore that was never presented;
-   what did session.json contain afterward? Reproduce: stage via
-   detachTabToNewWindow, never openWindow, quit, relaunch, diff windows.
-   Also audit closeWindowIfEmptied and whether a force-quit after the wedge
-   skipped saveNow. Add a session.json backup rotation (session.json.bak on
-   each successful load) so a bad save is never a total loss.
-2. Header overflow: TabStripNSView doesn't clip subviews; group header
-   frame math (non-flipped coords) can place text outside bounds. Clip the
-   strip layer and fix the frame; make the header taller/readable (owner:
-   "skinny and hard to see").
-3. Stuck ghost: endPress never ran. Add a window-level mouseUp failsafe
-   (local NSEvent monitor while a drag is live) that force-finishes the
-   drag; dragdebug.log (PDFREADER_SESSION_DIR) captures the event trace.
+### ✅ DONE 2026-07-08 — P0: tab strip glitch persists across relaunch + SESSION LOSS
+All three fixed the same day; owner verification pending:
+1. **Session loss — root cause found, different from the hypothesis.** The
+   staged-detach path was fine (now pinned by
+   `stagedDetachSurvivesQuitWithoutPresentation`). The real chain: closing
+   the LAST reader window fires `windowClosed` → the window leaves the
+   snapshot → the debounced save writes an EMPTY session while the app
+   keeps running (that's also why the stuck ghost panel was still on
+   screen — the app had never quit). A Dock-click "relaunch" then reopens
+   the default scene, whose memoized `claimLaunchWindowID` pointed at the
+   spent window ID → fresh empty model saved under it. Fixes: (a) closing
+   the last window with tabs stashes its state back into
+   `pendingRestore` (browser-style reopen), (b) `claimLaunchWindowID`
+   re-resolves when its window is gone, (c) `session.json.bak` rotates on
+   every good load and is the fallback when the main file is corrupt or
+   windowless. Five new SessionCoordinator tests cover the class.
+2. **Header overflow**: strip layer now clips (`masksToBounds`); header
+   title got the missing trailing constraint (long titles used to render
+   past the header, unclipped); header raised 17→22pt, font 10→11.
+   XCUITest render smoke now asserts header-inside-strip + min height.
+3. **Stuck ghost**: three-layer fix. (a) The torn-off tab is no longer
+   `isHidden` (a hidden NSView can lose the tracking events of the drag it
+   started — the suspected wedge mechanism); it goes `alphaValue = 0` and
+   leaves the layout flow instead. (b) Local + global mouseUp NSEvent
+   monitors force-finish any drag whose item view misses its mouseUp.
+   (c) The drag cancels safely if the dragged tab vanishes mid-drag or the
+   strip leaves its window. All ends funnel through one `finishDrag`.
+   Also fixed while in there: a plain CLICK on a grouped tab no longer
+   dissolves/re-forms the group (grouping now suspends only once a drag
+   actually moves), and no view animates its very first layout — together
+   these kill the round-4 "title glides in from outside" glitch.
 
-### Keybinding discoverability (owner: "easier to find and use")
-Some visible affordance that the palette/shortcuts exist: e.g. a "⌘P" hint
-in the toolbar search button, an empty-state line ("Press ⌘⇧P for all
-commands, / for shortcuts"), a Help menu item opening the overlay, and/or
-a one-time HUD on first launch. Design with the owner.
+### ✅ DONE 2026-07-08 — Keybinding discoverability
+Toolbar now has a ⌘-icon "Commands" button (opens the command palette;
+hover hint lists ⌘⇧P / ⌘P / "/"), and the empty-window state shows
+"⌘⇧P all commands · ⌘P go to anything · / shortcuts". The Help menu
+already listed the palette + shortcuts overlay (kept). Not done (design
+with owner if wanted): one-time first-launch HUD.
 
-### Unify the "+" tab button with the library
-"+" currently only opens a file panel. Owner wants library access there
-too — merge the concepts: e.g. "+" opens the NAVIGATE palette seeded with
-library books (palette already exists), or a small menu: "From Library…"
-/ "Open File… (⌘⇧O)". Decide with the owner.
+### ✅ DONE 2026-07-08 — Unify the "+" tab button with the library
+"+" is now a menu: "From Library…" (opens the Library window) /
+"Open File…" (the old panel). The alternative — seeding the NAVIGATE
+palette with library books — was deliberately NOT done yet: candidates
+would come from the overlay DB, whose file paths (file_ref) only exist
+for imports and previously-opened books, so unopened Calibre books would
+silently be missing. Revisit with the owner (needs a Calibre-backed
+candidate source to be complete).
 
-### Go to Page should be ⌘G (owner request)
-Currently ⌥⌘G. CONFLICT to resolve: ⌘G is Find Next (M8, Preview/Safari
-convention). Owner wants ⌘G = Go to Page; move find-next/previous to
-something else (Enter/⇧Enter already cycle within the find field) or drop
-the menu chord for find-next. CommandRegistry's duplicate-chord integrity
-test will enforce whatever is chosen.
+### ✅ DONE 2026-07-08 — Go to Page is ⌘G
+No conflict existed anymore: the M8 find-bar ⌘G/⇧⌘G cycling died with the
+sidebar-find rewrite (Enter/⇧Enter cycle in the field). `nav.goToPage`
+chord changed ⌥⌘G → ⌘G; KEYBINDINGS.md documents that ⌘G must not be
+rebound to find-next.
 
 ### CI cost estimate if billing were re-enabled (answered for the owner)
 macOS runners bill $0.08/min on private repos. With frugal mode (PR #2):
