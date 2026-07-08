@@ -93,6 +93,105 @@ struct LibraryTaggingTests {
         #expect(model.filteredItems.map(\.id) == [homework.id])
     }
 
+    @Test func smartFiltersScopeUntaggedAndUncollected() throws {
+        let (model, dir) = try makeModelWithImports()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let homework = try #require(model.items.first { $0.title == "homework-3" })
+        let notes = try #require(model.items.first { $0.title == "lecture-notes" })
+        #expect(model.untaggedCount == 2)
+        #expect(model.notInAnyCollectionCount == 2)
+
+        model.createTag(name: "Algebra")
+        let algebra = try #require(model.allTags.first)
+        model.toggleTag(algebra, for: homework)
+
+        model.filter = .untagged
+        #expect(model.filteredItems.map(\.id) == [notes.id])
+        #expect(model.untaggedCount == 1)
+
+        model.createCollection(name: "Course")
+        let course = try #require(model.collections.first)
+        model.toggleCollection(course, for: notes)
+
+        model.filter = .notInAnyCollection
+        #expect(model.filteredItems.map(\.id) == [homework.id])
+        #expect(model.notInAnyCollectionCount == 1)
+    }
+
+    @Test func selectionWideTagToggleAddsThenRemoves() throws {
+        let (model, dir) = try makeModelWithImports()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        model.createTag(name: "Algebra")
+        let algebra = try #require(model.allTags.first)
+        let homework = try #require(model.items.first { $0.title == "homework-3" })
+        let all = model.items
+
+        // Mixed state (one tagged): toggle-for-all ADDS to the untagged rest.
+        model.toggleTag(algebra, for: homework)
+        model.toggleTag(algebra, forAll: all)
+        #expect(model.allHaveTag(algebra, items: all))
+
+        // Uniform state: toggle-for-all removes from every item.
+        model.toggleTag(algebra, forAll: all)
+        #expect(all.allSatisfy { !model.hasTag(algebra, item: $0) })
+    }
+
+    @Test func selectionWideCollectionToggleAndDropAdd() throws {
+        let (model, dir) = try makeModelWithImports()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        model.createCollection(name: "Course")
+        let course = try #require(model.collections.first)
+        let all = model.items
+
+        model.toggleCollection(course, forAll: all)
+        #expect(model.allInCollection(course, items: all))
+        model.toggleCollection(course, forAll: all)
+        #expect(all.allSatisfy { !model.isInCollection(course, item: $0) })
+
+        // Sidebar drop path: add by item id, appended, idempotent.
+        model.addToCollection(collectionID: course.id!, itemIDs: Set(all.map(\.id)))
+        #expect(model.allInCollection(course, items: all))
+        model.addToCollection(collectionID: course.id!, itemIDs: [all[0].id])
+        model.filter = .collection(course.id!)
+        #expect(model.filteredItems.count == 2)
+    }
+
+    @Test func dropAddTagNeverRemoves() throws {
+        let (model, dir) = try makeModelWithImports()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        model.createTag(name: "Algebra")
+        let algebra = try #require(model.allTags.first)
+        let homework = try #require(model.items.first { $0.title == "homework-3" })
+
+        model.addTag(tagID: algebra.id!, toItemIDs: [homework.id])
+        #expect(model.hasTag(algebra, item: homework))
+        // Dropping again onto the same tag is a no-op, not a toggle.
+        model.addTag(tagID: algebra.id!, toItemIDs: [homework.id])
+        #expect(model.hasTag(algebra, item: homework))
+    }
+
+    @Test func removeImportedItemsSoftDeletesAndSurvivesReload() throws {
+        let (model, dir) = try makeModelWithImports()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let homework = try #require(model.items.first { $0.title == "homework-3" })
+        model.removeImportedItems([homework])
+        #expect(model.items.count == 1)
+        #expect(model.filteredItems.count == 1)
+
+        // The file itself is untouched — removal is a library operation.
+        #expect(FileManager.default.fileExists(atPath: homework.fileURL.path))
+
+        // Re-importing the same file resurrects nothing implicitly: the
+        // soft-deleted row stays hidden until an explicit re-import.
+        model.importPDFs(at: [])
+        #expect(model.items.count == 1)
+    }
+
     @Test func overlayTagsMatchSearch() throws {
         let (model, dir) = try makeModelWithImports()
         defer { try? FileManager.default.removeItem(at: dir) }

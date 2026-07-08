@@ -345,6 +345,48 @@ public final class LibraryStore: Sendable {
         }
     }
 
+    /// The live books with no live tag assignment at all — the "Untagged"
+    /// smart filter. A book counts as untagged when every `book_tag` row it
+    /// has is tombstoned or points at a tombstoned tag.
+    public func booksWithoutTags() throws -> [BookRecord] {
+        try dbQueue.read { db in
+            try BookRecord.fetchAll(
+                db,
+                sql: """
+                    SELECT b.* FROM book b
+                    WHERE b.deleted_at IS NULL
+                      AND NOT EXISTS (
+                        SELECT 1 FROM book_tag bt
+                        JOIN tag t ON t.id = bt.tag_id AND t.deleted_at IS NULL
+                        WHERE bt.book_id = b.id AND bt.deleted_at IS NULL
+                      )
+                    ORDER BY b.title
+                    """
+            )
+        }
+    }
+
+    /// The live books that belong to no live collection — the "Not in any
+    /// collection" smart filter. Tombstoned memberships and memberships in
+    /// tombstoned collections don't count.
+    public func booksNotInAnyCollection() throws -> [BookRecord] {
+        try dbQueue.read { db in
+            try BookRecord.fetchAll(
+                db,
+                sql: """
+                    SELECT b.* FROM book b
+                    WHERE b.deleted_at IS NULL
+                      AND NOT EXISTS (
+                        SELECT 1 FROM collection_item ci
+                        JOIN collection c ON c.id = ci.collection_id AND c.deleted_at IS NULL
+                        WHERE ci.book_id = b.id AND ci.deleted_at IS NULL
+                      )
+                    ORDER BY b.title
+                    """
+            )
+        }
+    }
+
     // MARK: - Collections
 
     @discardableResult

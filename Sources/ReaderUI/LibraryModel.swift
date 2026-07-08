@@ -43,6 +43,10 @@ public enum LibraryFilter: Hashable {
     case all
     case tag(Int64)
     case collection(Int64)
+    /// Smart filter: books with no live overlay tag.
+    case untagged
+    /// Smart filter: books in no live collection.
+    case notInAnyCollection
 }
 
 /// State of the library window: the Calibre source, the merged item list
@@ -59,8 +63,12 @@ public final class LibraryModel {
     /// Progress of the background full-text indexing pass; nil when idle.
     public private(set) var indexingProgress: (done: Int, total: Int)?
 
-    public var searchText = ""
-    public var filter: LibraryFilter = .all
+    public var searchText = "" {
+        didSet { if searchText != oldValue { applySearchFilter() } }
+    }
+    public var filter: LibraryFilter = .all {
+        didSet { if filter != oldValue { rescope() } }
+    }
 
     // Overlay data (the app's own, synced later via CloudKit).
     public private(set) var tagTree: [TagNode] = []
@@ -174,7 +182,22 @@ public final class LibraryModel {
         Task { await reload() }
     }
 
-    public var filteredItems: [LibraryItem] {
+    /// The grid's contents: `items` scoped to the sidebar filter, then
+    /// narrowed by the search text. STORED, not computed — the scoping runs
+    /// SQLite queries, and a computed property re-ran them on every body
+    /// evaluation (this is what made selection clicks feel laggy). It is
+    /// recomputed only when items / filter / search / overlay data change.
+    public private(set) var filteredItems: [LibraryItem] = []
+    /// `items` scoped to the sidebar filter, before search narrowing —
+    /// cached so per-keystroke search doesn't re-run the scope queries.
+    @ObservationIgnored private var scopedItems: [LibraryItem] = []
+    /// Sidebar badge counts for the smart filters.
+    public private(set) var untaggedCount = 0
+    public private(set) var notInAnyCollectionCount = 0
+
+    /// Recomputes the filter scope (SQLite) and the smart-filter counts,
+    /// then reapplies the search text. Call after any data change.
+    func rescope() {
         var scoped = items
         switch filter {
         case .all:
@@ -208,11 +231,38 @@ public final class LibraryModel {
                 }
                 .sorted { $0.1 < $1.1 }
                 .map(\.0)
+        case .untagged:
+            let ids = Set(((try? store?.booksWithoutTags()) ?? []).compactMap(\.id))
+            // Items with no overlay row have no overlay tags by definition.
+            scoped = items.filter { bookRowIDs[$0.id].map(ids.contains) ?? true }
+        case .notInAnyCollection:
+            let ids = Set(((try? store?.booksNotInAnyCollection()) ?? []).compactMap(\.id))
+            scoped = items.filter { bookRowIDs[$0.id].map(ids.contains) ?? true }
         }
+        scopedItems = scoped
 
+        let untaggedIDs = Set(((try? store?.booksWithoutTags()) ?? []).compactMap(\.id))
+        untaggedCount = items.count(where: { bookRowIDs[$0.id].map(untaggedIDs.contains) ?? true })
+        let uncollectedIDs = Set(
+            ((try? store?.booksNotInAnyCollection()) ?? []).compactMap(\.id)
+        )
+        notInAnyCollectionCount = items.count(
+            where: { bookRowIDs[$0.id].map(uncollectedIDs.contains) ?? true }
+        )
+
+        applySearchFilter()
+    }
+
+    /// Narrows the cached scope by the search text (metadata match — the
+    /// full-text hits are separate, see `textHits`). Pure in-memory work,
+    /// cheap enough to run per keystroke.
+    private func applySearchFilter() {
         let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !query.isEmpty else { return scoped }
-        return scoped.filter { item in
+        guard !query.isEmpty else {
+            filteredItems = scopedItems
+            return
+        }
+        filteredItems = scopedItems.filter { item in
             item.title.lowercased().contains(query)
                 || item.authors.contains { $0.lowercased().contains(query) }
                 || item.calibreTags.contains { $0.lowercased().contains(query) }
@@ -299,8 +349,10 @@ public final class LibraryModel {
         }
     }
 
-    /// Debounced full-text query — called by the view when searchText
-    /// changes; results land in `textHits`.
+    /// Debounced live full-text query — called by the view on every
+    /// searchText keystroke (no Enter needed); results land in `textHits`.
+    /// A new keystroke cancels the superseded query, and the FTS query runs
+    /// off the main actor so typing never stalls on SQLite.
     public func searchTextChanged() {
         textHitsTask?.cancel()
         let query = searchText.trimmingCharacters(in: .whitespaces)
@@ -309,9 +361,20 @@ public final class LibraryModel {
             return
         }
         textHitsTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(250))
+            try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled, let self else { return }
-            self.textHits = self.fullTextHits()
+            guard let indexStore = self.indexStore else { return }
+            // Snapshot main-actor state; the query itself runs detached.
+            let hashByItemID = self.contentHashByItemID
+            let items = self.items
+            let hits = await Task.detached(priority: .userInitiated) {
+                Self.fullTextHits(
+                    query: query, in: indexStore,
+                    contentHashByItemID: hashByItemID, items: items
+                )
+            }.value
+            guard !Task.isCancelled else { return }
+            self.textHits = hits
         }
     }
 
@@ -364,12 +427,26 @@ public final class LibraryModel {
 
     /// Full-text matches for the current search text, mapped back to library
     /// items. Hits whose content hash doesn't belong to a known (indexed,
-    /// local) item are dropped.
+    /// local) item are dropped. Synchronous — tests and one-shot callers;
+    /// the live search path uses the detached static variant.
     public func fullTextHits() -> [BookSearchHit] {
         guard let indexStore else { return [] }
         let query = searchText.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else { return [] }
+        return Self.fullTextHits(
+            query: query, in: indexStore,
+            contentHashByItemID: contentHashByItemID, items: items
+        )
+    }
 
+    /// The isolation-free core of the full-text search: pure function of the
+    /// query plus snapshots of main-actor state, safe to run detached.
+    private nonisolated static func fullTextHits(
+        query: String,
+        in indexStore: IndexStore,
+        contentHashByItemID: [String: String],
+        items: [LibraryItem]
+    ) -> [BookSearchHit] {
         let itemIDByHash = Dictionary(
             contentHashByItemID.map { ($1, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -419,8 +496,10 @@ public final class LibraryModel {
         }
     }
 
-    /// Refreshes tags/collections and the per-item tag map.
+    /// Refreshes tags/collections and the per-item tag map, then rescopes
+    /// the grid (overlay changes can move items in and out of the filter).
     public func reloadOverlay() {
+        defer { rescope() }
         guard let store else { return }
         tagTree = (try? store.tagTree()) ?? []
         collections = (try? store.collections()) ?? []
@@ -531,8 +610,114 @@ public final class LibraryModel {
         reloadOverlay()
     }
 
+    // MARK: - Multi-item operations (selection action bar, drag & drop)
+
+    /// The items for a set of ids, in current grid order (fallback: item
+    /// order) — the shape selection-wide actions want.
+    public func items(withIDs ids: Set<String>) -> [LibraryItem] {
+        let fromGrid = filteredItems.filter { ids.contains($0.id) }
+        if fromGrid.count == ids.count { return fromGrid }
+        return items.filter { ids.contains($0.id) }
+    }
+
+    /// True when every given item carries the tag (drives the checkmark in
+    /// the selection tag menu).
+    public func allHaveTag(_ tag: TagRecord, items: [LibraryItem]) -> Bool {
+        !items.isEmpty && items.allSatisfy { hasTag(tag, item: $0) }
+    }
+
+    /// Selection-wide tag toggle: if every item has the tag, remove it from
+    /// all; otherwise add it to the ones missing it.
+    public func toggleTag(_ tag: TagRecord, forAll targets: [LibraryItem]) {
+        guard let store, let tagID = tag.id, !targets.isEmpty else { return }
+        let removeFromAll = allHaveTag(tag, items: targets)
+        for item in targets {
+            guard let rowID = bookRowIDs[item.id] else { continue }
+            var current = Set((itemTags[item.id] ?? []).compactMap(\.id))
+            if removeFromAll {
+                current.remove(tagID)
+            } else {
+                current.insert(tagID)
+            }
+            try? store.setTags(bookID: rowID, tagIDs: current)
+        }
+        reloadOverlay()
+    }
+
+    /// Adds a tag to items by id (sidebar drop target). Never removes.
+    public func addTag(tagID: Int64, toItemIDs ids: Set<String>) {
+        guard let store else { return }
+        for item in items(withIDs: ids) {
+            guard let rowID = bookRowIDs[item.id] else { continue }
+            var current = Set((itemTags[item.id] ?? []).compactMap(\.id))
+            guard !current.contains(tagID) else { continue }
+            current.insert(tagID)
+            try? store.setTags(bookID: rowID, tagIDs: current)
+        }
+        reloadOverlay()
+    }
+
+    /// True when every given item is in the collection.
+    public func allInCollection(_ collection: CollectionRecord, items: [LibraryItem]) -> Bool {
+        !items.isEmpty && items.allSatisfy { isInCollection(collection, item: $0) }
+    }
+
+    /// Selection-wide collection toggle (mirrors `toggleTag(_:forAll:)`).
+    public func toggleCollection(_ collection: CollectionRecord, forAll targets: [LibraryItem]) {
+        guard collection.id != nil, !targets.isEmpty else { return }
+        let removeFromAll = allInCollection(collection, items: targets)
+        for item in targets {
+            if removeFromAll {
+                if isInCollection(collection, item: item) { toggleCollection(collection, for: item) }
+            } else {
+                if !isInCollection(collection, item: item) { toggleCollection(collection, for: item) }
+            }
+        }
+    }
+
+    /// Adds items to a collection by id (sidebar drop target), appended
+    /// after the existing members. Never removes.
+    public func addToCollection(collectionID: Int64, itemIDs ids: Set<String>) {
+        guard let store else { return }
+        var count = ((try? store.items(inCollection: collectionID)) ?? []).count
+        for item in items(withIDs: ids) {
+            guard let rowID = bookRowIDs[item.id] else { continue }
+            let already = ((try? store.items(inCollection: collectionID)) ?? [])
+                .contains { $0.bookID == rowID }
+            guard !already else { continue }
+            try? store.addToCollection(collectionID: collectionID, bookID: rowID, sortOrder: count)
+            count += 1
+        }
+        reloadOverlay()
+    }
+
+    /// Removes the app's OWN imported books from the library (soft-delete in
+    /// the overlay DB; the PDF file on disk is untouched). Calibre-sourced
+    /// items are skipped entirely — Calibre data is read-only, always.
+    public func removeImportedItems(_ targets: [LibraryItem]) {
+        guard let store else { return }
+        var removedIDs: Set<String> = []
+        for item in targets where item.source == .imported {
+            guard let rowID = bookRowIDs[item.id] else { continue }
+            try? store.softDeleteBook(id: rowID)
+            removedIDs.insert(item.id)
+            bookRowIDs[item.id] = nil
+        }
+        guard !removedIDs.isEmpty else { return }
+        items.removeAll { removedIDs.contains($0.id) }
+        reloadOverlay()
+    }
+
+    /// Reveals the items' PDF files in Finder. Selecting never downloads —
+    /// evicted iCloud placeholders are still selectable in Finder.
+    public func revealInFinder(_ targets: [LibraryItem]) {
+        guard !targets.isEmpty else { return }
+        NSWorkspace.shared.activateFileViewerSelecting(targets.map(\.fileURL))
+    }
+
     func setItemsForTesting(_ items: [LibraryItem]) {
         self.items = items
+        rescope()
     }
 
     /// Ensures the file is local (downloading from iCloud if evicted), then
