@@ -44,6 +44,25 @@ struct OutlineNode: Identifiable {
         return best?.path ?? []
     }
 
+    /// Chapter starts = the page indices of TOP-LEVEL outline entries,
+    /// sorted. (Books whose top level is "Part I/II" skip by part — the
+    /// outline's own idea of its coarsest division wins.)
+    static func chapterStarts(in nodes: [OutlineNode]) -> [Int] {
+        nodes.compactMap { $0.entry?.pageIndex }.sorted()
+    }
+
+    /// First chapter starting after `pageIndex` (status-bar "next chapter").
+    static func chapterStart(in nodes: [OutlineNode], after pageIndex: Int) -> Int? {
+        chapterStarts(in: nodes).first { $0 > pageIndex }
+    }
+
+    /// Last chapter starting before `pageIndex` (status-bar "previous
+    /// chapter"). Standing ON a chapter's first page goes to the chapter
+    /// before it, media-player-style.
+    static func chapterStart(in nodes: [OutlineNode], before pageIndex: Int) -> Int? {
+        chapterStarts(in: nodes).last { $0 < pageIndex }
+    }
+
     /// Same search, returning the node id (sidebar highlight).
     static func deepestNodeID(in nodes: [OutlineNode], atOrBefore pageIndex: Int) -> UUID? {
         var best: (id: UUID, page: Int)?

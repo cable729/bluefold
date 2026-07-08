@@ -30,6 +30,7 @@ Conventions borrowed from VS Code (palettes, quick-open), Safari/Chrome
 | ↑ / ↓ | Scroll (PDFView native; pages in single-page mode) | |
 | Space / ⇧Space | Scroll down / up a screen (PDFView native) | |
 | ⌘G | Go to Page… | Owner request (was ⌥⌘G). ⌘G was free: find next/previous cycles with Enter/⇧Enter inside the search field. Also available in the bottom-bar page field. |
+| — | Previous / Next Chapter | Status-bar ⇤ ⇥ buttons flanking the page arrows; also in the Go menu and command palette. Stops at TOP-LEVEL outline entries; pushes history (⌘[ returns). |
 | ⌘P (or ⌘O) | Open Anything… — the OPEN palette | Fuzzy search over every open tab (all windows), every library book, and every collection and tag. Return opens/switches; **⌘Return opens in a background tab (palette stays up for queueing several); ⌥Return opens in a new window**. Collections/tags open every book inside as tabs. VS Code ⌘P / Obsidian ⌘O. |
 | ⌘⇧O | Go to Section… — the IN-BOOK palette | Sections (with breadcrumb paths) and bookmarks of the current book. ⌘Return opens the section as an adjacent background tab. VS Code go-to-symbol. |
 

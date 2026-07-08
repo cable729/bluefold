@@ -183,15 +183,22 @@ public struct ReaderWindowView: View {
             } description: {
                 Text("Browse your library or open a PDF file.")
             } actions: {
-                Button("Open Library") { openWindow(id: "library") }
-                    .buttonStyle(.borderedProminent)
-                Button("Open PDF File…") { openPanel() }
-                // Discoverability (round 5): the shortcut system is
-                // invisible unless something points at it.
-                Text("⌘⇧P all commands   ·   ⌘P go to anything   ·   /  shortcuts")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 12)
+                // ONE child: ContentUnavailableView lays actions out
+                // horizontally, which shoved the hint line off-window and
+                // stretched the buttons (round-8 owner screenshot).
+                VStack(spacing: 14) {
+                    HStack(spacing: 10) {
+                        Button("Open Library") { openWindow(id: "library") }
+                            .buttonStyle(.borderedProminent)
+                        Button("Open PDF File…") { openPanel() }
+                    }
+                    .fixedSize()
+                    // Discoverability (round 5): the shortcut system is
+                    // invisible unless something points at it.
+                    Text("⌘⇧P all commands   ·   ⌘P go to anything   ·   /  shortcuts")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }

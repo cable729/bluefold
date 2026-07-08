@@ -337,6 +337,45 @@ public final class ReaderWindowModel {
         activeController?.goToNextPage()
     }
 
+    // MARK: - Chapter skipping (status-bar |‹ ›| buttons)
+
+    /// Top-level outline entries of the active document, or [] without one.
+    private var activeOutline: [OutlineNode] {
+        guard
+            let activeTab,
+            let document = provider.document(for: url(for: activeTab))
+        else { return [] }
+        return outline(for: document)
+    }
+
+    public var canGoToPreviousChapter: Bool {
+        guard let activeTab else { return false }
+        return OutlineNode.chapterStart(in: activeOutline, before: activeTab.pageIndex) != nil
+    }
+
+    public var canGoToNextChapter: Bool {
+        guard let activeTab else { return false }
+        return OutlineNode.chapterStart(in: activeOutline, after: activeTab.pageIndex) != nil
+    }
+
+    /// Chapter skips are deliberate navigation: they push history, so ⌘[
+    /// returns to where reading left off.
+    public func goToPreviousChapter() {
+        guard
+            let activeTab,
+            let page = OutlineNode.chapterStart(in: activeOutline, before: activeTab.pageIndex)
+        else { return }
+        jump(to: NavEntry(pageIndex: page))
+    }
+
+    public func goToNextChapter() {
+        guard
+            let activeTab,
+            let page = OutlineNode.chapterStart(in: activeOutline, after: activeTab.pageIndex)
+        else { return }
+        jump(to: NavEntry(pageIndex: page))
+    }
+
     // MARK: - Outline (cached per live document)
 
     @ObservationIgnored private var outlineCacheKey: ObjectIdentifier?

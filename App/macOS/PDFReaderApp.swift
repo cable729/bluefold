@@ -25,6 +25,14 @@ struct PDFReaderApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // System tooltips (.help) take well over a second to appear; the
+        // owner wants EVERY hover hint near-instant. This global default is
+        // read by NSToolTipManager and covers all .help tooltips app-wide
+        // (custom .instantHint bubbles are already at 150ms).
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 150])
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // Flush the session before windows tear down, and stop window-close
         // events from erasing windows out of it.

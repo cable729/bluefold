@@ -193,6 +193,18 @@ macOS apps (Docker is impossible — macOS doesn't containerize):
   accumulating forever. Corollary: a deliberately emptied session no
   longer falls back to the .bak (only a corrupt/missing file does).
 
+## Feedback round 8 (2026-07-08, owner) — ✅ all done same day
+- **Prev/next CHAPTER buttons** in the status bar (owner mockup: ⇤ ⇥
+  flanking the page arrows). Top-level outline entries are the stops;
+  jumps push history; also Go menu + palette (`nav.previousChapter/
+  nextChapter`, chordless).
+- **Empty-window layout glitch**: the shortcut-hint line rendered beside
+  the buttons and off-window — ContentUnavailableView lays `actions` out
+  horizontally; wrapped in one VStack child.
+- **Hover delays**: global `NSInitialToolTipDelay = 150` (registered
+  default at launch) makes EVERY `.help` tooltip near-instant, matching
+  the custom `.instantHint` bubbles.
+
 ## Known bugs / rough edges (not yet scheduled)
 - Tooltip delay (above).
 - Cover loading during scroll (above).

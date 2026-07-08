@@ -44,7 +44,8 @@ public struct ReaderCommands: Commands {
         CommandMenu("Go") {
             items(["nav.back", "nav.forward"])
             Divider()
-            items(["nav.previousPage", "nav.nextPage", "nav.goToPage"])
+            items(["nav.previousPage", "nav.nextPage",
+                   "nav.previousChapter", "nav.nextChapter", "nav.goToPage"])
             Divider()
             items(["nav.openAnything", "nav.goToSection"])
         }
