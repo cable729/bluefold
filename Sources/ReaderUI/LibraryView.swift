@@ -11,6 +11,8 @@ public struct LibraryView: View {
     @State private var openError: String?
     @State private var newTagName: String?
     @State private var newCollectionName: String?
+    @State private var showAllTextHits = false
+    @State private var selectedItemID: String?
     @Environment(\.openWindow) private var openWindow
 
     private let columns = [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 20)]
@@ -95,7 +97,12 @@ public struct LibraryView: View {
                 placeholder: "e.g. 5140 Algebra 2",
                 text: .init(get: { newCollectionName ?? "" }, set: { newCollectionName = $0 })
             ) { name in
-                model.createCollection(name: name)
+                // Creating from within a collection scope nests underneath it.
+                if case .collection(let parentID) = model.filter {
+                    model.createCollection(name: name, parent: parentID)
+                } else {
+                    model.createCollection(name: name)
+                }
             }
         }
     }
@@ -113,8 +120,8 @@ public struct LibraryView: View {
                 newItemButton("New Tag…") { newTagName = "" }
             }
             Section("Collections") {
-                ForEach(model.collections, id: \.id) { collection in
-                    collectionRow(collection)
+                OutlineGroup(model.collectionTree, children: \.optionalChildren) { node in
+                    collectionRow(node.collection)
                 }
                 newItemButton("New Collection…") { newCollectionName = "" }
             }
@@ -140,6 +147,13 @@ public struct LibraryView: View {
         let filterValue: LibraryFilter = collection.id.map { LibraryFilter.collection($0) } ?? .all
         return Label(collection.name, systemImage: "folder")
             .tag(filterValue)
+            .contextMenu {
+                Button("Delete Collection", role: .destructive) {
+                    if let id = collection.id {
+                        model.deleteCollection(id: id)
+                    }
+                }
+            }
     }
 
     private func newItemButton(_ title: String, action: @escaping () -> Void) -> some View {
@@ -186,6 +200,8 @@ public struct LibraryView: View {
                                     item: item,
                                     overlayTags: model.itemTags[item.id] ?? [],
                                     isDownloading: model.downloading.contains(item.id),
+                                    isSelected: selectedItemID == item.id,
+                                    select: { selectedItemID = item.id },
                                     open: { open(item) },
                                     tagMenu: { tagMenu(for: item) },
                                     collectionMenu: { collectionMenu(for: item) }
@@ -200,10 +216,10 @@ public struct LibraryView: View {
     }
 
     /// Full-text matches inside book content, shown above the grid while
-    /// searching. Clicking a hit opens the book at that page.
+    /// searching — capped so the book grid stays visible; expandable.
     @ViewBuilder
     private var fullTextResults: some View {
-        let hits = Array(model.textHits.prefix(20))
+        let hits = Array(model.textHits.prefix(showAllTextHits ? 60 : 5))
         if !hits.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
                 Text("In Book Text")
@@ -229,6 +245,16 @@ public struct LibraryView: View {
                     }
                     .buttonStyle(.plain)
                     .padding(.vertical, 2)
+                }
+                if model.textHits.count > 5 {
+                    Button(showAllTextHits
+                        ? "Show Fewer"
+                        : "Show All \(model.textHits.count) Matches") {
+                        showAllTextHits.toggle()
+                    }
+                    .buttonStyle(.link)
+                    .font(.callout)
+                    .padding(.top, 2)
                 }
             }
             .padding(.horizontal, 20)
@@ -357,6 +383,14 @@ extension TagNode: Identifiable {
     public var id: Int64 { tag.id ?? -1 }
 }
 
+extension CollectionNode: Identifiable {
+    public var id: Int64 { collection.id ?? -1 }
+
+    var optionalChildren: [CollectionNode]? {
+        children.isEmpty ? nil : children
+    }
+}
+
 /// Small modal prompt for naming a new tag or collection.
 private struct NamePromptSheet: View {
     let title: String
@@ -397,6 +431,8 @@ private struct BookCell<TagMenu: View, CollectionMenu: View>: View {
     let item: LibraryItem
     let overlayTags: [TagRecord]
     let isDownloading: Bool
+    let isSelected: Bool
+    let select: () -> Void
     let open: () -> Void
     @ViewBuilder let tagMenu: () -> TagMenu
     @ViewBuilder let collectionMenu: () -> CollectionMenu
@@ -453,8 +489,21 @@ private struct BookCell<TagMenu: View, CollectionMenu: View>: View {
                     .lineLimit(1)
             }
         }
+        .padding(6)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.accentColor.opacity(0.14))
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+            }
+        }
         .contentShape(Rectangle())
-        .onTapGesture(count: 2, perform: open)
+        .gesture(TapGesture(count: 2).onEnded {
+            select()
+            open()
+        })
+        .simultaneousGesture(TapGesture(count: 1).onEnded(select))
         .contextMenu {
             Button("Open in Reader", action: open)
             Menu("Tags", content: tagMenu)

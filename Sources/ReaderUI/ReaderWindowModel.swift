@@ -20,6 +20,16 @@ public protocol ActivePDFControlling: AnyObject {
     func execute(_ entry: NavEntry)
     /// Applies find highlights; pass an empty array to clear them.
     func showFindResults(_ matches: [PDFSelection], current: PDFSelection?)
+    func apply(displayModeRaw: Int)
+    func fitWidth()
+    func fitHeight()
+}
+
+/// View-control hooks are optional for test fakes.
+public extension ActivePDFControlling {
+    func apply(displayModeRaw: Int) {}
+    func fitWidth() {}
+    func fitHeight() {}
 }
 
 @Observable
@@ -96,20 +106,57 @@ public final class ReaderWindowModel {
         URL(fileURLWithPath: tab.pathHint)
     }
 
-    /// Opens a new tab for the file, optionally at a specific position. The
-    /// same file may be open in any number of tabs; they share one document.
+    /// Opens a new tab for the file, optionally at a specific position and
+    /// optionally inserted right after another tab (so ⌘-clicked references
+    /// group next to the tab they came from). The same file may be open in
+    /// any number of tabs; they share one document.
     @discardableResult
-    public func openTab(fileURL: URL, activate: Bool = true, at entry: NavEntry? = nil) -> UUID {
+    public func openTab(
+        fileURL: URL,
+        activate: Bool = true,
+        at entry: NavEntry? = nil,
+        after siblingID: UUID? = nil
+    ) -> UUID {
         var tab = TabState(pathHint: DocumentProvider.canonicalPath(for: fileURL))
         if let entry {
             tab.apply(entry)
         }
-        tabs.append(tab)
+        if let siblingID, let index = tabs.firstIndex(where: { $0.id == siblingID }) {
+            tabs.insert(tab, at: index + 1)
+        } else {
+            tabs.append(tab)
+        }
         if activate || activeTabID == nil {
             selectTab(id: tab.id)
         }
         onMutation?()
         return tab.id
+    }
+
+    /// Duplicates a tab — same file, position, zoom, and history — inserted
+    /// right after the original.
+    @discardableResult
+    public func duplicateTab(id: UUID) -> UUID? {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return nil }
+        var copy = tabs[index]
+        copy.id = UUID()
+        tabs.insert(copy, at: index + 1)
+        selectTab(id: copy.id)
+        onMutation?()
+        return copy.id
+    }
+
+    public func closeOtherTabs(keeping id: UUID) {
+        for tab in tabs where tab.id != id {
+            closeTab(id: tab.id)
+        }
+    }
+
+    /// Number of open tabs per file — drives the tab strip's group markers.
+    public var tabCountByPath: [String: Int] {
+        tabs.reduce(into: [:]) { counts, tab in
+            counts[tab.pathHint, default: 0] += 1
+        }
     }
 
     public func selectTab(id: UUID) {
@@ -155,6 +202,56 @@ public final class ReaderWindowModel {
         if let tab = tabs.first(where: { $0.id == tabID }) {
             persistReadingState(for: tab)
         }
+    }
+
+    // MARK: - View controls (bottom bar)
+
+    public func setDisplayMode(_ raw: Int) {
+        guard let activeTab else { return }
+        updateTab(id: activeTab.id) { $0.displayModeRaw = raw }
+        activeController?.apply(displayModeRaw: raw)
+    }
+
+    public func fitWidth() {
+        guard let activeTab else { return }
+        updateTab(id: activeTab.id) { $0.autoScales = true }
+        activeController?.fitWidth()
+    }
+
+    public func fitHeight() {
+        guard let activeTab else { return }
+        updateTab(id: activeTab.id) { $0.autoScales = false }
+        activeController?.fitHeight()
+    }
+
+    // MARK: - Outline (cached per live document)
+
+    @ObservationIgnored private var outlineCacheKey: ObjectIdentifier?
+    @ObservationIgnored private var outlineCacheNodes: [OutlineNode] = []
+
+    /// The outline tree, built once per live document (bodies re-evaluate
+    /// constantly; walking PDFOutline each time is wasteful).
+    func outline(for document: PDFDocument) -> [OutlineNode] {
+        let key = ObjectIdentifier(document)
+        if key != outlineCacheKey {
+            outlineCacheNodes = OutlineNode.tree(from: document)
+            outlineCacheKey = key
+        }
+        return outlineCacheNodes
+    }
+
+    /// Human label for a history entry: the deepest outline section at or
+    /// before the page, falling back to the page number.
+    public func historyLabel(for entry: NavEntry) -> String {
+        let page = "p.\(entry.pageIndex + 1)"
+        guard
+            let activeTab,
+            let document = provider.document(for: url(for: activeTab)),
+            let section = OutlineNode.deepestLabel(
+                in: outline(for: document), atOrBefore: entry.pageIndex
+            )
+        else { return page }
+        return "\(section) — \(page)"
     }
 
     // MARK: - Reading state & bookmarks (overlay DB)
@@ -235,7 +332,7 @@ public final class ReaderWindowModel {
 
         let fileURL = remoteFileURL ?? url(for: activeTab)
         if inNewTab || remoteFileURL != nil {
-            openTab(fileURL: fileURL, at: entry)
+            openTab(fileURL: fileURL, at: entry, after: activeTab.id)
         } else {
             updateTab(id: activeTab.id) { tab in
                 tab.history.push(current)

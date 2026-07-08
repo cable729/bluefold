@@ -30,6 +30,8 @@ the project owner's plan file; the milestone list below is self-contained.
 - [x] **UI-1** Feedback round 1: search moved into the sidebar (results list, no navigation while typing, click = jump+history), 4 icon-tab sidebar modes (fixes segmented overflow), sidebar/window fill constraints (fixes dead-space collapse), active tab highlighted (accent top bar + bold), tabs draggable between windows (payload windowID|tabID -> SessionCoordinator.moveTab), back/forward buttons are history menus, ⌘[/⌘] moved to a History menu, current section highlighted in Contents, live page tracking via PDFViewPageChanged
 - [x] **P-1** Collections support tree nesting (migration v2: collection.parent_id; collectionTree(), subtree book queries, reparenting delete)
 
+- [x] **UI-2** Feedback round 2: evicted covers download-on-demand (fixes disappearing covers), In Book Text capped at 5 with Show All toggle, selected book highlighted (accent ring), history entries labeled with outline section names, bottom status bar (page layout modes, fit width/height, page x/y with direct jump, theme switcher), plain back/forward buttons with right-click history, ⌘-click opens ADJACENT tab + same-book tabs get group dots, tab context menu (duplicate/close/close others), collections nest in the sidebar (subtree filtering; New Collection nests under selected scope)
+
 ### Phase C
 - [ ] **M16** iOS app
 - [ ] **M17** XCUITest smoke suite + xcodebuild CI job

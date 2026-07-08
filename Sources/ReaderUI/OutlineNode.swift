@@ -16,6 +16,40 @@ struct OutlineNode: Identifiable {
         return children(of: root, in: document)
     }
 
+    /// The deepest section whose start page is at or before `pageIndex` —
+    /// "which section am I in". Nil when the outline is empty or the page
+    /// precedes every section.
+    static func deepestLabel(in nodes: [OutlineNode], atOrBefore pageIndex: Int) -> String? {
+        var best: (label: String, page: Int)?
+        func walk(_ nodes: [OutlineNode]) {
+            for node in nodes {
+                if let page = node.entry?.pageIndex, page <= pageIndex,
+                   best == nil || page >= best!.page {
+                    best = (node.label, page)
+                }
+                walk(node.children ?? [])
+            }
+        }
+        walk(nodes)
+        return best?.label
+    }
+
+    /// Same search, returning the node id (sidebar highlight).
+    static func deepestNodeID(in nodes: [OutlineNode], atOrBefore pageIndex: Int) -> UUID? {
+        var best: (id: UUID, page: Int)?
+        func walk(_ nodes: [OutlineNode]) {
+            for node in nodes {
+                if let page = node.entry?.pageIndex, page <= pageIndex,
+                   best == nil || page >= best!.page {
+                    best = (node.id, page)
+                }
+                walk(node.children ?? [])
+            }
+        }
+        walk(nodes)
+        return best?.id
+    }
+
     @MainActor
     private static func children(of outline: PDFOutline, in document: PDFDocument) -> [OutlineNode] {
         (0..<outline.numberOfChildren).compactMap { index in

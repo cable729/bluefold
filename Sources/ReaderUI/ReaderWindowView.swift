@@ -48,6 +48,10 @@ public struct ReaderWindowView: View {
                     .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if let document = activeDocument {
+                Divider()
+                ReaderStatusBar(model: model, pageCount: document.pageCount)
+            }
         }
         .frame(minWidth: 500, minHeight: 400)
         .toolbar {
@@ -55,30 +59,28 @@ public struct ReaderWindowView: View {
                 Button("Sidebar", systemImage: "sidebar.left") { showSidebar.toggle() }
                     .keyboardShortcut("s", modifiers: [.control, .command])
                     .help("Show or hide the sidebar (⌃⌘S)")
-                // Click = go back/forward one step; the menu lists the whole
-                // stack, browser-style. Shortcuts ⌘[ / ⌘] live in ReaderCommands.
-                Menu {
-                    ForEach(Array(model.backEntries.enumerated()), id: \.offset) { index, entry in
-                        Button("Page \(entry.pageIndex + 1)") { model.goBack(count: index + 1) }
+                // Click steps once; right-click shows the labeled history.
+                // Shortcuts ⌘[ / ⌘] live in the History menu.
+                Button("Back", systemImage: "chevron.left") { model.goBack() }
+                    .disabled(!model.canGoBack)
+                    .help("Back (⌘[) — right-click for history")
+                    .contextMenu {
+                        ForEach(Array(model.backEntries.enumerated()), id: \.offset) { index, entry in
+                            Button(model.historyLabel(for: entry)) {
+                                model.goBack(count: index + 1)
+                            }
+                        }
                     }
-                } label: {
-                    Label("Back", systemImage: "chevron.left")
-                } primaryAction: {
-                    model.goBack()
-                }
-                .disabled(!model.canGoBack)
-                .help("Back (⌘[) — hold for history")
-                Menu {
-                    ForEach(Array(model.forwardEntries.enumerated()), id: \.offset) { index, entry in
-                        Button("Page \(entry.pageIndex + 1)") { model.goForward(count: index + 1) }
+                Button("Forward", systemImage: "chevron.right") { model.goForward() }
+                    .disabled(!model.canGoForward)
+                    .help("Forward (⌘]) — right-click for history")
+                    .contextMenu {
+                        ForEach(Array(model.forwardEntries.enumerated()), id: \.offset) { index, entry in
+                            Button(model.historyLabel(for: entry)) {
+                                model.goForward(count: index + 1)
+                            }
+                        }
                     }
-                } label: {
-                    Label("Forward", systemImage: "chevron.right")
-                } primaryAction: {
-                    model.goForward()
-                }
-                .disabled(!model.canGoForward)
-                .help("Forward (⌘]) — hold for history")
             }
             ToolbarItemGroup {
                 Button("Library", systemImage: "books.vertical") {

@@ -65,6 +65,7 @@ public final class LibraryModel {
     // Overlay data (the app's own, synced later via CloudKit).
     public private(set) var tagTree: [TagNode] = []
     public private(set) var collections: [CollectionRecord] = []
+    public private(set) var collectionTree: [CollectionNode] = []
     /// Overlay book-row id per LibraryItem id — the join between sources.
     private var bookRowIDs: [String: Int64] = [:]
     /// Overlay tags per LibraryItem id, for display and toggle state.
@@ -185,14 +186,25 @@ public final class LibraryModel {
             )
             scoped = items.filter { bookRowIDs[$0.id].map(ids.contains) ?? false }
         case .collection(let collectionID):
-            let ordered = ((try? store?.items(inCollection: collectionID)) ?? []).map(\.bookID)
+            let direct = ((try? store?.items(inCollection: collectionID)) ?? []).map(\.bookID)
+            let subtree = Set(
+                ((try? store?.books(inCollectionSubtree: collectionID)) ?? []).compactMap(\.id)
+            )
+            // Direct members keep their manual sort order; books from child
+            // collections follow, title-ordered (allBooks/subtree order).
             let position = Dictionary(
-                uniqueKeysWithValues: ordered.enumerated().map { ($1, $0) }
+                uniqueKeysWithValues: direct.enumerated().map { ($1, $0) }
             )
             scoped = items
                 .compactMap { item -> (LibraryItem, Int)? in
-                    guard let rowID = bookRowIDs[item.id], let pos = position[rowID] else { return nil }
-                    return (item, pos)
+                    guard let rowID = bookRowIDs[item.id] else { return nil }
+                    if let pos = position[rowID] {
+                        return (item, pos)
+                    }
+                    if subtree.contains(rowID) {
+                        return (item, Int.max)
+                    }
+                    return nil
                 }
                 .sorted { $0.1 < $1.1 }
                 .map(\.0)
@@ -412,6 +424,7 @@ public final class LibraryModel {
         guard let store else { return }
         tagTree = (try? store.tagTree()) ?? []
         collections = (try? store.collections()) ?? []
+        collectionTree = (try? store.collectionTree()) ?? []
         itemTags = [:]
         for (itemID, rowID) in bookRowIDs {
             itemTags[itemID] = (try? store.tags(forBook: rowID)) ?? []
@@ -487,9 +500,15 @@ public final class LibraryModel {
 
     // MARK: - Collections
 
-    public func createCollection(name: String) {
+    public func createCollection(name: String, parent: Int64? = nil) {
         guard let store, !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        _ = try? store.createCollection(name: name)
+        _ = try? store.createCollection(name: name, parent: parent)
+        reloadOverlay()
+    }
+
+    public func deleteCollection(id: Int64) {
+        try? store?.softDeleteCollection(id: id)
+        if filter == .collection(id) { filter = .all }
         reloadOverlay()
     }
 

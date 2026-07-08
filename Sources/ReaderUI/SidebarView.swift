@@ -170,19 +170,7 @@ private struct OutlineList: View {
 
     /// The deepest outline entry at or before the current page.
     private var currentNodeID: UUID? {
-        var best: (UUID, Int)?
-        func walk(_ nodes: [OutlineNode]) {
-            for node in nodes {
-                if let page = node.entry?.pageIndex, page <= currentPageIndex {
-                    if best == nil || page >= best!.1 {
-                        best = (node.id, page)
-                    }
-                }
-                walk(node.children ?? [])
-            }
-        }
-        walk(outline)
-        return best?.0
+        OutlineNode.deepestNodeID(in: outline, atOrBefore: currentPageIndex)
     }
 }
 

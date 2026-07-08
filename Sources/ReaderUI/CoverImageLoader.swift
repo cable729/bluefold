@@ -19,7 +19,12 @@ enum CoverImageLoader {
         if let cached = cache.object(forKey: key) {
             return cached
         }
-        guard FileAvailability.isLocal(url) else { return nil }
+        if !FileAvailability.isLocal(url) {
+            // Covers are small; pull evicted ones down (bounded wait) instead
+            // of showing placeholders forever.
+            try? await FileAvailability.ensureLocal(url, timeout: 10)
+            guard FileAvailability.isLocal(url) else { return nil }
+        }
 
         let image = await Task.detached(priority: .utility) { () -> NSImage? in
             let options: [CFString: Any] = [

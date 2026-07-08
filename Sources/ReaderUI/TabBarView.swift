@@ -17,10 +17,18 @@ struct TabBarView: View {
                         TabItemView(
                             title: title(for: tab),
                             isActive: tab.id == model.activeTabID,
+                            groupColor: groupColor(for: tab),
                             select: { model.selectTab(id: tab.id) },
                             close: { model.closeTab(id: tab.id) }
                         )
                         .draggable("\(model.windowID.uuidString)|\(tab.id.uuidString)")
+                        .contextMenu {
+                            Button("Duplicate Tab") { model.duplicateTab(id: tab.id) }
+                            Divider()
+                            Button("Close Tab") { model.closeTab(id: tab.id) }
+                            Button("Close Other Tabs") { model.closeOtherTabs(keeping: tab.id) }
+                                .disabled(model.tabs.count < 2)
+                        }
                     }
                 }
             }
@@ -59,11 +67,21 @@ struct TabBarView: View {
             .deletingPathExtension()
             .lastPathComponent
     }
+
+    /// Tabs of the same book share a stable color marker (only shown when a
+    /// book has more than one tab — Chrome-style implicit groups; ⌘-clicked
+    /// links already insert next to their source tab).
+    private func groupColor(for tab: TabState) -> Color? {
+        guard (model.tabCountByPath[tab.pathHint] ?? 0) > 1 else { return nil }
+        let hue = Double(abs(tab.pathHint.hashValue % 360)) / 360.0
+        return Color(hue: hue, saturation: 0.65, brightness: 0.85)
+    }
 }
 
 private struct TabItemView: View {
     let title: String
     let isActive: Bool
+    let groupColor: Color?
     let select: () -> Void
     let close: () -> Void
 
@@ -77,6 +95,12 @@ private struct TabItemView: View {
             }
             .buttonStyle(.borderless)
             .opacity(isHovered || isActive ? 1 : 0)
+
+            if let groupColor {
+                Circle()
+                    .fill(groupColor)
+                    .frame(width: 6, height: 6)
+            }
 
             Text(title)
                 .font(.system(size: 12, weight: isActive ? .semibold : .regular))

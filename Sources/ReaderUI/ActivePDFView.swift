@@ -123,6 +123,26 @@ struct ActivePDFView: NSViewRepresentable {
             }
         }
 
+        func apply(displayModeRaw: Int) {
+            guard let view else { return }
+            view.displayMode = PDFDisplayMode(rawValue: displayModeRaw) ?? .singlePageContinuous
+        }
+
+        func fitWidth() {
+            view?.autoScales = true
+        }
+
+        func fitHeight() {
+            guard
+                let view,
+                let page = view.currentPage
+            else { return }
+            view.autoScales = false
+            let pageHeight = page.bounds(for: view.displayBox).height
+            guard pageHeight > 0 else { return }
+            view.scaleFactor = view.bounds.height / pageHeight
+        }
+
         /// Persists the exact reading position back into the tab.
         func captureNow() {
             guard let view, let entry = liveNavEntry else { return }
