@@ -132,6 +132,16 @@ struct ActivePDFView: NSViewRepresentable {
             view?.autoScales = true
         }
 
+        func pageForward() {
+            guard let view, view.canGoToNextPage else { return }
+            view.goToNextPage(nil)
+        }
+
+        func pageBackward() {
+            guard let view, view.canGoToPreviousPage else { return }
+            view.goToPreviousPage(nil)
+        }
+
         func fitHeight() {
             guard
                 let view,
