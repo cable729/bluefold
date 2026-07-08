@@ -106,11 +106,18 @@ public final class LibraryModel {
     /// Pass a store to use (tests inject an in-memory one); nil opens the
     /// app's library.db. Same for `indexStore` (tests inject an in-memory
     /// index; nil opens the app's index.db when the library store is owned).
+    /// In a unit-test process the un-injected path yields nil stores instead
+    /// of opening the real databases (see AppStores.library).
     public init(store injected: LibraryStore? = nil, indexStore injectedIndex: IndexStore? = nil) {
         var openError: String?
         if let injected {
             store = injected
             indexStore = injectedIndex
+        } else if AppStores.isTestProcess {
+            // Unit tests must NEVER touch the user's real library.db /
+            // index.db; tests that want stores inject in-memory ones.
+            store = nil
+            indexStore = nil
         } else {
             var library: LibraryStore?
             var index: IndexStore?
@@ -128,7 +135,7 @@ public final class LibraryModel {
         indexingService = indexStore.map { IndexingService(store: $0) }
         loadError = openError
 
-        if injected != nil {
+        if injected != nil || AppStores.isTestProcess {
             needsSetup = false
             return  // tests: no Calibre auto-detect, no UserDefaults
         }

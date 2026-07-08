@@ -16,5 +16,14 @@ struct AppStoresIsolationTests {
     @Test func realLibraryStoreIsUnreachableFromTests() {
         #expect(AppStores.library == nil)
     }
+
+    /// LibraryModel's un-injected init opens the real library.db/index.db in
+    /// the app; from a test process it must yield nil stores instead.
+    @Test func unInjectedLibraryModelOpensNoRealStores() {
+        let model = LibraryModel()
+        #expect(model.store == nil)
+        #expect(model.indexStore == nil)
+        #expect(!model.needsSetup)
+    }
 }
 #endif
