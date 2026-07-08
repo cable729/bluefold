@@ -218,3 +218,53 @@ macOS apps (Docker is impossible — macOS doesn't containerize):
   and manual dispatch, never plain pushes; docs changes skip CI). MERGE IT.
   Nothing can run until the monthly included-minutes reset regardless; the
   routine gate is ./scripts/verify.sh locally.
+
+## Feedback round 5 (2026-07-08, pre-session-handoff) — TOP PRIORITY FIRST
+
+### P0: tab strip glitch persists across relaunch + SESSION LOSS
+Owner screenshot: two same-book tabs grouped; the group-header title
+renders ABOVE the strip over the window titlebar (deterministic — survives
+relaunch, so it's the header frame/clipping bug, not stale drag state); a
+stray floating white panel remains on the right (stuck TabGhostPanel from
+the failed tear-off). Worse: relaunching CLEARED THE OWNER'S SESSION.
+Investigate in this order:
+1. Session loss: likeliest chain is the failed tear-off — detachTab removed
+   the tab and staged a window in pendingRestore that was never presented;
+   what did session.json contain afterward? Reproduce: stage via
+   detachTabToNewWindow, never openWindow, quit, relaunch, diff windows.
+   Also audit closeWindowIfEmptied and whether a force-quit after the wedge
+   skipped saveNow. Add a session.json backup rotation (session.json.bak on
+   each successful load) so a bad save is never a total loss.
+2. Header overflow: TabStripNSView doesn't clip subviews; group header
+   frame math (non-flipped coords) can place text outside bounds. Clip the
+   strip layer and fix the frame; make the header taller/readable (owner:
+   "skinny and hard to see").
+3. Stuck ghost: endPress never ran. Add a window-level mouseUp failsafe
+   (local NSEvent monitor while a drag is live) that force-finishes the
+   drag; dragdebug.log (PDFREADER_SESSION_DIR) captures the event trace.
+
+### Keybinding discoverability (owner: "easier to find and use")
+Some visible affordance that the palette/shortcuts exist: e.g. a "⌘P" hint
+in the toolbar search button, an empty-state line ("Press ⌘⇧P for all
+commands, / for shortcuts"), a Help menu item opening the overlay, and/or
+a one-time HUD on first launch. Design with the owner.
+
+### Unify the "+" tab button with the library
+"+" currently only opens a file panel. Owner wants library access there
+too — merge the concepts: e.g. "+" opens the NAVIGATE palette seeded with
+library books (palette already exists), or a small menu: "From Library…"
+/ "Open File… (⌘⇧O)". Decide with the owner.
+
+### Go to Page should be ⌘G (owner request)
+Currently ⌥⌘G. CONFLICT to resolve: ⌘G is Find Next (M8, Preview/Safari
+convention). Owner wants ⌘G = Go to Page; move find-next/previous to
+something else (Enter/⇧Enter already cycle within the find field) or drop
+the menu chord for find-next. CommandRegistry's duplicate-chord integrity
+test will enforce whatever is chosen.
+
+### CI cost estimate if billing were re-enabled (answered for the owner)
+macOS runners bill $0.08/min on private repos. With frugal mode (PR #2):
+a full 3-job run ≈ 35–60 macOS-min ≈ **$3–5 per PR run**; worst case with
+all timeouts maxed (35+40+30 min) ≈ $8.40. A handful of PRs a month ≈
+$10–30/mo. Runaways are capped by the per-job timeouts now — the overnight
+disaster mode (6h × N concurrent) is no longer possible.
