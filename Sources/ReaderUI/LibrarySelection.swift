@@ -66,6 +66,16 @@ public struct LibrarySelection: Equatable, Sendable {
         }
     }
 
+    /// Replaces the selection wholesale — the list view's Table drives its
+    /// own selection and mirrors it here so the shared action bar and
+    /// context menus see one truth. The anchor stays if it survives, so
+    /// ⇧-click keeps working back in the grid.
+    public mutating func replace(with ids: Set<String>) {
+        selectedIDs = ids
+        if let anchorID, ids.contains(anchorID) { return }
+        anchorID = ids.first
+    }
+
     /// Drops selected ids that no longer exist in the grid (the filter or
     /// search changed underneath the selection).
     public mutating func prune(to orderedIDs: [String]) {
