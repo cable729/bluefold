@@ -82,6 +82,8 @@ public struct TagRecord: Codable, Hashable, Sendable,
     public var id: Int64?
     public var name: String
     public var parentID: Int64?
+    /// Display color as a "#RRGGBB" hex string; nil = colorless.
+    public var color: String?
     public var modifiedAt: Int64
     public var deletedAt: Int64?
 
@@ -89,6 +91,7 @@ public struct TagRecord: Codable, Hashable, Sendable,
         case id
         case name
         case parentID = "parent_id"
+        case color
         case modifiedAt = "modified_at"
         case deletedAt = "deleted_at"
     }

@@ -83,6 +83,42 @@ private final class TestClock: @unchecked Sendable {
         #expect(itemCount == 1)
     }
 
+    @Test func migrationV4PreservesV3TagsWithNullColor() throws {
+        // Build a populated v3 database, then run the v4 migration on it.
+        let dbQueue = try DatabaseQueue()
+        let migrator = LibrarySchema.migrator()
+        try migrator.migrate(dbQueue, upTo: "v3")
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO tag (name, parent_id, modified_at)
+                    VALUES ('Math', NULL, 10), ('Algebra', 1, 20)
+                    """
+            )
+            try db.execute(
+                sql: "INSERT INTO book (calibre_uuid, title, modified_at) VALUES ('u1', 'Book', 3)"
+            )
+            try db.execute(
+                sql: "INSERT INTO book_tag (book_id, tag_id, modified_at) VALUES (1, 1, 4)"
+            )
+        }
+
+        try migrator.migrate(dbQueue)
+
+        let tags = try dbQueue.read { db in
+            try TagRecord.order(Column("id")).fetchAll(db)
+        }
+        #expect(tags.map(\.name) == ["Math", "Algebra"])
+        #expect(tags.allSatisfy { $0.color == nil })
+        // Existing rows keep their timestamps and hierarchy.
+        #expect(tags.map(\.modifiedAt) == [10, 20])
+        #expect(tags.map(\.parentID) == [nil, 1])
+        let bookTagCount = try dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM book_tag")
+        }
+        #expect(bookTagCount == 1)
+    }
+
     // MARK: Books
 
     @Test func calibreUpsertIsIdempotent() throws {
@@ -272,6 +308,49 @@ private final class TestClock: @unchecked Sendable {
         // Re-adding A resurrects its tombstoned row (no PK violation).
         try store.setTags(bookID: book.id!, tagIDs: [a.id!, b.id!])
         #expect(try store.tags(forBook: book.id!).map(\.name) == ["A", "B"])
+    }
+
+    @Test func setTagColorRoundTripsAndBumpsModifiedAt() throws {
+        let clock = TestClock(1_000)
+        let store = try LibraryStore.inMemory(now: clock.now)
+        let tag = try store.createTag(name: "Algebra")
+        let book = try store.upsertCalibreBook(uuid: "b1", title: "Book")
+        try store.setTags(bookID: book.id!, tagIDs: [tag.id!])
+        #expect(tag.color == nil)
+
+        clock.advance(by: 500)
+        try store.setTagColor(id: tag.id!, color: "#E05252")
+
+        // The color surfaces through every tag fetch path.
+        let fromTree = try #require(try store.tagTree().first?.tag)
+        #expect(fromTree.color == "#E05252")
+        #expect(fromTree.modifiedAt == 1_500)  // bumped: the change syncs
+        let fromBook = try #require(try store.tags(forBook: book.id!).first)
+        #expect(fromBook.color == "#E05252")
+
+        // Clearing goes back to NULL and bumps again.
+        clock.advance(by: 500)
+        try store.setTagColor(id: tag.id!, color: nil)
+        let cleared = try #require(try store.tagTree().first?.tag)
+        #expect(cleared.color == nil)
+        #expect(cleared.modifiedAt == 2_000)
+    }
+
+    @Test func setTagColorIgnoresTombstonedTags() throws {
+        let clock = TestClock(1_000)
+        let store = try LibraryStore.inMemory(now: clock.now)
+        let tag = try store.createTag(name: "Gone")
+        clock.advance(by: 100)
+        try store.softDeleteTag(id: tag.id!)
+
+        clock.advance(by: 100)
+        try store.setTagColor(id: tag.id!, color: "#E05252")
+
+        let row = try store.dbQueue.read { db in
+            try TagRecord.fetchOne(db, key: tag.id!)
+        }
+        #expect(row?.color == nil)
+        #expect(row?.modifiedAt == 1_100)  // untouched by the refused write
     }
 
     // MARK: Smart filters

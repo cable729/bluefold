@@ -253,7 +253,8 @@ public final class LibraryStore: Sendable {
         let ts = now()
         return try dbQueue.write { db in
             var tag = TagRecord(
-                id: nil, name: name, parentID: parent, modifiedAt: ts, deletedAt: nil
+                id: nil, name: name, parentID: parent, color: nil,
+                modifiedAt: ts, deletedAt: nil
             )
             try tag.insert(db)
             return tag
@@ -266,6 +267,19 @@ public final class LibraryStore: Sendable {
             try db.execute(
                 sql: "UPDATE tag SET name = ?, modified_at = ? WHERE id = ?",
                 arguments: [name, ts, id]
+            )
+        }
+    }
+
+    /// Sets or clears a tag's display color ("#RRGGBB" hex string; nil =
+    /// colorless). Bumps `modified_at` so the change syncs; no-ops on
+    /// tombstoned tags.
+    public func setTagColor(id: Int64, color: String?) throws {
+        let ts = now()
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE tag SET color = ?, modified_at = ? WHERE id = ? AND deleted_at IS NULL",
+                arguments: [color, ts, id]
             )
         }
     }
