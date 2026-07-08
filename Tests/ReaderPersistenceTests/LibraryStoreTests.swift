@@ -202,6 +202,54 @@ private final class TestClock: @unchecked Sendable {
         #expect(try store.tags(forBook: book.id!).map(\.name) == ["A", "B"])
     }
 
+    // MARK: Smart filters
+
+    @Test func booksWithoutTagsIsNotExistsOverLiveRows() throws {
+        let store = try LibraryStore.inMemory()
+        let tagged = try store.upsertCalibreBook(uuid: "t", title: "Algebra")
+        let bare = try store.upsertCalibreBook(uuid: "b", title: "Zorn")
+        let tag = try store.createTag(name: "Math")
+        try store.setTags(bookID: tagged.id!, tagIDs: [tag.id!])
+
+        #expect(try store.booksWithoutTags().map(\.id) == [bare.id])
+
+        // Untagging (tombstoned book_tag) makes the book untagged again.
+        try store.setTags(bookID: tagged.id!, tagIDs: [])
+        #expect(try store.booksWithoutTags().map(\.title) == ["Algebra", "Zorn"])
+
+        // A live book_tag row pointing at a soft-deleted tag doesn't count.
+        try store.setTags(bookID: tagged.id!, tagIDs: [tag.id!])
+        try store.softDeleteTag(id: tag.id!)
+        #expect(try store.booksWithoutTags().count == 2)
+
+        // Soft-deleted books never appear.
+        try store.softDeleteBook(id: bare.id!)
+        #expect(try store.booksWithoutTags().map(\.id) == [tagged.id])
+    }
+
+    @Test func booksNotInAnyCollectionIsNotExistsOverLiveRows() throws {
+        let store = try LibraryStore.inMemory()
+        let member = try store.upsertCalibreBook(uuid: "m", title: "Member")
+        let loose = try store.upsertCalibreBook(uuid: "l", title: "Stray")
+        let course = try store.createCollection(name: "Course")
+        try store.addToCollection(collectionID: course.id!, bookID: member.id!)
+
+        #expect(try store.booksNotInAnyCollection().map(\.id) == [loose.id])
+
+        // Removing the membership (tombstone) frees the book again.
+        try store.removeFromCollection(collectionID: course.id!, bookID: member.id!)
+        #expect(try store.booksNotInAnyCollection().map(\.title) == ["Member", "Stray"])
+
+        // Membership in a soft-deleted collection doesn't count.
+        try store.addToCollection(collectionID: course.id!, bookID: member.id!)
+        try store.softDeleteCollection(id: course.id!)
+        #expect(try store.booksNotInAnyCollection().count == 2)
+
+        // Soft-deleted books never appear.
+        try store.softDeleteBook(id: loose.id!)
+        #expect(try store.booksNotInAnyCollection().map(\.id) == [member.id])
+    }
+
     // MARK: Collections
 
     @Test func collectionOrderingAndReorder() throws {
