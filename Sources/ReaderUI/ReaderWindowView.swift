@@ -11,9 +11,7 @@ public struct ReaderWindowView: View {
     let windowID: UUID
 
     @State private var find = FindController()
-    @State private var showSidebar = false
-    @State private var sidebarMode: SidebarMode = .outline
-    @State private var searchFocusToken = 0
+    @State private var ui = ReaderWindowUIState()
     @Environment(\.openWindow) private var openWindow
 
     public init(windowID: UUID) {
@@ -24,6 +22,17 @@ public struct ReaderWindowView: View {
         SessionCoordinator.shared.model(for: windowID)
     }
 
+    /// Context handed to palette rows; menu commands build their own from
+    /// focused values but land on the same command table.
+    private var commandContext: CommandContext {
+        CommandContext(
+            model: model,
+            ui: ui,
+            openReaderWindow: { openWindow(id: "reader", value: UUID()) },
+            openLibraryWindow: { openWindow(id: "library") }
+        )
+    }
+
     public var body: some View {
         VStack(spacing: 0) {
             if !model.tabs.isEmpty {
@@ -31,15 +40,15 @@ public struct ReaderWindowView: View {
                 Divider()
             }
             HSplitView {
-                if showSidebar, let document = activeDocument {
+                if ui.showSidebar, let document = activeDocument {
                     SidebarView(
-                        mode: $sidebarMode,
+                        mode: Bindable(ui).sidebarMode,
                         outline: model.outline(for: document),
                         document: document,
                         currentPageIndex: model.activeTab?.pageIndex ?? 0,
                         model: model,
                         find: find,
-                        searchFocusToken: searchFocusToken
+                        searchFocusToken: ui.searchFocusToken
                     )
                     .frame(minWidth: 200, idealWidth: 250, maxWidth: 360)
                     .frame(maxHeight: .infinity)
@@ -54,10 +63,20 @@ public struct ReaderWindowView: View {
             ReaderStatusBar(model: model, pageCount: activeDocument?.pageCount)
         }
         .frame(minWidth: 500, minHeight: 400)
+        .overlay {
+            if let paletteMode = ui.palette {
+                PaletteOverlay(mode: paletteMode, model: model, ui: ui, context: commandContext)
+            }
+        }
+        .overlay {
+            if ui.showHelp {
+                HelpOverlayView(ui: ui, model: model)
+            }
+        }
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
-                Button("Sidebar", systemImage: "sidebar.left") { showSidebar.toggle() }
-                    .keyboardShortcut("s", modifiers: [.control, .command])
+                // Shortcut ⌃⌘S lives on the View-menu item (command table).
+                Button("Sidebar", systemImage: "sidebar.left") { ui.showSidebar.toggle() }
                     .help("Show or hide the sidebar (⌃⌘S)")
                 // Click steps once; right-click shows the labeled history.
                 // Shortcuts ⌘[ / ⌘] live in the History menu.
@@ -87,13 +106,13 @@ public struct ReaderWindowView: View {
                     openWindow(id: "library")
                 }
                 .help("Open the library (⇧⌘L)")
-                Button("Find", systemImage: "magnifyingglass") { openSearchSidebar() }
-                    .keyboardShortcut("f", modifiers: .command)
+                // Shortcuts ⌘F and ⌘⇧O live on the menu items (command
+                // table); ⌘O now opens the navigate palette.
+                Button("Find", systemImage: "magnifyingglass") { ui.openSearchSidebar() }
                     .disabled(activeDocument == nil)
                     .help("Find in document (⌘F)")
                 Button("Open…", systemImage: "folder") { openPanel() }
-                    .keyboardShortcut("o", modifiers: .command)
-                    .help("Open a PDF file (⌘O)")
+                    .help("Open a PDF file (⌘⇧O)")
             }
         }
         .navigationTitle(activeTitle)
@@ -103,7 +122,9 @@ public struct ReaderWindowView: View {
         // ThemeManager sets window.appearance on every registered window
         // instead (registration happens in WindowAccessor).
         .background(WindowAccessor(model: model))
+        .background(WindowKeyEventBridge(model: model, ui: ui))
         .focusedSceneValue(\.readerWindowModel, model)
+        .focusedSceneValue(\.readerWindowUI, ui)
         .onAppear {
             openFromLaunchArguments()
             // The launch scene fans out the rest of the restored session.
@@ -115,12 +136,6 @@ public struct ReaderWindowView: View {
             // Find state is per-document; a tab switch invalidates it.
             find.cancel()
         }
-    }
-
-    private func openSearchSidebar() {
-        showSidebar = true
-        sidebarMode = .search
-        searchFocusToken += 1
     }
 
     private var activeDocument: PDFDocument? {

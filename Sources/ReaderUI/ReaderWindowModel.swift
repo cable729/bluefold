@@ -1,4 +1,5 @@
 #if os(macOS)
+import AppKit
 import Foundation
 import Observation
 import PDFKit
@@ -23,8 +24,9 @@ public protocol ActivePDFControlling: AnyObject {
     func apply(displayModeRaw: Int)
     func fitWidth()
     func fitHeight()
-    /// Turn one "step" back/forward — the view decides what a step is for
-    /// its display mode (e.g. a spread in two-up).
+    /// Turn one "step" back/forward without a history push (status-bar
+    /// arrows, arrow keys, palette commands) — the view decides what a step
+    /// is for its display mode (e.g. a spread in two-up).
     func goToPreviousPage()
     func goToNextPage()
 }
@@ -59,6 +61,11 @@ public final class ReaderWindowModel {
     /// The active tab's live view; registered on creation, dropped on teardown.
     @ObservationIgnored
     public weak var activeController: ActivePDFControlling?
+
+    /// The NSWindow hosting this model's scene (registered by the window's
+    /// key-event bridge; used to focus another window's tab from the palette).
+    @ObservationIgnored
+    public weak var hostWindow: NSWindow?
 
     /// Overlay DB for bookmarks/reading state; nil disables both.
     @ObservationIgnored
@@ -219,6 +226,33 @@ public final class ReaderWindowModel {
         refreshBookmarks()
         refreshBreadcrumb(tabID: id)
         onMutation?()
+    }
+
+    /// Activates the tab after the active one, wrapping at the end
+    /// (⌃Tab / ⌘⇧]).
+    public func selectNextTab() {
+        cycleTab(by: 1)
+    }
+
+    /// Activates the tab before the active one, wrapping at the start
+    /// (⌃⇧Tab / ⌘⇧[).
+    public func selectPreviousTab() {
+        cycleTab(by: -1)
+    }
+
+    private func cycleTab(by offset: Int) {
+        guard !tabs.isEmpty else { return }
+        guard
+            let activeTabID,
+            let index = tabs.firstIndex(where: { $0.id == activeTabID })
+        else {
+            selectTab(id: tabs[0].id)
+            return
+        }
+        let count = tabs.count
+        let next = ((index + offset) % count + count) % count
+        guard next != index else { return }
+        selectTab(id: tabs[next].id)
     }
 
     public func closeTab(id: UUID) {

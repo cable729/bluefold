@@ -3,68 +3,114 @@ import AppKit
 import ReaderCore
 import SwiftUI
 
-/// Browser-style File menu: ⌘N window, ⌘T tab, ⌘W closes the tab (falling
-/// back to the window when none), ⇧⌘W closes the window.
+/// The app's menu bar, rendered from `CommandRegistry` — the same table that
+/// drives the command palette and the help overlay, so the three can never
+/// drift. Menu *placement* (which menu, dividers) is decided here; everything
+/// else (titles, shortcuts, availability, behavior) comes from the table.
 public struct ReaderCommands: Commands {
     @FocusedValue(\.readerWindowModel) private var model
+    @FocusedValue(\.readerWindowUI) private var ui
     @Environment(\.openWindow) private var openWindow
 
     public init() {}
 
+    private var context: CommandContext {
+        CommandContext(
+            model: model,
+            ui: ui,
+            openReaderWindow: { openWindow(id: "reader", value: UUID()) },
+            openLibraryWindow: { openWindow(id: "library") }
+        )
+    }
+
     public var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("New Window") {
-                openWindow(id: "reader", value: UUID())
-            }
-            .keyboardShortcut("n", modifiers: .command)
-
-            Button("New Tab…") {
-                model?.openTabViaPanel()
-            }
-            .keyboardShortcut("t", modifiers: .command)
-            .disabled(model == nil)
-        }
-
-        CommandGroup(after: .pasteboard) {
-            Button("Bookmark This Page") {
-                model?.addBookmarkAtCurrentPosition()
-            }
-            .keyboardShortcut("d", modifiers: .command)
-            .disabled(model == nil)
-        }
-
-        CommandMenu("History") {
-            Button("Back") { model?.goBack() }
-                .keyboardShortcut("[", modifiers: .command)
-                .disabled(model?.canGoBack != true)
-            Button("Forward") { model?.goForward() }
-                .keyboardShortcut("]", modifiers: .command)
-                .disabled(model?.canGoForward != true)
-        }
-
-        CommandGroup(after: .toolbar) {
-            Picker("Theme", selection: Bindable(ThemeManager.shared).current) {
-                Text("Auto").tag(AppTheme.auto)
-                Text("Light").tag(AppTheme.light)
-                Text("Dark").tag(AppTheme.dark)
-                Text("Sepia").tag(AppTheme.sepia)
-            }
-            .pickerStyle(.inline)
+            items(["file.newWindow", "file.newTab", "file.openFile", "file.openLibrary"])
         }
 
         CommandGroup(replacing: .saveItem) {
-            Button("Close Tab") {
-                if model?.closeActiveTab() != true {
-                    NSApp.keyWindow?.performClose(nil)
+            items(["file.closeTab", "file.closeWindow"])
+        }
+
+        // Frees ⌘P for the navigate palette (VS Code quick-open convention).
+        // The app has no print UI; see docs/KEYBINDINGS.md.
+        CommandGroup(replacing: .printItem) {}
+
+        CommandGroup(after: .pasteboard) {
+            items(["search.find", "bookmarks.add"])
+        }
+
+        CommandMenu("Go") {
+            items(["nav.back", "nav.forward"])
+            Divider()
+            items(["nav.previousPage", "nav.nextPage", "nav.goToPage"])
+            Divider()
+            items(["nav.openAnything"])
+        }
+
+        CommandGroup(after: .toolbar) {
+            items(["view.toggleSidebar"])
+            Divider()
+            items([
+                "view.layout.singlePage", "view.layout.continuous",
+                "view.layout.twoUp", "view.layout.twoUpContinuous",
+            ])
+            Divider()
+            items(["view.fitWidth", "view.fitHeight"])
+            Divider()
+            prefixedItems("view.theme.")
+        }
+
+        CommandGroup(before: .windowList) {
+            items(["tabs.next", "tabs.previous", "tabs.duplicate", "tabs.closeOthers"])
+            Divider()
+        }
+
+        CommandGroup(replacing: .help) {
+            items(["help.commandPalette", "help.shortcuts"])
+        }
+    }
+
+    private func items(_ ids: [String]) -> some View {
+        render(CommandRegistry.commands(ids: ids))
+    }
+
+    private func prefixedItems(_ prefix: String) -> some View {
+        render(CommandRegistry.commands(idPrefix: prefix))
+    }
+
+    private func render(_ commands: [ReaderCommand]) -> some View {
+        let context = self.context
+        return ForEach(commands) { command in
+            CommandMenuItem(command: command, context: context)
+        }
+    }
+}
+
+/// One menu item projected from a `ReaderCommand`: a checkmark toggle for
+/// stateful commands, a plain button otherwise.
+private struct CommandMenuItem: View {
+    let command: ReaderCommand
+    let context: CommandContext
+
+    var body: some View {
+        Group {
+            if let isOn = command.isOn {
+                Toggle(
+                    command.title,
+                    isOn: Binding(
+                        get: { isOn(context) },
+                        set: { _ in command.run(context) }
+                    )
+                )
+            } else {
+                Button(command.title) {
+                    command.run(context)
                 }
             }
-            .keyboardShortcut("w", modifiers: .command)
-
-            Button("Close Window") {
-                NSApp.keyWindow?.performClose(nil)
-            }
-            .keyboardShortcut("w", modifiers: [.command, .shift])
         }
+        .keyboardShortcut(command.menuShortcut)
+        .disabled(!command.isAvailable(context))
     }
 }
 #endif

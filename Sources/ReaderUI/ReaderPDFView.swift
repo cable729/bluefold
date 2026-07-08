@@ -1,4 +1,5 @@
 #if os(macOS)
+import AppKit
 import PDFKit
 import ReaderCore
 
@@ -20,6 +21,30 @@ final class ReaderPDFView: PDFView {
     /// `current` is the position before the jump — the history push target.
     /// The handler performs the navigation; the click is swallowed.
     var onLinkActivated: ((_ target: LinkTarget, _ current: NavEntry, _ inNewTab: Bool) -> Void)?
+
+    /// Left/right arrows page-turn in every display mode. PDFView pages on
+    /// arrows in single-page mode but scrolls (or beeps) in the continuous
+    /// modes; intercepting here makes the behavior uniform, matching Preview.
+    /// Only bare arrows are taken — modified arrows (⇧ selection, ⌘ etc.)
+    /// keep PDFView's behavior, and text fields are their own responder so
+    /// typing is unaffected.
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if modifiers.isEmpty,
+           let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first {
+            switch Int(scalar.value) {
+            case NSRightArrowFunctionKey:
+                if canGoToNextPage { goToNextPage(nil) }
+                return  // consume even at the last page (no beep/side-scroll)
+            case NSLeftArrowFunctionKey:
+                if canGoToPreviousPage { goToPreviousPage(nil) }
+                return
+            default:
+                break
+            }
+        }
+        super.keyDown(with: event)
+    }
 
     override func mouseDown(with event: NSEvent) {
         let viewPoint = convert(event.locationInWindow, from: nil)
