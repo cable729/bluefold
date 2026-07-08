@@ -92,6 +92,75 @@ struct OutlineNode: Identifiable {
     /// and looked dead (round 13).
     private static let sameSpotTolerance: CGFloat = 40
 
+    /// One precomputed "where am I" stop: a section's reading-order key,
+    /// full ancestor path, and node id. Built once per document so live
+    /// breadcrumbs (updated while scrolling, round 15) cost a binary search
+    /// per tick, not an outline walk.
+    struct SectionStop: Equatable {
+        let page: Int
+        let offset: CGFloat
+        let path: [String]
+        let nodeID: UUID
+    }
+
+    /// Every destination-carrying node in reading order, ancestor paths
+    /// included. Same-spot entries (chapter heading + its first section on
+    /// one anchor) keep only the DEEPEST path — that is the label a reader
+    /// standing there expects.
+    static func sectionStops(in nodes: [OutlineNode]) -> [SectionStop] {
+        var stops: [SectionStop] = []
+        func walk(_ nodes: [OutlineNode], ancestors: [String]) {
+            for node in nodes {
+                let path = ancestors + [node.label]
+                if let entry = node.entry {
+                    let key = readingKey(of: entry)
+                    stops.append(SectionStop(
+                        page: key.page, offset: key.offset,
+                        path: path.filter { !$0.isEmpty }, nodeID: node.id
+                    ))
+                }
+                walk(node.children ?? [], ancestors: path)
+            }
+        }
+        walk(nodes, ancestors: [])
+        stops.sort { ($0.page, $0.offset) < ($1.page, $1.offset) }
+
+        var deduped: [SectionStop] = []
+        for stop in stops {
+            if let last = deduped.last, last.page == stop.page,
+               abs(last.offset - stop.offset) <= 2 {
+                if stop.path.count >= last.path.count {
+                    deduped[deduped.count - 1] = stop
+                }
+                continue
+            }
+            deduped.append(stop)
+        }
+        return deduped
+    }
+
+    /// The stop containing `current` — the last one anchored at or before
+    /// the position, with the same landing slop as section stepping. Binary
+    /// search: this runs on every scroll tick.
+    static func currentStop(in stops: [SectionStop], at current: NavEntry) -> SectionStop? {
+        let here = readingKey(of: current)
+        var low = 0
+        var high = stops.count - 1
+        var result: SectionStop?
+        while low <= high {
+            let mid = (low + high) / 2
+            let stop = stops[mid]
+            if stop.page < here.page
+                || (stop.page == here.page && stop.offset <= here.offset + sameSpotTolerance) {
+                result = stop
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return result
+    }
+
     /// Index of the section containing `current`: the last entry anchored
     /// at or before the position (with landing slop). nil before the first.
     private static func currentSectionIndex(

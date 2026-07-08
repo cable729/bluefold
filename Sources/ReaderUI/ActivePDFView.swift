@@ -61,6 +61,7 @@ struct ActivePDFView: NSViewRepresentable {
 
         context.coordinator.view = view
         context.coordinator.observePageChanges(of: view)
+        context.coordinator.observeScrolling(of: view)
         if isPrimary {
             model.primaryController = context.coordinator
         } else {
@@ -101,6 +102,11 @@ struct ActivePDFView: NSViewRepresentable {
         weak var view: ReaderPDFView?
         // nonisolated(unsafe): written on main; read in deinit.
         private nonisolated(unsafe) var pageObserver: NSObjectProtocol?
+        private nonisolated(unsafe) var scrollObserver: NSObjectProtocol?
+        /// Trailing throttle for live-position updates (round 15: the strip
+        /// breadcrumb and sidebar highlight follow the scroll, ~12 Hz max —
+        /// each tick is a binary search over precomputed section stops).
+        private var livePositionScheduled = false
 
         init(tabID: UUID, model: ReaderWindowModel) {
             self.tabID = tabID
@@ -111,10 +117,13 @@ struct ActivePDFView: NSViewRepresentable {
             if let pageObserver {
                 NotificationCenter.default.removeObserver(pageObserver)
             }
+            if let scrollObserver {
+                NotificationCenter.default.removeObserver(scrollObserver)
+            }
         }
 
         /// Streams page turns into the tab state (crash-safe restore,
-        /// sidebar current-section highlight). Never a history event.
+        /// reading-state persistence). Never a history event.
         func observePageChanges(of view: ReaderPDFView) {
             pageObserver = NotificationCenter.default.addObserver(
                 forName: .PDFViewPageChanged, object: view, queue: .main
@@ -132,6 +141,40 @@ struct ActivePDFView: NSViewRepresentable {
                     )
                 }
             }
+        }
+
+        /// Live section tracking while scrolling: PDFViewPageChanged only
+        /// fires on page flips, so within-page section changes (and books
+        /// with several sections per page) looked frozen until scroll
+        /// settled. Observes the internal scroll view's bounds instead.
+        func observeScrolling(of view: ReaderPDFView) {
+            guard let scrollView = Self.firstScrollView(in: view) else { return }
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            scrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.scheduleLivePositionUpdate() }
+            }
+        }
+
+        private func scheduleLivePositionUpdate() {
+            guard !livePositionScheduled else { return }
+            livePositionScheduled = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+                guard let self else { return }
+                self.livePositionScheduled = false
+                guard let entry = self.liveNavEntry else { return }
+                self.model?.noteLivePosition(tabID: self.tabID, entry: entry)
+            }
+        }
+
+        private static func firstScrollView(in view: NSView) -> NSScrollView? {
+            for subview in view.subviews {
+                if let scroll = subview as? NSScrollView { return scroll }
+                if let found = firstScrollView(in: subview) { return found }
+            }
+            return nil
         }
 
         // MARK: ActivePDFControlling

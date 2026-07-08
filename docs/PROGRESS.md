@@ -138,6 +138,27 @@ the project owner's plan file; the milestone list below is self-contained.
   last-remaining split into the primary; ⌃Tab cycles from the focused
   tab. 13 new PaneFocusTests.
 
+- [x] **UI-9** Round 15 (2026-07-08, owner): live breadcrumbs + split polish.
+  - **Breadcrumb/sidebar follow the scroll live**: PDFViewPageChanged only
+    fires on page flips, so the strip crumb and follow-mode highlight
+    froze until scroll settled and couldn't tell apart sections sharing a
+    page. Now each pane observes its internal scroll view's bounds
+    (80ms trailing throttle) → `noteLivePosition` → binary search over
+    per-document precomputed `OutlineNode.sectionStops` (ancestor paths
+    baked in; same-spot anchors keep the DEEPEST path; landing slop
+    honored). Point-precise `currentSectionNodeID` drives the sidebar;
+    stops cache holds up to 4 documents so a two-book split never
+    thrashes.
+  - **✕ moved to the RIGHT side of tabs** (matches the pane headers).
+  - **Either pane's ✕ closes THAT pane** (`closePane`): closing the
+    primary promotes the split tab to full primary; tabs never close.
+  - **Dragging the split tab un-splits it** (first drag movement closes
+    the pane and selects the tab in hand; then it drags like any tab).
+  - Owner also parked a design-session feature: margin heading anchors
+    ("#"/"##"/"###" next to titles/sections/definitions, tied to deep
+    links) — see BACKLOG "Round 15" for the sketch + open questions.
+  15 new tests (LivePositionTests + stop ordering/slop).
+
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); F-1 added library/search/theming/link-history UI (simulator BUILD-verified only — needs hand-run); CloudKit sync UI pending
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `PDFReaderUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but local XCUITest synthesis can't drive them (see quirks below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI/human hands end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test PDFREADER_BUNDLE_ID_SUFFIX=.uitest<N>`. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.

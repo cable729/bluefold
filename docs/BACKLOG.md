@@ -258,6 +258,28 @@ PROGRESS.md § "PDFKit destination pathologies". Summary:
   (always in scans) — same-spot stops dedupe (2pt) so ⇤ crosses chapter
   boundaries instead of stepping to an invisible twin.
 
+## Round 15 (2026-07-08, owner) — margin heading anchors ("#") — TO FLESH OUT WITH OWNER
+Owner request, parked deliberately: "for deep linking and viewing I'd like
+to see if we can add a '#' to the left of paragraphs and definitions and
+stuff. Like '#' is a title and the smaller ones get more ###." He wants a
+design session on this before building. Sketch of the idea:
+- Render markdown-style depth markers in the page MARGIN next to structural
+  anchors: `#` for a chapter/title, `##` for a section, `###` deeper — and
+  possibly for sub-section anchors like definitions/theorems/paragraphs.
+- Anchor sources, in richness order: named destinations (hyperref gives
+  theorem/definition granularity in well-made LaTeX books — enumerate via
+  the CGPDF name tree, see NamedDestinations), outline entries (works for
+  scans too), possibly heading-detection heuristics later.
+- Interaction ideas to explore with the owner: hover to reveal, click a
+  marker = Copy Link to that anchor (pairs with pdfreader:// deep links),
+  maybe jump/peek. Rendering probably a PDFView overlay layer or page
+  annotations drawn at anchor points (mind the destination pathologies:
+  validate points, offset crop boxes).
+- OPEN QUESTIONS for the design session: always-visible vs hover-only;
+  which anchor kinds get markers; depth→#-count mapping for named dests
+  (no tree structure — infer from name prefixes like section./theorem.?);
+  scans with junk anchor points; performance on 1000-page books.
+
 ## Known bugs / rough edges (not yet scheduled)
 - Tooltip delay (above).
 - Cover loading during scroll (above).

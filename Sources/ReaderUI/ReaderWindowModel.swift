@@ -173,6 +173,7 @@ public final class ReaderWindowModel {
         let resolved: ReaderPane = (pane == .split && splitTabID == nil) ? .primary : pane
         guard focusedPane != resolved else { return }
         focusedPane = resolved
+        currentSectionNodeID = nil  // stale for the new pane's document
         refreshBookmarks()
     }
 
@@ -257,6 +258,25 @@ public final class ReaderWindowModel {
         onMutation?()
     }
 
+    /// Closes one PANE of a split — every tab stays open in the strip; the
+    /// other pane takes over the whole window (round 15: either pane's ✕
+    /// works, closing the primary promotes the split tab to primary).
+    public func closePane(_ pane: ReaderPane) {
+        guard let splitID = splitTabID else { return }
+        switch pane {
+        case .split:
+            closeSplit()
+        case .primary:
+            activeTabID = splitID
+            splitTabID = nil
+            focusedPane = .primary
+            currentSectionNodeID = nil
+            refreshPins()
+            refreshBookmarks()
+            onMutation?()
+        }
+    }
+
     public func url(for tab: TabState) -> URL {
         URL(fileURLWithPath: tab.pathHint)
     }
@@ -336,6 +356,7 @@ public final class ReaderWindowModel {
         } else {
             activeTabID = id
             focusedPane = .primary
+            currentSectionNodeID = nil  // recomputed on the next scroll tick
         }
         refreshPins()
         refreshBookmarks()
@@ -534,6 +555,51 @@ public final class ReaderWindowModel {
             .filter { !$0.isEmpty }
         breadcrumbCache[pageIndex] = path
         return path
+    }
+
+    // MARK: - Live position (breadcrumbs while scrolling — round 15)
+
+    /// Ordered section stops per document. Keyed separately from the
+    /// single-slot outline cache: a split can show TWO documents, and
+    /// alternating scroll ticks must not rebuild anything.
+    @ObservationIgnored
+    private var sectionStopsCache: [ObjectIdentifier: [OutlineNode.SectionStop]] = [:]
+
+    func sectionStops(for document: PDFDocument) -> [OutlineNode.SectionStop] {
+        let key = ObjectIdentifier(document)
+        if let cached = sectionStopsCache[key] { return cached }
+        if sectionStopsCache.count >= 4 {  // stale-document backstop
+            sectionStopsCache.removeAll()
+        }
+        let stops = OutlineNode.sectionStops(in: OutlineNode.tree(from: document))
+        sectionStopsCache[key] = stops
+        return stops
+    }
+
+    /// The section the FOCUSED pane's reading position is inside, point-
+    /// precise — drives the sidebar's follow-mode highlight while scrolling.
+    /// Nil falls back to the page-granular lookup (e.g. right after a tab
+    /// switch, before the first scroll tick).
+    public private(set) var currentSectionNodeID: UUID?
+
+    /// Streamed by a pane's scroll observer (throttled): recomputes the
+    /// tab's strip breadcrumb and the sidebar highlight from the exact
+    /// scroll anchor instead of waiting for a page flip. A binary search
+    /// over precomputed stops — cheap enough for every tick.
+    public func noteLivePosition(tabID: UUID, entry: NavEntry) {
+        guard
+            let index = tabs.firstIndex(where: { $0.id == tabID }),
+            let document = provider.loadedDocument(for: url(for: tabs[index]))
+        else { return }
+        let stop = OutlineNode.currentStop(in: sectionStops(for: document), at: entry)
+        if tabID == activeTab?.id, currentSectionNodeID != stop?.nodeID {
+            currentSectionNodeID = stop?.nodeID
+        }
+        let crumb = stop?.path.joined(separator: " › ") ?? ""
+        if !crumb.isEmpty, tabs[index].breadcrumb != crumb {
+            tabs[index].breadcrumb = crumb
+            onMutation?()  // persists with the session (debounced)
+        }
     }
 
     // MARK: - Tab strip breadcrumbs

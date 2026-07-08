@@ -78,6 +78,7 @@ struct SidebarView: View {
                     OutlineList(
                         outline: outline,
                         currentPageIndex: currentPageIndex,
+                        liveSectionNodeID: model.currentSectionNodeID,
                         followsCurrentSection: followSection,
                         onJump: { model.jump(to: $0) }
                     )
@@ -158,6 +159,9 @@ struct SidebarView: View {
 private struct OutlineList: View {
     let outline: [OutlineNode]
     let currentPageIndex: Int
+    /// Point-precise section id streamed while scrolling (round 15);
+    /// nil right after a tab/pane switch → page-granular fallback.
+    let liveSectionNodeID: UUID?
     let followsCurrentSection: Bool
     let onJump: (NavEntry) -> Void
 
@@ -197,9 +201,12 @@ private struct OutlineList: View {
         }
     }
 
-    /// The deepest outline entry at or before the current page.
+    /// The section being read: the live, point-precise id streamed by the
+    /// scroll observer (round 15 — several sections share a page), falling
+    /// back to the page-granular lookup right after a tab/pane switch.
     private var currentNodeID: UUID? {
-        OutlineNode.deepestNodeID(in: outline, atOrBefore: currentPageIndex)
+        liveSectionNodeID
+            ?? OutlineNode.deepestNodeID(in: outline, atOrBefore: currentPageIndex)
     }
 
     /// Follow mode: expand the current section's ancestors, then scroll it

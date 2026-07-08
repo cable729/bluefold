@@ -459,6 +459,14 @@ final class TabStripNSView: NSView {
             self.drag = drag
             return // below the drag threshold: still a click
         }
+        if !drag.didMove, items.first(where: { $0.id == drag.tabID })?.isSplit == true {
+            // Dragging the split tab pulls it OUT of the pane (round 15:
+            // "drag the tab to un-split") — from here it drags like any
+            // tab: reorder, tear off, or drop somewhere else. Selecting it
+            // makes the tab in hand the one on screen when the drag ends.
+            actions.closeSplit()
+            actions.select(drag.tabID)
+        }
         drag.didMove = true
 
         let inBand = abs(dy) < Self.tearOffDistance
@@ -724,11 +732,13 @@ final class TabItemNSView: NSView {
         addSubview(closeButton)
         addSubview(activeBar)
         NSLayoutConstraint.activate([
-            closeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            // ✕ sits on the RIGHT (round 15) — matching the split pane
+            // header and every browser.
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: 12),
-            textStack.leadingAnchor.constraint(equalTo: closeButton.trailingAnchor, constant: 4),
-            textStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
+            textStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            textStack.trailingAnchor.constraint(lessThanOrEqualTo: closeButton.leadingAnchor, constant: -4),
             textStack.centerYAnchor.constraint(equalTo: centerYAnchor),
             activeBar.topAnchor.constraint(equalTo: topAnchor),
             activeBar.leadingAnchor.constraint(equalTo: leadingAnchor),

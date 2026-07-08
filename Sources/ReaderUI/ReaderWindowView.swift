@@ -241,17 +241,17 @@ public struct ReaderWindowView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
-                if role == .split {
-                    Button {
-                        model.closeSplit()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .bold))
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityIdentifier("close-split")
-                    .help("Close split view (keeps the tab)")
+                // Either pane can be closed (round 15): the OTHER pane takes
+                // over the whole window; every tab stays in the strip.
+                Button {
+                    model.closePane(role)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
                 }
+                .buttonStyle(.borderless)
+                .accessibilityIdentifier(role == .split ? "close-split" : "close-primary-pane")
+                .help("Close this pane — the other pane takes over (the tab stays open)")
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
