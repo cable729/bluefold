@@ -588,6 +588,12 @@ public final class LibraryModel {
         reloadOverlay()
     }
 
+    /// Sets or clears a tag's display color ("#RRGGBB"; nil = colorless).
+    public func setTagColor(id: Int64, color: String?) {
+        try? store?.setTagColor(id: id, color: color)
+        reloadOverlay()
+    }
+
     /// Moves a tag under a new parent (nil = root); the store refuses moves
     /// that would create a cycle. Returns whether anything changed.
     @discardableResult

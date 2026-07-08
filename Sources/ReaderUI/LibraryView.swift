@@ -202,7 +202,18 @@ public struct LibraryView: View {
 
     private func tagRow(_ node: TagNode) -> some View {
         let filterValue: LibraryFilter = node.tag.id.map { LibraryFilter.tag($0) } ?? .all
-        return Label(node.tag.name, systemImage: "tag")
+        return Label {
+            HStack(spacing: 6) {
+                Text(node.tag.name)
+                if let color = TagColor.color(fromHex: node.tag.color) {
+                    Circle()
+                        .fill(color)
+                        .frame(width: 8, height: 8)
+                }
+            }
+        } icon: {
+            Image(systemName: "tag")
+        }
             // .badge(0) renders nothing, so empty tags stay clean.
             .badge(node.tag.id.flatMap { model.tagCounts[$0] } ?? 0)
             .tag(filterValue)
@@ -214,6 +225,8 @@ public struct LibraryView: View {
                     .background(.regularMaterial, in: Capsule())
             }
             .contextMenu {
+                Menu("Color") { tagColorMenu(for: node.tag) }
+                Divider()
                 Button("Move to Top Level") {
                     if let id = node.tag.id {
                         model.reparentTag(id: id, under: nil)
@@ -229,6 +242,40 @@ public struct LibraryView: View {
             .dropDestination(for: String.self) { payloads, _ in
                 handleTagRowDrop(payloads, onto: node.tag.id)
             }
+    }
+
+    /// Preset swatches + None, checkmarked on the tag's current color.
+    /// Swatches are NSImages: SwiftUI foreground styles get stripped inside
+    /// NSMenu-backed context menus, but non-template images keep colors.
+    @ViewBuilder
+    private func tagColorMenu(for tag: TagRecord) -> some View {
+        ForEach(TagColor.presets) { preset in
+            Toggle(isOn: .init(
+                get: { tag.color == preset.hex },
+                set: { _ in
+                    if let id = tag.id {
+                        model.setTagColor(id: id, color: preset.hex)
+                    }
+                }
+            )) {
+                Label {
+                    Text(preset.name)
+                } icon: {
+                    Image(nsImage: TagColor.swatchImage(hex: preset.hex))
+                }
+            }
+        }
+        Divider()
+        Toggle(isOn: .init(
+            get: { tag.color == nil },
+            set: { _ in
+                if let id = tag.id {
+                    model.setTagColor(id: id, color: nil)
+                }
+            }
+        )) {
+            Text("None")
+        }
     }
 
     /// A tag row accepts two kinds of drags: books (assign the tag) and
@@ -910,6 +957,22 @@ private struct BookCellContent: View, Equatable {
             && lhs.cover === rhs.cover
     }
 
+    /// The overlay-tag line, built by Text concatenation so it truncates as
+    /// one line: each tag name tinted with its own color (accent when
+    /// colorless, matching the pre-color look), separators tertiary.
+    private var overlayTagLine: Text {
+        var line = Text(verbatim: "")
+        for (index, tag) in overlayTags.enumerated() {
+            if index > 0 {
+                line = line + Text(" · ").foregroundStyle(.tertiary)
+            }
+            let style = TagColor.color(fromHex: tag.color)
+                .map { AnyShapeStyle($0) } ?? AnyShapeStyle(.tint)
+            line = line + Text(tag.name).foregroundStyle(style)
+        }
+        return line
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack {
@@ -950,9 +1013,8 @@ private struct BookCellContent: View, Equatable {
                     .lineLimit(1)
             }
             if !overlayTags.isEmpty {
-                Text(overlayTags.map(\.name).joined(separator: " · "))
+                overlayTagLine
                     .font(.caption2)
-                    .foregroundStyle(.tint)
                     .lineLimit(1)
             }
         }

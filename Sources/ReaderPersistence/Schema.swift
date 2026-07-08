@@ -119,6 +119,16 @@ enum LibrarySchema {
             }
         }
 
+        migrator.registerMigration("v4") { db in
+            // Tag colors (round 7): a "#RRGGBB" hex string, NULL = colorless.
+            // Stored as plain text (not a preset index) so CloudKit sync
+            // carries it verbatim and the UI palette can evolve without
+            // another migration; setTagColor bumps modified_at.
+            try db.alter(table: "tag") { t in
+                t.add(column: "color", .text)
+            }
+        }
+
         return migrator
     }
 }
