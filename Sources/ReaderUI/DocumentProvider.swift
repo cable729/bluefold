@@ -46,6 +46,14 @@ public final class DocumentProvider {
         return document
     }
 
+    /// The live document for `url` ONLY if already resident — no load, no
+    /// LRU bump. For chrome that decorates background tabs (breadcrumbs)
+    /// without disturbing the memory model.
+    public func loadedDocument(for url: URL) -> PDFDocument? {
+        let path = Self.canonicalPath(for: url)
+        return cache.first { $0.path == path }?.document
+    }
+
     /// Paths of documents currently resident, least-recently-used first.
     public var residentPaths: [String] { cache.map(\.path) }
 

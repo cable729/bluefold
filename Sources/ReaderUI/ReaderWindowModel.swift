@@ -164,12 +164,14 @@ public final class ReaderWindowModel {
         activeTabID = id
         refreshPins()
         refreshBookmarks()
+        refreshBreadcrumb(tabID: id)
         onMutation?()
     }
 
     public func closeTab(id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let closed = tabs.remove(at: index)
+        tabBreadcrumbs.removeValue(forKey: id)
 
         if activeTabID == id {
             // Neighbor preference: the tab that took the closed tab's slot,
@@ -202,6 +204,7 @@ public final class ReaderWindowModel {
         if let tab = tabs.first(where: { $0.id == tabID }) {
             persistReadingState(for: tab)
         }
+        refreshBreadcrumb(tabID: tabID)
     }
 
     // MARK: - View controls (bottom bar)
@@ -254,6 +257,36 @@ public final class ReaderWindowModel {
             .filter { !$0.isEmpty }
         breadcrumbCache[pageIndex] = path
         return path
+    }
+
+    // MARK: - Tab strip breadcrumbs
+
+    /// Last known outline breadcrumb per tab, for the strip's second row.
+    /// Transient (not persisted) and kept after document eviction so
+    /// background tabs keep their label without reloading anything.
+    public private(set) var tabBreadcrumbs: [UUID: String] = [:]
+
+    /// Recomputes a tab's breadcrumb if its document is resident; keeps the
+    /// last known value otherwise. Never loads a document (LRU stays intact).
+    func refreshBreadcrumb(tabID: UUID) {
+        guard
+            let tab = tabs.first(where: { $0.id == tabID }),
+            let document = provider.loadedDocument(for: url(for: tab))
+        else { return }
+        // The active document goes through the memoized path; other resident
+        // documents take a one-off walk so they never evict its cache.
+        let path: [String] =
+            if tabID == activeTabID {
+                breadcrumbPath(for: tab.pageIndex, in: document)
+            } else {
+                OutlineNode.deepestPath(
+                    in: OutlineNode.tree(from: document), atOrBefore: tab.pageIndex
+                ).filter { !$0.isEmpty }
+            }
+        let crumb = path.joined(separator: " › ")
+        if tabBreadcrumbs[tabID] != crumb {
+            tabBreadcrumbs[tabID] = crumb
+        }
     }
 
     /// Human label for a history entry: the deepest outline section at or
@@ -402,6 +435,7 @@ public final class ReaderWindowModel {
         if tabID == activeTabID {
             persistReadingState(for: tabs[index])
         }
+        refreshBreadcrumb(tabID: tabID)
         onMutation?()
     }
 
@@ -422,6 +456,7 @@ public final class ReaderWindowModel {
     func detachTab(id: UUID) -> TabState? {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return nil }
         let tab = tabs.remove(at: index)
+        tabBreadcrumbs.removeValue(forKey: id)
         if activeTabID == id {
             let successor = tabs.indices.contains(index) ? tabs[index] : tabs.last
             activeTabID = successor?.id

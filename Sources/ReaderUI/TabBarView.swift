@@ -26,7 +26,7 @@ struct TabBarView: View {
             .padding(.horizontal, 8)
             .help("Open a PDF in a new tab (⌘T)")
         }
-        .frame(height: 32)
+        .frame(height: 48)
         .background(.bar)
     }
 
@@ -34,17 +34,17 @@ struct TabBarView: View {
     /// tracking: any tab mutation re-evaluates this body and pushes fresh
     /// items into the NSView.
     private var displayItems: [TabDisplayItem] {
-        let counts = model.tabCountByPath
-        return model.tabs.map { tab in
+        model.tabs.map { tab in
             TabDisplayItem(
                 id: tab.id,
                 title: URL(fileURLWithPath: tab.pathHint)
                     .deletingPathExtension()
                     .lastPathComponent,
+                breadcrumb: model.tabBreadcrumbs[tab.id].flatMap {
+                    $0.isEmpty ? nil : $0
+                } ?? "p.\(tab.pageIndex + 1)",
                 isActive: tab.id == model.activeTabID,
-                groupColorHue: (counts[tab.pathHint] ?? 0) > 1
-                    ? Double(abs(tab.pathHint.hashValue % 360)) / 360.0
-                    : nil
+                groupKey: tab.pathHint
             )
         }
     }

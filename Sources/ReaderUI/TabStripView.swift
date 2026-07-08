@@ -6,8 +6,13 @@ import ReaderCore
 struct TabDisplayItem: Equatable {
     let id: UUID
     let title: String
+    /// Second row: outline breadcrumb of the tab's position (may be a plain
+    /// page label for outline-less documents).
+    let breadcrumb: String
     let isActive: Bool
-    let groupColorHue: Double? // same-book group marker; nil = no marker
+    /// Adjacent tabs with the same key render as a group: the title shown
+    /// once in a header spanning the run, breadcrumbs per tab beneath.
+    let groupKey: String
 }
 
 /// Everything the strip can ask its window model to do. Kept as closures so
@@ -34,18 +39,26 @@ struct TabStripActions {
 ///     panel follows the pointer; dropping over another window's strip moves
 ///     the tab there, dropping anywhere else opens a new window at the point.
 /// Cross-window hit-testing goes through `TabStripRegistry`.
+///
+/// Tabs render two rows — title, then the outline breadcrumb of that tab's
+/// position. Adjacent tabs of the same book render the title once in a
+/// header spanning the run (a real tab group), breadcrumbs per tab beneath.
+/// While a drag is in flight everything renders as singletons so slot math
+/// stays trivial.
 @MainActor
 final class TabStripNSView: NSView {
-    static let tabHeight: CGFloat = 32
+    static let tabHeight: CGFloat = 48
+    static let groupHeaderHeight: CGFloat = 17
     static let minTabWidth: CGFloat = 60
     static let maxTabWidth: CGFloat = 220
-    static let tearOffDistance: CGFloat = 36
+    static let tearOffDistance: CGFloat = 44
 
     let windowID: UUID
     var actions: TabStripActions
 
     private(set) var items: [TabDisplayItem] = []
     private var itemViews: [TabItemNSView] = []
+    private var headerViews: [TabGroupHeaderView] = []
     private var drag: DragState?
 
     /// Highlight shown while a foreign tab drag hovers over this strip.
@@ -108,13 +121,33 @@ final class TabStripNSView: NSView {
     /// Shrink-to-fit layout (no scrolling; browsers shrink tabs instead).
     /// During a drag the dragged tab tracks the pointer and others make room.
     private func layoutItems(animated: Bool) {
-        guard !itemViews.isEmpty else { return }
+        guard !itemViews.isEmpty else {
+            clearHeaders()
+            return
+        }
         let width = tabWidth
-        for (slot, view) in orderedViewsForLayout().enumerated() {
+        let ordered = orderedViewsForLayout()
+
+        // Group runs of adjacent same-book tabs — suspended during a drag,
+        // where slot math must stay per-tab.
+        let grouped: [Range<Int>] = drag == nil ? groupRuns(in: ordered) : []
+        var isGrouped = [ObjectIdentifier: Bool]()
+        for run in grouped {
+            for index in run {
+                if let item = ordered[index] as? TabItemNSView {
+                    isGrouped[ObjectIdentifier(item)] = true
+                }
+            }
+        }
+
+        for (slot, view) in ordered.enumerated() {
+            let inGroup = isGrouped[ObjectIdentifier(view)] == true
+            let height = inGroup ? bounds.height - Self.groupHeaderHeight : bounds.height
             let target = NSRect(
                 x: CGFloat(slot) * width, y: 0,
-                width: width, height: bounds.height
+                width: width, height: height
             )
+            (view as? TabItemNSView)?.setGrouped(inGroup)
             if view === drag?.itemView, drag?.isTornOff == false {
                 // The dragged tab follows the pointer horizontally.
                 var f = target
@@ -126,6 +159,65 @@ final class TabStripNSView: NSView {
                 view.frame = target
             }
         }
+
+        layoutHeaders(runs: grouped, ordered: ordered, tabWidth: width, animated: animated)
+    }
+
+    /// Ranges of adjacent visible tabs sharing a groupKey (length ≥ 2).
+    private func groupRuns(in ordered: [NSView]) -> [Range<Int>] {
+        let keys: [String?] = ordered.map { view in
+            guard let item = view as? TabItemNSView else { return nil }
+            return items.first { $0.id == item.tabID }?.groupKey
+        }
+        guard !keys.isEmpty else { return [] }
+        var runs: [Range<Int>] = []
+        var start = 0
+        for index in 1...keys.count {
+            if index == keys.count || keys[index] == nil || keys[index] != keys[start] {
+                if index - start >= 2, keys[start] != nil {
+                    runs.append(start..<index)
+                }
+                start = index
+            }
+        }
+        return runs
+    }
+
+    private func layoutHeaders(
+        runs: [Range<Int>], ordered: [NSView], tabWidth: CGFloat, animated: Bool
+    ) {
+        // Reuse header views positionally; runs are few.
+        while headerViews.count > runs.count {
+            headerViews.removeLast().removeFromSuperview()
+        }
+        while headerViews.count < runs.count {
+            let header = TabGroupHeaderView(owner: self)
+            headerViews.append(header)
+            addSubview(header)
+        }
+        for (header, run) in zip(headerViews, runs) {
+            let firstTab = (ordered[run.lowerBound] as? TabItemNSView)
+            let title = firstTab.flatMap { view in
+                items.first { $0.id == view.tabID }?.title
+            } ?? ""
+            header.apply(title: title, firstTabID: firstTab?.tabID)
+            let frame = NSRect(
+                x: CGFloat(run.lowerBound) * tabWidth,
+                y: bounds.height - Self.groupHeaderHeight,
+                width: CGFloat(run.count) * tabWidth,
+                height: Self.groupHeaderHeight
+            )
+            if animated {
+                header.animator().frame = frame
+            } else {
+                header.frame = frame
+            }
+        }
+    }
+
+    private func clearHeaders() {
+        for header in headerViews { header.removeFromSuperview() }
+        headerViews.removeAll()
     }
 
     private var tabWidth: CGFloat {
@@ -324,18 +416,22 @@ final class TabStripNSView: NSView {
     }
 }
 
-/// One tab in the strip. Pure display + event forwarding; all decisions live
-/// in the owning strip.
+/// One tab in the strip: title row + breadcrumb row. When part of a group
+/// the title row is hidden (the spanning header carries it) and the
+/// breadcrumb centers in the remaining height. Pure display + event
+/// forwarding; all decisions live in the owning strip.
 @MainActor
 final class TabItemNSView: NSView {
     let tabID: UUID
     private unowned let owner: TabStripNSView
 
     private let titleField = NSTextField(labelWithString: "")
+    private let breadcrumbField = NSTextField(labelWithString: "")
     private let closeButton = NSButton()
-    private let groupDot = NSView()
     private let activeBar = NSView()
+    private let textStack = NSStackView()
     private var isActive = false
+    private var isGrouped = false
     private var isHovered = false { didSet { refreshChrome() } }
     private var trackingArea: NSTrackingArea?
 
@@ -347,42 +443,45 @@ final class TabItemNSView: NSView {
 
         titleField.font = .systemFont(ofSize: 12)
         titleField.lineBreakMode = .byTruncatingMiddle
-        titleField.translatesAutoresizingMaskIntoConstraints = false
+        titleField.setAccessibilityIdentifier("tab-title")
+
+        breadcrumbField.font = .systemFont(ofSize: 9.5)
+        breadcrumbField.textColor = .tertiaryLabelColor
+        // Head truncation keeps the deepest (most useful) section visible.
+        breadcrumbField.lineBreakMode = .byTruncatingHead
+        breadcrumbField.setAccessibilityIdentifier("tab-breadcrumb")
+
+        textStack.orientation = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 1
+        textStack.addArrangedSubview(titleField)
+        textStack.addArrangedSubview(breadcrumbField)
+        textStack.translatesAutoresizingMaskIntoConstraints = false
 
         closeButton.image = NSImage(
             systemSymbolName: "xmark", accessibilityDescription: "Close Tab"
         )
         closeButton.symbolConfiguration = .init(pointSize: 8, weight: .bold)
         closeButton.isBordered = false
-        closeButton.bezelStyle = .accessoryBarAction
         closeButton.target = self
         closeButton.action = #selector(closeTapped)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.setAccessibilityIdentifier("tab-close")
 
-        groupDot.wantsLayer = true
-        groupDot.layer?.cornerRadius = 3
-        groupDot.translatesAutoresizingMaskIntoConstraints = false
-
         activeBar.wantsLayer = true
         activeBar.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
         activeBar.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(titleField)
+        addSubview(textStack)
         addSubview(closeButton)
-        addSubview(groupDot)
         addSubview(activeBar)
         NSLayoutConstraint.activate([
             closeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: 12),
-            groupDot.leadingAnchor.constraint(equalTo: closeButton.trailingAnchor, constant: 4),
-            groupDot.centerYAnchor.constraint(equalTo: centerYAnchor),
-            groupDot.widthAnchor.constraint(equalToConstant: 6),
-            groupDot.heightAnchor.constraint(equalToConstant: 6),
-            titleField.leadingAnchor.constraint(equalTo: groupDot.trailingAnchor, constant: 4),
-            titleField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
-            titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            textStack.leadingAnchor.constraint(equalTo: closeButton.trailingAnchor, constant: 4),
+            textStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
+            textStack.centerYAnchor.constraint(equalTo: centerYAnchor),
             activeBar.topAnchor.constraint(equalTo: topAnchor),
             activeBar.leadingAnchor.constraint(equalTo: leadingAnchor),
             activeBar.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -400,22 +499,25 @@ final class TabItemNSView: NSView {
     func apply(_ item: TabDisplayItem) {
         titleField.stringValue = item.title
         titleField.font = .systemFont(ofSize: 12, weight: item.isActive ? .semibold : .regular)
+        breadcrumbField.stringValue = item.breadcrumb
+        breadcrumbField.isHidden = item.breadcrumb.isEmpty
         isActive = item.isActive
-        if let hue = item.groupColorHue {
-            groupDot.isHidden = false
-            groupDot.layer?.backgroundColor = NSColor(
-                hue: hue, saturation: 0.65, brightness: 0.85, alpha: 1
-            ).cgColor
-        } else {
-            groupDot.isHidden = true
-        }
         setAccessibilityIdentifier("tab-\(item.title)")
         setAccessibilityTitle(item.title)
         refreshChrome()
     }
 
+    /// Grouped tabs hide their title row — the group header carries it.
+    func setGrouped(_ grouped: Bool) {
+        guard grouped != isGrouped else { return }
+        isGrouped = grouped
+        titleField.isHidden = grouped
+        refreshChrome()
+    }
+
     private func refreshChrome() {
         titleField.textColor = isActive ? .labelColor : .secondaryLabelColor
+        breadcrumbField.textColor = isActive ? .secondaryLabelColor : .tertiaryLabelColor
         activeBar.isHidden = !isActive
         closeButton.isHidden = !(isActive || isHovered)
         layer?.backgroundColor =
@@ -468,6 +570,54 @@ final class TabItemNSView: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         owner.menu(for: self)
+    }
+}
+
+/// Title header spanning a run of same-book tabs — the tab-group affordance
+/// (replaces the old colored dot). Click selects the group's first tab.
+@MainActor
+final class TabGroupHeaderView: NSView {
+    private unowned let owner: TabStripNSView
+    private let titleField = NSTextField(labelWithString: "")
+    private var firstTabID: UUID?
+
+    init(owner: TabStripNSView) {
+        self.owner = owner
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.quaternaryLabelColor
+            .withAlphaComponent(0.12).cgColor
+        titleField.font = .systemFont(ofSize: 10, weight: .medium)
+        titleField.textColor = .secondaryLabelColor
+        titleField.lineBreakMode = .byTruncatingMiddle
+        titleField.alignment = .center
+        titleField.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(titleField)
+        NSLayoutConstraint.activate([
+            titleField.centerXAnchor.constraint(equalTo: centerXAnchor),
+            titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            titleField.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 6),
+        ])
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityIdentifier("tab-group-header")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("unused") }
+
+    func apply(title: String, firstTabID: UUID?) {
+        titleField.stringValue = title
+        self.firstTabID = firstTabID
+        setAccessibilityTitle(title)
+    }
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func mouseDown(with event: NSEvent) {
+        if let firstTabID {
+            owner.actions.select(firstTabID)
+        }
     }
 }
 

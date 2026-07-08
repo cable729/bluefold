@@ -47,7 +47,10 @@ struct TabStripDragTests {
             strip.frame = NSRect(x: 0, y: frame.height - 32, width: frame.width, height: 32)
             window.contentView?.addSubview(strip)
             strip.update(items: tabs.map {
-                TabDisplayItem(id: UUID(), title: $0, isActive: false, groupColorHue: nil)
+                TabDisplayItem(
+                    id: UUID(), title: $0, breadcrumb: "p.1",
+                    isActive: false, groupKey: "/tmp/\($0).pdf"
+                )
             })
             strip.layoutSubtreeIfNeeded()
             // Force layout so item frames are real.
@@ -167,6 +170,43 @@ struct TabStripDragTests {
         #expect(source.moves.first?.0 == betaID)
         #expect(source.moves.first?.1 == target.windowID)
         #expect(source.detaches.isEmpty && source.reorders.isEmpty)
+    }
+
+    @Test func adjacentSameBookTabsGetASpanningGroupHeader() {
+        let h = Harness(
+            frame: NSRect(x: 100, y: 300, width: 800, height: 400),
+            tabs: ["Alpha", "Axler", "Axler2", "Beta"]
+        )
+        defer { h.cleanUp() }
+        // Rebuild items so the two middle tabs share a book (same groupKey).
+        h.strip.update(items: [
+            TabDisplayItem(id: UUID(), title: "Alpha", breadcrumb: "p.1",
+                           isActive: false, groupKey: "/tmp/alpha.pdf"),
+            TabDisplayItem(id: UUID(), title: "Axler", breadcrumb: "Ch 1 › 1A",
+                           isActive: true, groupKey: "/tmp/axler.pdf"),
+            TabDisplayItem(id: UUID(), title: "Axler", breadcrumb: "Ch 5 › 5B",
+                           isActive: false, groupKey: "/tmp/axler.pdf"),
+            TabDisplayItem(id: UUID(), title: "Beta", breadcrumb: "p.9",
+                           isActive: false, groupKey: "/tmp/beta.pdf"),
+        ])
+        h.strip.layout()
+
+        let headers = h.strip.subviews.compactMap { $0 as? TabGroupHeaderView }
+        #expect(headers.count == 1)
+
+        // The header spans exactly the two grouped tabs' widths.
+        let grouped = h.strip.subviews.compactMap { $0 as? TabItemNSView }
+            .sorted { $0.frame.minX < $1.frame.minX }[1...2]
+        let header = headers[0]
+        #expect(abs(header.frame.minX - grouped.first!.frame.minX) < 0.5)
+        #expect(abs(header.frame.maxX - grouped.last!.frame.maxX) < 0.5)
+
+        // Grouped tabs are shortened by the header height; singletons are not.
+        let singleton = h.strip.subviews.compactMap { $0 as? TabItemNSView }
+            .sorted { $0.frame.minX < $1.frame.minX }[0]
+        #expect(singleton.frame.height == h.strip.bounds.height)
+        #expect(grouped.first!.frame.height
+            == h.strip.bounds.height - TabStripNSView.groupHeaderHeight)
     }
 
     @Test func tinyDragIsAClickNotAReorder() {

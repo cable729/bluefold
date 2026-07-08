@@ -48,6 +48,8 @@ struct ActivePDFView: NSViewRepresentable {
         context.coordinator.view = view
         context.coordinator.observePageChanges(of: view)
         model.activeController = context.coordinator
+        // The document is resident now; give the tab strip its breadcrumb.
+        model.refreshBreadcrumb(tabID: tab.id)
         return view
     }
 
