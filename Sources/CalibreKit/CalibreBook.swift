@@ -35,6 +35,10 @@ public struct CalibreBook: Sendable, Equatable, Identifiable {
     /// Publication date, or nil when Calibre has no (defined) date.
     public let pubdate: Date?
 
+    /// When the book was added to the Calibre library (`books.timestamp`),
+    /// or nil when Calibre has no (defined) date.
+    public let addedAt: Date?
+
     public init(
         id: Int64,
         uuid: String,
@@ -44,7 +48,8 @@ public struct CalibreBook: Sendable, Equatable, Identifiable {
         calibreTags: [String],
         relativePDFPaths: [String],
         coverRelativePath: String?,
-        pubdate: Date?
+        pubdate: Date?,
+        addedAt: Date? = nil
     ) {
         self.id = id
         self.uuid = uuid
@@ -55,5 +60,6 @@ public struct CalibreBook: Sendable, Equatable, Identifiable {
         self.relativePDFPaths = relativePDFPaths
         self.coverRelativePath = coverRelativePath
         self.pubdate = pubdate
+        self.addedAt = addedAt
     }
 }

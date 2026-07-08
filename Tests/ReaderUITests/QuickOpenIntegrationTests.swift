@@ -27,7 +27,8 @@ struct QuickOpenIntegrationTests {
                 sql: """
                     CREATE TABLE books (
                         id INTEGER PRIMARY KEY, uuid TEXT, title TEXT, sort TEXT,
-                        path TEXT, has_cover BOOL DEFAULT 0, pubdate TIMESTAMP
+                        path TEXT, has_cover BOOL DEFAULT 0, pubdate TIMESTAMP,
+                        timestamp TIMESTAMP
                     );
                     CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT);
                     CREATE TABLE books_authors_link (book INTEGER, author INTEGER);

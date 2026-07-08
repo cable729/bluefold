@@ -469,6 +469,72 @@ private final class TestClock: @unchecked Sendable {
         #expect(try store.recentlyRead(limit: 1).map(\.book.id) == [c.id])
     }
 
+    @Test func lastReadTimesJoinsLiveBooksOnly() throws {
+        let clock = TestClock(1_000)
+        let store = try LibraryStore.inMemory(now: clock.now)
+        let a = try store.upsertCalibreBook(uuid: "a", title: "A")
+        let b = try store.upsertCalibreBook(uuid: "b", title: "B")
+        let c = try store.upsertCalibreBook(uuid: "c", title: "C")
+
+        clock.set(2_000)
+        try store.setReadingState(bookID: a.id!, page: 5, device: "mac")
+        clock.set(3_000)
+        try store.setReadingState(bookID: b.id!, page: 9, device: "mac")
+
+        var times = try store.lastReadTimes()
+        #expect(times[a.id!] == 2_000)
+        #expect(times[b.id!] == 3_000)
+        #expect(times[c.id!] == nil)  // never read → no entry
+
+        // Soft-deleted books drop out of the join (the list view must not
+        // resurrect them through their reading state).
+        try store.softDeleteBook(id: b.id!)
+        times = try store.lastReadTimes()
+        #expect(times[b.id!] == nil)
+        #expect(times[a.id!] == 2_000)
+    }
+
+    // MARK: Date added (created_at)
+
+    @Test func createdAtSetOnInsertAndStableAcrossUpserts() throws {
+        let clock = TestClock(1_000)
+        let store = try LibraryStore.inMemory(now: clock.now)
+
+        let imported = try store.insertLooseBook(
+            contentHash: "h1", title: "HW", pathHint: "/x.pdf"
+        )
+        #expect(imported.createdAt == 1_000)
+
+        _ = try store.upsertCalibreBooks([(uuid: "u1", title: "Algebra", authors: "N. A.")])
+        clock.set(9_000)
+        _ = try store.upsertCalibreBooks([
+            (uuid: "u1", title: "Algebra, 2nd ed.", authors: "N. A.")
+        ])
+
+        let book = try #require(try store.allBooks().first { $0.calibreUUID == "u1" })
+        #expect(book.createdAt == 1_000)  // insert time survives the re-upsert
+        #expect(book.modifiedAt == 9_000)  // …while the title change bumps modified_at
+        #expect(book.title == "Algebra, 2nd ed.")
+    }
+
+    @Test func migrationV4BackfillsCreatedAtFromModifiedAt() throws {
+        let dbQueue = try DatabaseQueue()
+        let migrator = LibrarySchema.migrator()
+        try migrator.migrate(dbQueue, upTo: "v3")
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "INSERT INTO book (calibre_uuid, title, modified_at) VALUES ('u1', 'Book', 777)"
+            )
+        }
+
+        try migrator.migrate(dbQueue)
+
+        let created = try dbQueue.read { db in
+            try Int64.fetchOne(db, sql: "SELECT created_at FROM book WHERE calibre_uuid = 'u1'")
+        }
+        #expect(created == 777)
+    }
+
     // MARK: Tombstones
 
     @Test func purgeTombstonesDropsOldKeepsFresh() throws {

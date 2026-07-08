@@ -119,6 +119,18 @@ enum LibrarySchema {
             }
         }
 
+        migrator.registerMigration("v4") { db in
+            // Date added — the library list view's sort column. Imports set
+            // it at insert; pre-v4 rows backfill from modified_at (the
+            // closest existing proxy). Calibre-sourced books display
+            // Calibre's own `timestamp` instead, so this mostly matters for
+            // the app's own imports.
+            try db.alter(table: "book") { t in
+                t.add(column: "created_at", .integer)
+            }
+            try db.execute(sql: "UPDATE book SET created_at = modified_at")
+        }
+
         return migrator
     }
 }
