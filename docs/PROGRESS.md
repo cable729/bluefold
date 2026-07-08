@@ -119,6 +119,25 @@ the project owner's plan file; the milestone list below is self-contained.
     LinkResolution.swift, PageTheming.swift, LibraryTypes.swift extracted
     cross-platform.
 
+- [x] **UI-8** Round 14 (2026-07-08, owner): split-view semantics rework.
+  Root causes: (a) clicking the split tab in the strip made it the primary
+  too — one TabState rendered by two live views; (b) ⌘\'s duplicate tab
+  GROUPED with its twin, so the spanning header swallowed its title,
+  context menu, and drag handle; (c) nothing tracked which pane the user
+  was in, so the sidebar/status bar/commands always acted on the primary
+  (left) pane. Now: windows have a FOCUSED pane (`focusedPane`,
+  ephemeral); `activeTab`/`activeController` mean the focused pane's
+  tab/view so every surface (sidebar, status bar, history, bookmarks,
+  palettes, ⌘W, copy-link) follows focus; clicking a pane or its header
+  focuses it (accent dot + tinted header); selecting the split tab in the
+  strip focuses its pane instead of dual-rendering; the split tab never
+  groups, gets a split badge, and its menu gains "Move Split to
+  Left/Right Side"; group headers answer right-clicks (proxy the first
+  tab's menu); BOTH panes have headers with full context menus while
+  split; close/detach successor logic skips the split tab and collapses a
+  last-remaining split into the primary; ⌃Tab cycles from the focused
+  tab. 13 new PaneFocusTests.
+
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); F-1 added library/search/theming/link-history UI (simulator BUILD-verified only — needs hand-run); CloudKit sync UI pending
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `PDFReaderUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but local XCUITest synthesis can't drive them (see quirks below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI/human hands end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test PDFREADER_BUNDLE_ID_SUFFIX=.uitest<N>`. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
