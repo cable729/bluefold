@@ -23,12 +23,14 @@ struct ReaderStatusBar: View {
                     } label: {
                         Image(systemName: "arrow.left.and.right.square")
                     }
+                    .instantHint("Fit width")
                     .help("Fit width")
                     Button {
                         model.fitHeight()
                     } label: {
                         Image(systemName: "arrow.up.and.down.square")
                     }
+                    .instantHint("Fit height")
                     .help("Fit height")
                 }
                 .buttonStyle(.borderless)
@@ -36,13 +38,36 @@ struct ReaderStatusBar: View {
                 Spacer()
 
                 HStack(spacing: 4) {
+                    Button {
+                        model.goToPreviousPage()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!PageArrows.canGoBack(
+                        pageIndex: currentPageIndex, pageCount: pageCount ?? 0
+                    ))
+                    .instantHint("Previous page")
+                    .help("Previous page")
                     TextField("", text: $pageField)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 52)
                         .multilineTextAlignment(.center)
                         .onSubmit(jumpToTypedPage)
+                        .instantHint("Go to page")
                     Text("of \(pageCount ?? 0)")
                         .foregroundStyle(.secondary)
+                    Button {
+                        model.goToNextPage()
+                    } label: {
+                        Image(systemName: "chevron.right")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!PageArrows.canGoForward(
+                        pageIndex: currentPageIndex, pageCount: pageCount ?? 0
+                    ))
+                    .instantHint("Next page")
+                    .help("Next page")
                 }
                 .font(.callout)
                 .monospacedDigit()
@@ -66,6 +91,7 @@ struct ReaderStatusBar: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .instantHint("Theme")
             .help("Theme")
         }
         .padding(.horizontal, 12)
@@ -74,6 +100,10 @@ struct ReaderStatusBar: View {
         .onAppear(perform: syncPageField)
         .onChange(of: model.activeTab?.pageIndex) { _, _ in syncPageField() }
         .onChange(of: model.activeTabID) { _, _ in syncPageField() }
+    }
+
+    private var currentPageIndex: Int? {
+        model.activeTab?.pageIndex
     }
 
     private var themeName: String {
@@ -123,4 +153,20 @@ struct ReaderStatusBar: View {
         model.jump(to: NavEntry(pageIndex: number - 1))
     }
 }
+
+/// Enablement math for the status-bar page arrows, extracted for tests.
+/// `pageIndex` is nil when no tab is active; a `pageCount` of 0 means no
+/// document (both disable the arrows).
+enum PageArrows {
+    static func canGoBack(pageIndex: Int?, pageCount: Int) -> Bool {
+        guard let pageIndex, pageCount > 0 else { return false }
+        return pageIndex > 0
+    }
+
+    static func canGoForward(pageIndex: Int?, pageCount: Int) -> Bool {
+        guard let pageIndex, pageCount > 0 else { return false }
+        return pageIndex < pageCount - 1
+    }
+}
 #endif
+

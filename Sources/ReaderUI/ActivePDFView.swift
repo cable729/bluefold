@@ -145,6 +145,18 @@ struct ActivePDFView: NSViewRepresentable {
             view.scaleFactor = view.bounds.height / pageHeight
         }
 
+        /// PDFView's own page turns respect the display mode (a "page" is a
+        /// spread in two-up modes) and scroll position in continuous modes.
+        func goToPreviousPage() {
+            guard let view, view.canGoToPreviousPage else { return }
+            view.goToPreviousPage(nil)
+        }
+
+        func goToNextPage() {
+            guard let view, view.canGoToNextPage else { return }
+            view.goToNextPage(nil)
+        }
+
         /// Persists the exact reading position back into the tab.
         func captureNow() {
             guard let view, let entry = liveNavEntry else { return }
