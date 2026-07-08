@@ -43,7 +43,9 @@ public actor IndexingService {
     private static let ocrScale: CGFloat = 200.0 / 72.0
 
     private let store: IndexStore
-    private let ocrEnabled: Bool
+    /// Public (and immutable) so callers that recreate the service on a
+    /// settings change can see what a live instance was built with.
+    public nonisolated let ocrEnabled: Bool
 
     public init(store: IndexStore, ocrEnabled: Bool = true) {
         self.store = store

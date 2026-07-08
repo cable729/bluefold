@@ -94,7 +94,10 @@ public final class LibraryModel {
     // Full-text search index (M13). The service actor owns all PDFKit/Vision
     // work; the store is safe to query directly from the main actor.
     let indexStore: IndexStore?
-    private let indexingService: IndexingService?
+    /// Recreated by `startBackgroundIndexing()` so the OCR setting applies
+    /// to the next pass without a relaunch (the actor is just a store
+    /// reference plus a flag — recreation is free).
+    private var indexingService: IndexingService?
     /// Content hash per LibraryItem id, recorded as books get indexed —
     /// the join between index hits and library items.
     private(set) var contentHashByItemID: [String: String] = [:]
@@ -103,10 +106,31 @@ public final class LibraryModel {
     /// progress of the pass that replaced it.
     @ObservationIgnored private var indexingGeneration = 0
 
+    /// User preferences gating the background indexing pass. Injected for
+    /// tests; the app uses the shared instance.
+    @ObservationIgnored let settings: AppSettings
+
+    /// The app's one library model. The library window and the Settings
+    /// window share it, so a Calibre folder change made in either place is
+    /// live in the other. Unit tests never see the user's databases: a test
+    /// process gets in-memory stores (mirrors the AppStores.library fence).
+    public static let shared: LibraryModel = {
+        if AppStores.isTestProcess {
+            let store = try! LibraryStore.inMemory()
+            return LibraryModel(store: store, indexStore: try? IndexStore.inMemory())
+        }
+        return LibraryModel()
+    }()
+
     /// Pass a store to use (tests inject an in-memory one); nil opens the
     /// app's library.db. Same for `indexStore` (tests inject an in-memory
     /// index; nil opens the app's index.db when the library store is owned).
-    public init(store injected: LibraryStore? = nil, indexStore injectedIndex: IndexStore? = nil) {
+    public init(
+        store injected: LibraryStore? = nil,
+        indexStore injectedIndex: IndexStore? = nil,
+        settings: AppSettings = .shared
+    ) {
+        self.settings = settings
         var openError: String?
         if let injected {
             store = injected
@@ -125,7 +149,9 @@ public final class LibraryModel {
             store = library
             indexStore = index
         }
-        indexingService = indexStore.map { IndexingService(store: $0) }
+        indexingService = indexStore.map {
+            IndexingService(store: $0, ocrEnabled: settings.ocrIndexingEnabled)
+        }
         loadError = openError
 
         if injected != nil {
@@ -317,6 +343,12 @@ public final class LibraryModel {
 
     public func attachCalibreFolder(_ url: URL) {
         calibreRoot = url
+        // Attaching IS an explicit Calibre choice — the Settings window can
+        // make it before the library window's first-run screen ever ran.
+        if needsSetup {
+            UserDefaults.standard.set(true, forKey: Self.setupDoneKey)
+            needsSetup = false
+        }
         #if os(macOS)
         UserDefaults.standard.set(url.path, forKey: Self.calibrePathKey)
         #else
@@ -457,12 +489,41 @@ public final class LibraryModel {
     // MARK: - Full-text indexing (M13)
 
     /// Cancels any in-flight indexing pass and starts a fresh one in the
-    /// background. Called after every successful reload().
-    private func startBackgroundIndexing() {
-        guard indexingService != nil else { return }
+    /// background. Called after every successful reload(). No-op while the
+    /// user has background indexing turned off (Settings > Search index).
+    /// Internal so tests can drive the settings gate directly.
+    func startBackgroundIndexing() {
         indexingTask?.cancel()
+        indexingTask = nil
+        guard settings.backgroundIndexingEnabled, let indexStore else { return }
+        // Recreate the service so an OCR toggle applies to this pass.
+        indexingService = IndexingService(
+            store: indexStore, ocrEnabled: settings.ocrIndexingEnabled
+        )
         indexingTask = Task(priority: .utility) { [weak self] in
             await self?.indexLibrary()
+        }
+    }
+
+    /// True while a background pass is scheduled or running (test hook).
+    var isBackgroundIndexingScheduled: Bool { indexingTask != nil }
+
+    /// The OCR flag the current indexing service was built with (test hook).
+    var indexingServiceOCREnabled: Bool? { indexingService?.ocrEnabled }
+
+    /// Called by the Settings window when either indexing toggle changes:
+    /// re-kicks (or cancels) the background pass so the change is live
+    /// without waiting for the next library reload.
+    public func indexingSettingsChanged() {
+        if settings.backgroundIndexingEnabled {
+            startBackgroundIndexing()
+        } else {
+            indexingTask?.cancel()
+            indexingTask = nil
+            // Invalidate the cancelled pass's progress writes (it may run a
+            // few more loop iterations before it sees the cancellation).
+            indexingGeneration += 1
+            indexingProgress = nil
         }
     }
 

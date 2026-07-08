@@ -17,7 +17,9 @@ public final class LibrarySearchFocusBridge {
 /// Double-click (or Return) opens the book in a reader tab, downloading
 /// evicted iCloud files first.
 public struct LibraryView: View {
-    @State private var model = LibraryModel()
+    // The shared model, not a private instance: the Settings window edits
+    // the same Calibre attachment / indexing state this window renders.
+    @State private var model = LibraryModel.shared
     @State private var openError: String?
     @State private var newTagName: String?
     @State private var newCollectionName: String?
