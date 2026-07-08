@@ -14,6 +14,19 @@ final class AnchorOverlayProvider: NSObject, @preconcurrency PDFPageOverlayViewP
     var index: AnchorIndex?
     var onAnchorClicked: ((Anchor, NSEvent.ModifierFlags) -> Void)?
 
+    /// Settings kill switch, applied live. Overlays are still CREATED while
+    /// disabled (PDFKit asks once per page display and caches the nil — a
+    /// later enable would show nothing until a page turn); they are just
+    /// hidden.
+    var isEnabled = true {
+        didSet {
+            guard isEnabled != oldValue else { return }
+            for overlay in overlays.objectEnumerator()?.allObjects ?? [] {
+                (overlay as? NSView)?.isHidden = !isEnabled
+            }
+        }
+    }
+
     /// Weak page keys: pages belong to the document; the provider must not
     /// keep them (or their overlay views) alive past display.
     private let overlays = NSMapTable<PDFPage, AnchorPageOverlayView>(
@@ -28,6 +41,7 @@ final class AnchorOverlayProvider: NSObject, @preconcurrency PDFPageOverlayViewP
         let overlay = AnchorPageOverlayView(
             anchors: anchors, crop: page.bounds(for: .cropBox)
         )
+        overlay.isHidden = !isEnabled
         overlay.onClicked = { [weak self] anchor, modifiers in
             self?.onAnchorClicked?(anchor, modifiers)
         }

@@ -16,6 +16,7 @@ public struct SettingsView: View {
     public var body: some View {
         Form {
             appearanceSection
+            readingSection
             memorySection
             indexingSection
             calibreSection
@@ -58,6 +59,24 @@ public struct SettingsView: View {
 
     static func themeLabel(_ theme: AppTheme) -> String {
         theme == .auto ? "Auto (match system)" : theme.rawValue.capitalized
+    }
+
+    // MARK: - Reading
+
+    private var readingSection: some View {
+        Section("Reading") {
+            Toggle("Margin heading anchors", isOn: $settings.marginAnchorsEnabled)
+            Text(
+                "Shows a small link glyph in the page margin next to "
+                    + "chapters, sections, theorems, and definitions. "
+                    + "Clicking it copies a deep link to that spot "
+                    + "(⌥-click for a markdown link) and marks it in Back "
+                    + "history. Heading detection is heuristic — turn this "
+                    + "off if a book's margins get noisy. Applies "
+                    + "immediately."
+            )
+            .settingsCaption()
+        }
     }
 
     // MARK: - Memory

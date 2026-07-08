@@ -25,6 +25,7 @@ public final class AppSettings {
     static let documentCapacityKey = "DocumentLRUCapacity"
     static let backgroundIndexingKey = "BackgroundIndexingEnabled"
     static let ocrIndexingKey = "OCRIndexingEnabled"
+    static let marginAnchorsKey = "MarginAnchorsEnabled"
 
     public static let defaultDocumentCapacity = 3
     /// PDFDocuments are memory-mapped so residency is cheap, but each one
@@ -73,6 +74,17 @@ public final class AppSettings {
         }
     }
 
+    /// Margin heading anchors: the clickable link glyphs next to chapters/
+    /// sections/theorems. Heading detection is heuristic and can misfire on
+    /// odd books (round 16.1 owner feedback: "kinda wonky"), so it has a
+    /// kill switch. Applies live — every visible pane observes it.
+    public var marginAnchorsEnabled: Bool {
+        didSet {
+            guard marginAnchorsEnabled != oldValue else { return }
+            defaults?.set(marginAnchorsEnabled, forKey: Self.marginAnchorsKey)
+        }
+    }
+
     /// Live-apply hook for the document LRU. Called with the new (already
     /// clamped) capacity after it persisted; never called when the value
     /// didn't actually change.
@@ -90,6 +102,8 @@ public final class AppSettings {
             defaults?.object(forKey: Self.backgroundIndexingKey) as? Bool ?? true
         ocrIndexingEnabled =
             defaults?.object(forKey: Self.ocrIndexingKey) as? Bool ?? true
+        marginAnchorsEnabled =
+            defaults?.object(forKey: Self.marginAnchorsKey) as? Bool ?? true
     }
 
     static func clampedCapacity(_ value: Int) -> Int {

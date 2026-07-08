@@ -224,6 +224,15 @@ the project owner's plan file; the milestone list below is self-contained.
     unfixable-by-text (Pearson reflow scrambles headings mid-line —
     outline tier only). 6 books probed, 391 tests green, verify gate
     passed, owner app relaunched.
+  - **Round 16.2** (owner: "should be an option — kinda wonky"):
+    Settings > Reading > "Margin heading anchors" toggle
+    (AppSettings.marginAnchorsEnabled, default ON, persisted). Applies
+    LIVE in every visible pane: ActivePDFView.updateNSView reads the
+    observable (registers the dependency) and sets the provider's
+    isEnabled, which hides/shows already-installed overlay views —
+    overlays are still CREATED while disabled because PDFKit asks once
+    per page display and caches a nil answer (re-enabling would
+    otherwise show nothing until a page turn).
 
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); F-1 added library/search/theming/link-history UI (simulator BUILD-verified only — needs hand-run); CloudKit sync UI pending

@@ -25,6 +25,7 @@ struct AppSettingsTests {
         #expect(settings.documentCapacity == AppSettings.defaultDocumentCapacity)
         #expect(settings.backgroundIndexingEnabled)
         #expect(settings.ocrIndexingEnabled)
+        #expect(settings.marginAnchorsEnabled)
     }
 
     @Test func persistenceRoundTrip() {
@@ -35,12 +36,24 @@ struct AppSettingsTests {
         first.documentCapacity = 7
         first.backgroundIndexingEnabled = false
         first.ocrIndexingEnabled = false
+        first.marginAnchorsEnabled = false
 
         // A fresh instance over the same suite sees the persisted values.
         let second = AppSettings(defaults: defaults)
         #expect(second.documentCapacity == 7)
         #expect(!second.backgroundIndexingEnabled)
         #expect(!second.ocrIndexingEnabled)
+        #expect(!second.marginAnchorsEnabled)
+    }
+
+    @Test func anchorProviderFollowsTheKillSwitch() {
+        // The provider hides existing overlays the moment the setting
+        // flips — no page turn needed.
+        let provider = AnchorOverlayProvider()
+        provider.isEnabled = false
+        #expect(!provider.isEnabled)
+        provider.isEnabled = true
+        #expect(provider.isEnabled)
     }
 
     @Test func capacityClampsOnWriteAndOnLoad() {

@@ -36,6 +36,7 @@ struct ActivePDFView: NSViewRepresentable {
             )
         }
         context.coordinator.anchorProvider = anchorProvider
+        anchorProvider.isEnabled = AppSettings.shared.marginAnchorsEnabled
         view.pageOverlayViewProvider = anchorProvider
         view.document = document
         view.displayMode = PDFDisplayMode(rawValue: tab.displayModeRaw) ?? .singlePageContinuous
@@ -94,7 +95,13 @@ struct ActivePDFView: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ view: ReaderPDFView, context: Context) {}
+    func updateNSView(_ view: ReaderPDFView, context: Context) {
+        // Reading the observable here registers the dependency: toggling
+        // the setting in the Settings window re-runs this update in every
+        // visible pane.
+        context.coordinator.anchorProvider?.isEnabled =
+            AppSettings.shared.marginAnchorsEnabled
+    }
 
     static func dismantleNSView(_ view: ReaderPDFView, coordinator: Coordinator) {
         coordinator.captureNow()
