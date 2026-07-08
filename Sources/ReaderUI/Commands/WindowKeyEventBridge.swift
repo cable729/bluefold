@@ -96,6 +96,11 @@ struct WindowKeyEventBridge: NSViewRepresentable {
 
             // ⌘O — navigate palette (Open File moved to ⌘⇧O).
             if modifiers == .command, event.charactersIgnoringModifiers == "o" {
+                // The AppKit PDFView holds first-responder here; unless it
+                // is released, SwiftUI cannot focus the palette's query
+                // field and typing goes nowhere until a click. (⌘P avoids
+                // this only because menu dispatch re-routes focus itself.)
+                window.makeFirstResponder(nil)
                 ui.presentPalette(.navigate)
                 return nil
             }

@@ -139,7 +139,9 @@ struct NavigationFlowTests {
         #expect(model.tabs.count == 2)
         let newTab = model.tabs[1]
         #expect(newTab.pageIndex == 250)
-        #expect(model.activeTabID == newTab.id)
+        // Browser ⌘-click: the tab opens in the BACKGROUND — the reader
+        // stays on the originating tab (round-6 owner request).
+        #expect(model.activeTabID == id)
         // Originating tab did not move and gained no history.
         let original = model.tabs.first { $0.id == id }!
         #expect(original.pageIndex == 0)

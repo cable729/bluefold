@@ -40,7 +40,14 @@ struct PaletteOverlay: View {
                     .textFieldStyle(.plain)
                     .font(.title3)
                     .focused($fieldFocused)
-                    .onSubmit(runSelected)
+                    .onSubmit { runSelected() }
+                    .onKeyPress(keys: [.return]) { press in
+                        // ⌘Return: background variant. Plain Return falls
+                        // through to onSubmit.
+                        guard press.modifiers.contains(.command) else { return .ignored }
+                        runSelected(inBackground: true)
+                        return .handled
+                    }
                     .onKeyPress(.downArrow) {
                         move(1)
                         return .handled
@@ -75,6 +82,13 @@ struct PaletteOverlay: View {
             fieldFocused = true
             loadLibraryBooks()
         }
+        .task {
+            // Focus can lose the race against an AppKit first responder
+            // (⌘O arrives via an NSEvent monitor while the PDFView holds
+            // focus); one delayed re-assert settles it.
+            try? await Task.sleep(for: .milliseconds(80))
+            fieldFocused = true
+        }
         .onChange(of: query) { _, _ in selection = 0 }
         .onChange(of: mode) { _, _ in
             query = ""
@@ -89,13 +103,15 @@ struct PaletteOverlay: View {
     private func loadLibraryBooks() {
         guard mode == .navigate else { return }
         let books = AppStores.library.flatMap { try? $0.openableBooks() } ?? []
-        libraryBooks = books.map {
-            BookCandidateInput(
-                title: $0.title,
-                path: DocumentProvider.canonicalPath(
-                    for: URL(fileURLWithPath: $0.pathHint)
-                )
+        // One row per FILE: a book auto-registered before its Calibre row
+        // was mirrored exists twice with the same path.
+        var seen = Set<String>()
+        libraryBooks = books.compactMap { book in
+            let path = DocumentProvider.canonicalPath(
+                for: URL(fileURLWithPath: book.pathHint)
             )
+            guard seen.insert(path).inserted else { return nil }
+            return BookCandidateInput(title: book.title, path: path)
         }
     }
 
@@ -134,7 +150,9 @@ struct PaletteOverlay: View {
                                     .id(row.id)
                                     .onTapGesture {
                                         selection = index
-                                        runSelected()
+                                        let cmdHeld = NSApp.currentEvent?
+                                            .modifierFlags.contains(.command) == true
+                                        runSelected(inBackground: cmdHeld)
                                     }
                             }
                         }
@@ -190,6 +208,9 @@ struct PaletteOverlay: View {
         /// Matched character offsets in `title` (bold highlight).
         let highlight: [Int]
         let run: @MainActor () -> Void
+        /// ⌘-click / ⌘-Return variant: act without switching away (open a
+        /// background tab, browser-style). nil = no background form.
+        var runInBackground: (@MainActor () -> Void)?
     }
 
     private var rows: [Row] {
@@ -225,15 +246,32 @@ struct PaletteOverlay: View {
             text: \.title,
             fallbackText: \.searchText
         ) { candidate, match in
-            Row(
-                id: candidate.id,
-                icon: candidate.icon,
-                title: candidate.title,
-                subtitle: candidate.subtitle,
-                trailing: nil,
-                highlight: match?.matchedIndices ?? [],
-                run: { perform(candidate.action) }
-            )
+            navigateRow(for: candidate, match: match)
+        }
+    }
+
+    private func navigateRow(for candidate: NavigateCandidate, match: FuzzyMatch?) -> Row {
+        var background: (@MainActor () -> Void)?
+        if hasBackgroundForm(candidate.action) {
+            background = { perform(candidate.action, inBackground: true) }
+        }
+        return Row(
+            id: candidate.id,
+            icon: candidate.icon,
+            title: candidate.title,
+            subtitle: candidate.subtitle,
+            trailing: nil,
+            highlight: match?.matchedIndices ?? [],
+            run: { perform(candidate.action, inBackground: false) },
+            runInBackground: background
+        )
+    }
+
+    /// Switching to a tab has no meaningful background form.
+    private func hasBackgroundForm(_ action: NavigateCandidate.Action) -> Bool {
+        switch action {
+        case .jump, .openBook: true
+        case .selectTab: false
         }
     }
 
@@ -274,10 +312,20 @@ struct PaletteOverlay: View {
         )
     }
 
-    private func perform(_ action: NavigateCandidate.Action) {
+    /// `inBackground` = ⌘ variant: open a NEW tab without switching to it
+    /// (browser ⌘-click). Jumps become an adjacent background tab at the
+    /// target; books open unactivated.
+    private func perform(_ action: NavigateCandidate.Action, inBackground: Bool) {
         switch action {
         case .jump(let entry):
-            model.jump(to: entry)
+            if inBackground, let tab = model.activeTab {
+                model.openTab(
+                    fileURL: model.url(for: tab), activate: false,
+                    at: entry, after: tab.id
+                )
+            } else {
+                model.jump(to: entry)
+            }
         case .selectTab(let windowID, let tabID):
             if windowID == model.windowID {
                 model.selectTab(id: tabID)
@@ -292,7 +340,7 @@ struct PaletteOverlay: View {
             let model = self.model
             Task { @MainActor [weak model] in
                 try? await FileAvailability.ensureLocal(url)
-                model?.openTab(fileURL: url)
+                model?.openTab(fileURL: url, activate: !inBackground)
             }
         }
     }
@@ -333,7 +381,7 @@ struct PaletteOverlay: View {
         selection = ((selection + delta) % count + count) % count
     }
 
-    private func runSelected() {
+    private func runSelected(inBackground: Bool = false) {
         switch mode {
         case .goToPage:
             guard let page = GoToPage.parse(query, pageCount: pageCount) else { return }
@@ -342,6 +390,13 @@ struct PaletteOverlay: View {
             let rows = self.rows
             guard rows.indices.contains(selection) else { return }
             let row = rows[selection]
+            if inBackground, let background = row.runInBackground {
+                // Background open keeps the palette up (and focus in the
+                // query field) so several books/sections can be queued —
+                // the point of ⌘-click is "don't switch me away".
+                background()
+                return
+            }
             dismiss()
             row.run()
             return

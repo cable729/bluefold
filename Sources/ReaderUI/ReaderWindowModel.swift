@@ -475,10 +475,11 @@ public final class ReaderWindowModel {
     /// Handles an activated internal link.
     ///
     /// Same-document, plain click: push `current` onto the SOURCE tab's
-    /// history, jump that tab's view in place. ⌘-click (or a link into
-    /// another PDF file): open a new tab at the target — the originating tab
-    /// doesn't move, matching browser behavior. The source defaults to the
-    /// active tab; the split pane routes through its own tab and view.
+    /// history, jump that tab's view in place. ⌘-click: open a BACKGROUND
+    /// tab at the target next to the source — the originating tab stays
+    /// active, matching browser ⌘-click. A plain click on a link into
+    /// another PDF file opens and activates its tab. The source defaults to
+    /// the active tab; the split pane routes through its own tab and view.
     public func linkActivated(
         sourceTabID: UUID? = nil,
         via controller: ActivePDFControlling? = nil,
@@ -492,7 +493,10 @@ public final class ReaderWindowModel {
 
         let fileURL = remoteFileURL ?? url(for: source)
         if inNewTab || remoteFileURL != nil {
-            openTab(fileURL: fileURL, at: entry, after: source.id)
+            // ⌘-click = browser semantics: the reference opens in an
+            // adjacent tab WITHOUT switching away from what you're reading.
+            // A plain click on a cross-file link still navigates (activates).
+            openTab(fileURL: fileURL, activate: !inNewTab, at: entry, after: source.id)
         } else {
             updateTab(id: source.id) { tab in
                 tab.history.push(current)
