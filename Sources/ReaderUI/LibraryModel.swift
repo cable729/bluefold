@@ -293,6 +293,12 @@ public final class LibraryModel {
         Task { await reload() }
     }
 
+    /// Test hook: points `reload()` at a Calibre folder WITHOUT persisting
+    /// to UserDefaults (attachCalibreFolder would repoint the real app).
+    func setCalibreRootForTesting(_ url: URL) {
+        calibreRoot = url
+    }
+
     public func chooseCalibreFolder() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
