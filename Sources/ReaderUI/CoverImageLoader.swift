@@ -14,6 +14,9 @@ enum CoverImageLoader {
     private nonisolated(unsafe) static let cache = NSCache<NSString, NSImage>()
     private static let maxPixelSize = 320
 
+    // @MainActor so the non-Sendable NSImage return never crosses isolation
+    // (Swift 6.0 on CI rejects that; only the decode runs detached).
+    @MainActor
     static func thumbnail(for url: URL) async -> NSImage? {
         let key = url.path as NSString
         if let cached = cache.object(forKey: key) {
