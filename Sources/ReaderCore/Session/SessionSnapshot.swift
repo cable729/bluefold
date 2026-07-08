@@ -8,17 +8,22 @@ public struct WindowState: Codable, Equatable, Identifiable, Sendable {
     public var frame: CGRect?
     public var tabs: [TabState]
     public var activeTabID: UUID?
+    /// Tab shown in the secondary split pane, when the window is split.
+    /// Optional, so schema-1 files written before splits keep decoding.
+    public var splitTabID: UUID?
 
     public init(
         id: UUID = UUID(),
         frame: CGRect? = nil,
         tabs: [TabState] = [],
-        activeTabID: UUID? = nil
+        activeTabID: UUID? = nil,
+        splitTabID: UUID? = nil
     ) {
         self.id = id
         self.frame = frame
         self.tabs = tabs
         self.activeTabID = activeTabID
+        self.splitTabID = splitTabID
     }
 }
 

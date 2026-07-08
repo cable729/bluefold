@@ -131,6 +131,43 @@ public final class SessionCoordinator {
         return newID
     }
 
+    /// Opens every file as a tab in the most recently focused reader window
+    /// ("Open Collection"). Same contract as `openInReader`: returns nil on
+    /// success, or a staged fresh window ID the caller must present.
+    public func openAllInReader(fileURLs: [URL]) -> UUID? {
+        guard !fileURLs.isEmpty else { return nil }
+        let targetID = lastFocusedWindowID.flatMap { models[$0] != nil ? $0 : nil }
+            ?? windowOrder.last
+        if let targetID, let target = models[targetID] {
+            for url in fileURLs {
+                target.openTab(fileURL: url)
+            }
+            return nil
+        }
+        let newID = UUID()
+        let target = model(for: newID)
+        for url in fileURLs {
+            target.openTab(fileURL: url)
+        }
+        return newID
+    }
+
+    /// Stages a fresh window holding every file as a tab ("Open Collection
+    /// in New Window"); the caller presents the returned ID via
+    /// `openWindow(id: "reader", value:)`.
+    public func openInNewWindow(fileURLs: [URL]) -> UUID {
+        let newID = UUID()
+        let tabs = fileURLs.map {
+            TabState(pathHint: DocumentProvider.canonicalPath(for: $0))
+        }
+        pendingRestore[newID] = WindowState(
+            id: newID, tabs: tabs, activeTabID: tabs.first?.id
+        )
+        pendingOrder.append(newID)
+        scheduleSave()
+        return newID
+    }
+
     /// Moves a tab between windows (tab-strip drag & drop), preserving its
     /// reading position, zoom, and history. `index` is the insertion point
     /// in the target strip (append when nil).

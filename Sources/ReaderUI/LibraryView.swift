@@ -207,6 +207,13 @@ public struct LibraryView: View {
         return Label(collection.name, systemImage: "folder")
             .tag(filterValue)
             .contextMenu {
+                Button("Open Collection") {
+                    openCollection(collection, inNewWindow: false)
+                }
+                Button("Open Collection in New Window") {
+                    openCollection(collection, inNewWindow: true)
+                }
+                Divider()
                 Button("Delete Collection", role: .destructive) {
                     if let id = collection.id {
                         model.deleteCollection(id: id)
@@ -219,6 +226,33 @@ public struct LibraryView: View {
                 model.addToCollection(collectionID: collectionID, itemIDs: targets)
                 return true
             }
+    }
+
+    /// Opens every book of a collection as tabs — in the last-focused reader
+    /// window or a fresh one. iCloud-evicted files download first; files
+    /// that never materialize are skipped rather than blocking the rest.
+    private func openCollection(_ collection: CollectionRecord, inNewWindow: Bool) {
+        guard let id = collection.id else { return }
+        let urls = model.itemsInCollection(id).map(\.fileURL)
+        guard !urls.isEmpty else { return }
+        Task {
+            var local: [URL] = []
+            for url in urls {
+                try? await FileAvailability.ensureLocal(url)
+                if FileAvailability.isLocal(url) {
+                    local.append(url)
+                }
+            }
+            guard !local.isEmpty else { return }
+            if inNewWindow {
+                openWindow(
+                    id: "reader",
+                    value: SessionCoordinator.shared.openInNewWindow(fileURLs: local)
+                )
+            } else if let newID = SessionCoordinator.shared.openAllInReader(fileURLs: local) {
+                openWindow(id: "reader", value: newID)
+            }
+        }
     }
 
     /// A drag that starts on a selected cell carries the whole selection;

@@ -209,28 +209,7 @@ public final class LibraryModel {
             )
             scoped = items.filter { bookRowIDs[$0.id].map(ids.contains) ?? false }
         case .collection(let collectionID):
-            let direct = ((try? store?.items(inCollection: collectionID)) ?? []).map(\.bookID)
-            let subtree = Set(
-                ((try? store?.books(inCollectionSubtree: collectionID)) ?? []).compactMap(\.id)
-            )
-            // Direct members keep their manual sort order; books from child
-            // collections follow, title-ordered (allBooks/subtree order).
-            let position = Dictionary(
-                uniqueKeysWithValues: direct.enumerated().map { ($1, $0) }
-            )
-            scoped = items
-                .compactMap { item -> (LibraryItem, Int)? in
-                    guard let rowID = bookRowIDs[item.id] else { return nil }
-                    if let pos = position[rowID] {
-                        return (item, pos)
-                    }
-                    if subtree.contains(rowID) {
-                        return (item, Int.max)
-                    }
-                    return nil
-                }
-                .sorted { $0.1 < $1.1 }
-                .map(\.0)
+            scoped = itemsInCollection(collectionID)
         case .untagged:
             let ids = Set(((try? store?.booksWithoutTags()) ?? []).compactMap(\.id))
             // Items with no overlay row have no overlay tags by definition.
@@ -614,6 +593,32 @@ public final class LibraryModel {
 
     /// The items for a set of ids, in current grid order (fallback: item
     /// order) — the shape selection-wide actions want.
+    /// A collection's items in display order: direct members keep their
+    /// manual sort order; books from child collections follow, title-ordered
+    /// (allBooks/subtree order). Also feeds "Open Collection".
+    public func itemsInCollection(_ collectionID: Int64) -> [LibraryItem] {
+        let direct = ((try? store?.items(inCollection: collectionID)) ?? []).map(\.bookID)
+        let subtree = Set(
+            ((try? store?.books(inCollectionSubtree: collectionID)) ?? []).compactMap(\.id)
+        )
+        let position = Dictionary(
+            uniqueKeysWithValues: direct.enumerated().map { ($1, $0) }
+        )
+        return items
+            .compactMap { item -> (LibraryItem, Int)? in
+                guard let rowID = bookRowIDs[item.id] else { return nil }
+                if let pos = position[rowID] {
+                    return (item, pos)
+                }
+                if subtree.contains(rowID) {
+                    return (item, Int.max)
+                }
+                return nil
+            }
+            .sorted { $0.1 < $1.1 }
+            .map(\.0)
+    }
+
     public func items(withIDs ids: Set<String>) -> [LibraryItem] {
         let fromGrid = filteredItems.filter { ids.contains($0.id) }
         if fromGrid.count == ids.count { return fromGrid }

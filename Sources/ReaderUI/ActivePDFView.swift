@@ -13,6 +13,9 @@ struct ActivePDFView: NSViewRepresentable {
     let tab: TabState
     let document: PDFDocument
     unowned let model: ReaderWindowModel
+    /// The primary pane owns model.activeController (navigation chrome binds
+    /// to it); the split pane routes links through its own coordinator.
+    var isPrimary = true
 
     func makeCoordinator() -> Coordinator {
         Coordinator(tabID: tab.id, model: model)
@@ -29,8 +32,11 @@ struct ActivePDFView: NSViewRepresentable {
             view.scaleFactor = tab.scaleFactor
         }
 
-        view.onLinkActivated = { [weak model] target, current, inNewTab in
+        let coordinator = context.coordinator
+        view.onLinkActivated = { [weak model, weak coordinator] target, current, inNewTab in
             model?.linkActivated(
+                sourceTabID: coordinator?.tabID,
+                via: coordinator,
                 target: target.entry,
                 remoteFileURL: target.remoteFileURL,
                 current: current,
@@ -47,7 +53,9 @@ struct ActivePDFView: NSViewRepresentable {
 
         context.coordinator.view = view
         context.coordinator.observePageChanges(of: view)
-        model.activeController = context.coordinator
+        if isPrimary {
+            model.activeController = context.coordinator
+        }
         // The document is resident now; give the tab strip its breadcrumb.
         model.refreshBreadcrumb(tabID: tab.id)
         return view

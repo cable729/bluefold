@@ -44,6 +44,7 @@ struct TabBarView: View {
                     $0.isEmpty ? nil : $0
                 } ?? "p.\(tab.pageIndex + 1)",
                 isActive: tab.id == model.activeTabID,
+                isSplit: tab.id == model.splitTabID,
                 groupKey: tab.pathHint
             )
         }
@@ -80,8 +81,11 @@ private struct TabStripRepresentable: NSViewRepresentable {
         return TabStripActions(
             select: { model.selectTab(id: $0) },
             close: { model.closeTab(id: $0) },
+            closeMany: { model.closeTabs(ids: $0) },
             duplicate: { model.duplicateTab(id: $0) },
             closeOthers: { model.closeOtherTabs(keeping: $0) },
+            openInSplit: { model.openInSplit(tabID: $0) },
+            closeSplit: { model.closeSplit() },
             reorder: { model.moveTab(id: $0, toIndex: $1) },
             moveToWindow: { [weak view] tabID, targetWindowID, index in
                 SessionCoordinator.shared.moveTab(

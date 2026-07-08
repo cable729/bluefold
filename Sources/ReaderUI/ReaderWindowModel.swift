@@ -81,6 +81,9 @@ public final class ReaderWindowModel {
         if let state {
             tabs = state.tabs
             activeTabID = state.activeTabID ?? state.tabs.first?.id
+            splitTabID = state.splitTabID.flatMap { id in
+                state.tabs.contains { $0.id == id } ? id : nil
+            }
             pendingFrame = state.frame
             windowFrame = state.frame
             refreshPins()
@@ -89,7 +92,10 @@ public final class ReaderWindowModel {
 
     /// This window's state for the session snapshot.
     public var stateSnapshot: WindowState {
-        WindowState(id: windowID, frame: windowFrame, tabs: tabs, activeTabID: activeTabID)
+        WindowState(
+            id: windowID, frame: windowFrame, tabs: tabs,
+            activeTabID: activeTabID, splitTabID: splitTabID
+        )
     }
 
     public func setWindowFrame(_ frame: CGRect) {
@@ -106,6 +112,40 @@ public final class ReaderWindowModel {
     public var activeTab: TabState? {
         guard let activeTabID else { return nil }
         return tabs.first { $0.id == activeTabID }
+    }
+
+    // MARK: - Split view
+
+    /// Tab shown in the secondary pane; nil = not split.
+    public private(set) var splitTabID: UUID?
+
+    public var splitTab: TabState? {
+        guard let splitTabID else { return nil }
+        return tabs.first { $0.id == splitTabID }
+    }
+
+    /// Shows a tab in the secondary pane. Splitting the active tab first
+    /// moves activation to another tab so the two panes never show the same
+    /// tab (two live views over one TabState would fight over its position).
+    public func openInSplit(tabID: UUID) {
+        guard tabs.contains(where: { $0.id == tabID }) else { return }
+        if tabID == activeTabID {
+            if let other = tabs.first(where: { $0.id != tabID }) {
+                selectTab(id: other.id)
+            } else {
+                return // only tab in the window: nothing to split against
+            }
+        }
+        splitTabID = tabID
+        refreshPins()
+        onMutation?()
+    }
+
+    public func closeSplit() {
+        guard splitTabID != nil else { return }
+        splitTabID = nil
+        refreshPins()
+        onMutation?()
     }
 
     public func url(for tab: TabState) -> URL {
@@ -158,6 +198,13 @@ public final class ReaderWindowModel {
         }
     }
 
+    /// Closes several tabs at once (strip multi-selection).
+    public func closeTabs(ids: [UUID]) {
+        for id in ids {
+            closeTab(id: id)
+        }
+    }
+
     /// Number of open tabs per file — drives the tab strip's group markers.
     public var tabCountByPath: [String: Int] {
         tabs.reduce(into: [:]) { counts, tab in
@@ -178,6 +225,9 @@ public final class ReaderWindowModel {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let closed = tabs.remove(at: index)
         tabBreadcrumbs.removeValue(forKey: id)
+        if splitTabID == id {
+            splitTabID = nil
+        }
 
         if activeTabID == id {
             // Neighbor preference: the tab that took the closed tab's slot,
@@ -388,23 +438,35 @@ public final class ReaderWindowModel {
 
     // MARK: - Navigation (single source of truth: ReaderCore.NavigationHistory)
 
-    /// Handles an activated internal link for the active tab.
+    /// Handles an activated internal link.
     ///
-    /// Same-document, plain click: push `current` onto history, jump in place.
-    /// ⌘-click (or a link into another PDF file): open a new tab at the
-    /// target — the originating tab doesn't move, matching browser behavior.
-    public func linkActivated(target entry: NavEntry, remoteFileURL: URL?, current: NavEntry, inNewTab: Bool) {
-        guard let activeTab else { return }
+    /// Same-document, plain click: push `current` onto the SOURCE tab's
+    /// history, jump that tab's view in place. ⌘-click (or a link into
+    /// another PDF file): open a new tab at the target — the originating tab
+    /// doesn't move, matching browser behavior. The source defaults to the
+    /// active tab; the split pane routes through its own tab and view.
+    public func linkActivated(
+        sourceTabID: UUID? = nil,
+        via controller: ActivePDFControlling? = nil,
+        target entry: NavEntry,
+        remoteFileURL: URL?,
+        current: NavEntry,
+        inNewTab: Bool
+    ) {
+        let tabID = sourceTabID ?? activeTabID
+        guard let source = tabs.first(where: { $0.id == tabID }) else { return }
 
-        let fileURL = remoteFileURL ?? url(for: activeTab)
+        let fileURL = remoteFileURL ?? url(for: source)
         if inNewTab || remoteFileURL != nil {
-            openTab(fileURL: fileURL, at: entry, after: activeTab.id)
+            openTab(fileURL: fileURL, at: entry, after: source.id)
         } else {
-            updateTab(id: activeTab.id) { tab in
+            updateTab(id: source.id) { tab in
                 tab.history.push(current)
                 tab.apply(entry)
             }
-            activeController?.execute(entry)
+            let executor = controller
+                ?? (source.id == activeTabID ? activeController : nil)
+            executor?.execute(entry)
         }
     }
 
@@ -474,6 +536,9 @@ public final class ReaderWindowModel {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return nil }
         let tab = tabs.remove(at: index)
         tabBreadcrumbs.removeValue(forKey: id)
+        if splitTabID == id {
+            splitTabID = nil
+        }
         if activeTabID == id {
             let successor = tabs.indices.contains(index) ? tabs[index] : tabs.last
             activeTabID = successor?.id
@@ -514,14 +579,18 @@ public final class ReaderWindowModel {
         }
     }
 
-    /// Pins exactly the active tab's document so LRU eviction can never
-    /// remove what is on screen.
+    /// Pins exactly the on-screen documents (active tab, plus the split
+    /// pane's tab when the window is split) so LRU eviction can never remove
+    /// what is visible.
     private func refreshPins() {
+        var pinned: Set<String> = []
         if let activeTab {
-            provider.pinnedPaths = [activeTab.pathHint]
-        } else {
-            provider.pinnedPaths = []
+            pinned.insert(activeTab.pathHint)
         }
+        if let splitTab {
+            pinned.insert(splitTab.pathHint)
+        }
+        provider.pinnedPaths = pinned
         provider.evictIfNeeded()
     }
 }

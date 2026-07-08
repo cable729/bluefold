@@ -10,6 +10,8 @@ struct TabDisplayItem: Equatable {
     /// page label for outline-less documents).
     let breadcrumb: String
     let isActive: Bool
+    /// Whether this tab is currently shown in the split pane.
+    var isSplit = false
     /// Adjacent tabs with the same key render as a group: the title shown
     /// once in a header spanning the run, breadcrumbs per tab beneath.
     let groupKey: String
@@ -21,8 +23,11 @@ struct TabDisplayItem: Equatable {
 struct TabStripActions {
     var select: (UUID) -> Void
     var close: (UUID) -> Void
+    var closeMany: ([UUID]) -> Void = { _ in }
     var duplicate: (UUID) -> Void
     var closeOthers: (UUID) -> Void
+    var openInSplit: (UUID) -> Void = { _ in }
+    var closeSplit: () -> Void = {}
     var reorder: (UUID, Int) -> Void
     /// Cross-window move: (tabID, targetWindowID, insertionIndex)
     var moveToWindow: (UUID, UUID, Int) -> Void
@@ -60,6 +65,11 @@ final class TabStripNSView: NSView {
     private var itemViews: [TabItemNSView] = []
     private var headerViews: [TabGroupHeaderView] = []
     private var drag: DragState?
+
+    /// Multi-selection for bulk actions (⌘-click toggles, ⇧-click extends
+    /// from the active tab). Purely view state; cleared by plain clicks and
+    /// content changes.
+    private(set) var multiSelection: Set<UUID> = []
 
     /// Highlight shown while a foreign tab drag hovers over this strip.
     private var isDropTarget = false {
@@ -106,7 +116,50 @@ final class TabStripNSView: NSView {
             return view
         }
         for (_, orphan) in existing { orphan.removeFromSuperview() }
+
+        // Selection can only reference live tabs.
+        let live = Set(items.map(\.id))
+        multiSelection.formIntersection(live)
+        applyMultiSelectionChrome()
         needsLayout = true
+    }
+
+    // MARK: - Multi-selection
+
+    private func applyMultiSelectionChrome() {
+        for view in itemViews {
+            view.setMultiSelected(multiSelection.contains(view.tabID))
+        }
+    }
+
+    private func clearMultiSelection() {
+        guard !multiSelection.isEmpty else { return }
+        multiSelection.removeAll()
+        applyMultiSelectionChrome()
+    }
+
+    /// ⌘-click membership toggle.
+    private func toggleMultiSelection(_ tabID: UUID) {
+        if multiSelection.isEmpty, let active = items.first(where: \.isActive) {
+            // Seed with the active tab so ⌘-clicking one other tab yields a
+            // meaningful two-tab selection, Finder-style.
+            multiSelection.insert(active.id)
+        }
+        if !multiSelection.insert(tabID).inserted {
+            multiSelection.remove(tabID)
+        }
+        applyMultiSelectionChrome()
+    }
+
+    /// ⇧-click range from the active tab.
+    private func extendMultiSelection(to tabID: UUID) {
+        guard
+            let anchor = items.firstIndex(where: \.isActive),
+            let target = items.firstIndex(where: { $0.id == tabID })
+        else { return }
+        let range = min(anchor, target)...max(anchor, target)
+        multiSelection = Set(items[range].map(\.id))
+        applyMultiSelectionChrome()
     }
 
     override var intrinsicContentSize: NSSize {
@@ -284,6 +337,16 @@ final class TabStripNSView: NSView {
     /// (browser behavior), dragging may follow.
     func beginPress(on item: TabItemNSView, with event: NSEvent) {
         Self.dragLog("beginPress tab=\(item.tabID.uuidString.prefix(8)) loc=\(event.locationInWindow)")
+        // Modifier clicks build a multi-selection instead of activating.
+        if event.modifierFlags.contains(.command) {
+            toggleMultiSelection(item.tabID)
+            return
+        }
+        if event.modifierFlags.contains(.shift) {
+            extendMultiSelection(to: item.tabID)
+            return
+        }
+        clearMultiSelection()
         actions.select(item.tabID)
         let inStrip = convert(event.locationInWindow, from: nil)
         drag = DragState(
@@ -395,8 +458,28 @@ final class TabStripNSView: NSView {
     func menu(for item: TabItemNSView) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
+
+        // Bulk action when the right-clicked tab is part of a multi-selection.
+        if multiSelection.count > 1, multiSelection.contains(item.tabID) {
+            let ids = items.map(\.id).filter { multiSelection.contains($0) }
+            menu.addItem(
+                withTitle: "Close \(ids.count) Tabs", action: nil, keyEquivalent: ""
+            ).setHandler { [weak self] in self?.actions.closeMany(ids) }
+            menu.addItem(.separator())
+        }
+
         menu.addItem(withTitle: "Duplicate Tab", action: nil, keyEquivalent: "")
             .setHandler { [weak self] in self?.actions.duplicate(item.tabID) }
+        if items.first(where: { $0.id == item.tabID })?.isSplit == true {
+            menu.addItem(withTitle: "Close Split View", action: nil, keyEquivalent: "")
+                .setHandler { [weak self] in self?.actions.closeSplit() }
+        } else {
+            let split = menu.addItem(
+                withTitle: "Open in Split View", action: nil, keyEquivalent: ""
+            )
+            split.setHandler { [weak self] in self?.actions.openInSplit(item.tabID) }
+            split.isEnabled = items.count > 1
+        }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Close Tab", action: nil, keyEquivalent: "")
             .setHandler { [weak self] in self?.actions.close(item.tabID) }
@@ -432,6 +515,7 @@ final class TabItemNSView: NSView {
     private let textStack = NSStackView()
     private var isActive = false
     private var isGrouped = false
+    private var isMultiSelected = false
     private var isHovered = false { didSet { refreshChrome() } }
     private var trackingArea: NSTrackingArea?
 
@@ -515,13 +599,21 @@ final class TabItemNSView: NSView {
         refreshChrome()
     }
 
+    func setMultiSelected(_ selected: Bool) {
+        guard selected != isMultiSelected else { return }
+        isMultiSelected = selected
+        refreshChrome()
+    }
+
     private func refreshChrome() {
         titleField.textColor = isActive ? .labelColor : .secondaryLabelColor
         breadcrumbField.textColor = isActive ? .secondaryLabelColor : .tertiaryLabelColor
         activeBar.isHidden = !isActive
         closeButton.isHidden = !(isActive || isHovered)
         layer?.backgroundColor =
-            if isActive {
+            if isMultiSelected {
+                NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
+            } else if isActive {
                 NSColor.textBackgroundColor.cgColor
             } else if isHovered {
                 NSColor.quaternaryLabelColor.withAlphaComponent(0.2).cgColor

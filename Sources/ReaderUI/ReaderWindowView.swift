@@ -135,8 +135,19 @@ public struct ReaderWindowView: View {
                 // Keyed on the RESOLVED theme too: a theme switch (or a
                 // system appearance flip in auto mode) rebuilds the PDFView
                 // so every tile re-renders through the new page filter.
-                ActivePDFView(tab: tab, document: document, model: model)
+                let primary = ActivePDFView(tab: tab, document: document, model: model)
                     .id("\(tab.id)-\(ThemeManager.shared.resolvedTheme.rawValue)")
+                if let splitTab = model.splitTab,
+                   let splitDocument = model.provider.document(for: model.url(for: splitTab)) {
+                    HSplitView {
+                        primary
+                            .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+                        splitPane(tab: splitTab, document: splitDocument)
+                            .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                } else {
+                    primary
+                }
             } else {
                 ContentUnavailableView {
                     Label("File Not Available", systemImage: "questionmark.folder")
@@ -154,6 +165,35 @@ public struct ReaderWindowView: View {
                     .buttonStyle(.borderedProminent)
                 Button("Open PDF File…") { openPanel() }
             }
+        }
+    }
+
+    /// Secondary pane: a slim header naming the tab (with a close-split
+    /// button) over its own live PDF view.
+    private func splitPane(tab: TabState, document: PDFDocument) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Text(URL(fileURLWithPath: tab.pathHint)
+                    .deletingPathExtension().lastPathComponent)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Button {
+                    model.closeSplit()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                }
+                .buttonStyle(.borderless)
+                .help("Close split view")
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(.bar)
+            Divider()
+            ActivePDFView(tab: tab, document: document, model: model, isPrimary: false)
+                .id("split-\(tab.id)-\(ThemeManager.shared.resolvedTheme.rawValue)")
         }
     }
 
