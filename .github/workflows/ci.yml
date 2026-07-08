@@ -19,11 +19,11 @@ jobs:
     # ever sits queued (image retired/renamed), fall back to macos-latest —
     # the code also compiles under Swift 6.0.
     runs-on: macos-26
-    # A 15-min probe run was still compiling GRDB when it hit the limit —
-    # cold dependency builds on these runners are the bottleneck, not the
-    # tests (<1 min locally). 45 min bounds a cold build; the .build cache
-    # below makes warm runs far faster.
-    timeout-minutes: 45
+    # Builds finish in ~2 min on a healthy runner (one probe runner took 15+
+    # for GRDB alone — variance is real). The known failure mode is a HANG in
+    # test execution (a 45-min probe compiled everything in 80s, then
+    # swiftpm-testing sat silent for 44 min); 25 min bounds it.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: Select latest Xcode
@@ -38,4 +38,7 @@ jobs:
           restore-keys: |
             spm-${{ runner.os }}-${{ runner.arch }}-
       - name: Run tests
-        run: swift test
+        # `script` gives the test child a PTY so its per-test output is
+        # line-buffered — without it a hang leaves a silent log with no
+        # indication of which test stalled.
+        run: script -q /dev/null swift test
