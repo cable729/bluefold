@@ -228,6 +228,9 @@ public final class ReaderWindowModel {
 
     @ObservationIgnored private var outlineCacheKey: ObjectIdentifier?
     @ObservationIgnored private var outlineCacheNodes: [OutlineNode] = []
+    /// Page index → outline ancestor path, memoized per document (search can
+    /// produce hundreds of hits; walking the outline per row is wasteful).
+    @ObservationIgnored private var breadcrumbCache: [Int: [String]] = [:]
 
     /// The outline tree, built once per live document (bodies re-evaluate
     /// constantly; walking PDFOutline each time is wasteful).
@@ -236,8 +239,21 @@ public final class ReaderWindowModel {
         if key != outlineCacheKey {
             outlineCacheNodes = OutlineNode.tree(from: document)
             outlineCacheKey = key
+            breadcrumbCache = [:]
         }
         return outlineCacheNodes
+    }
+
+    /// Outline ancestor path of the page, root first — e.g.
+    /// ["Chapter 1", "1A Rⁿ and Cⁿ", "Complex Numbers"]. Empty for PDFs
+    /// without an outline (e.g. scans) or pages before the first section.
+    func breadcrumbPath(for pageIndex: Int, in document: PDFDocument) -> [String] {
+        let nodes = outline(for: document)  // also validates the cache key
+        if let cached = breadcrumbCache[pageIndex] { return cached }
+        let path = OutlineNode.deepestPath(in: nodes, atOrBefore: pageIndex)
+            .filter { !$0.isEmpty }
+        breadcrumbCache[pageIndex] = path
+        return path
     }
 
     /// Human label for a history entry: the deepest outline section at or

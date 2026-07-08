@@ -34,7 +34,7 @@ public struct ReaderWindowView: View {
                 if showSidebar, let document = activeDocument {
                     SidebarView(
                         mode: $sidebarMode,
-                        outline: OutlineNode.tree(from: document),
+                        outline: model.outline(for: document),
                         document: document,
                         currentPageIndex: model.activeTab?.pageIndex ?? 0,
                         model: model,

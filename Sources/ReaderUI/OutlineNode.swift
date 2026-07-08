@@ -20,18 +20,28 @@ struct OutlineNode: Identifiable {
     /// "which section am I in". Nil when the outline is empty or the page
     /// precedes every section.
     static func deepestLabel(in nodes: [OutlineNode], atOrBefore pageIndex: Int) -> String? {
-        var best: (label: String, page: Int)?
-        func walk(_ nodes: [OutlineNode]) {
+        deepestPath(in: nodes, atOrBefore: pageIndex).last
+    }
+
+    /// Full ancestor path of the deepest section at or before `pageIndex`,
+    /// root first — e.g. ["Chapter 1", "1A Rⁿ and Cⁿ", "Complex Numbers"].
+    /// Ancestors without a destination of their own still contribute their
+    /// label. Empty when the outline is empty or the page precedes every
+    /// section (e.g. scanned PDFs with no outline at all).
+    static func deepestPath(in nodes: [OutlineNode], atOrBefore pageIndex: Int) -> [String] {
+        var best: (path: [String], page: Int)?
+        func walk(_ nodes: [OutlineNode], ancestors: [String]) {
             for node in nodes {
+                let path = ancestors + [node.label]
                 if let page = node.entry?.pageIndex, page <= pageIndex,
                    best == nil || page >= best!.page {
-                    best = (node.label, page)
+                    best = (path, page)
                 }
-                walk(node.children ?? [])
+                walk(node.children ?? [], ancestors: path)
             }
         }
-        walk(nodes)
-        return best?.label
+        walk(nodes, ancestors: [])
+        return best?.path ?? []
     }
 
     /// Same search, returning the node id (sidebar highlight).
