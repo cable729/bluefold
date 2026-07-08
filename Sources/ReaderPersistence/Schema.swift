@@ -102,6 +102,14 @@ enum LibrarySchema {
             try db.create(index: "idx_book_content_hash", on: "book", columns: ["content_hash"])
         }
 
+        migrator.registerMigration("v2") { db in
+            // Hierarchical collections (parent_id NULL = root), mirroring tags.
+            try db.alter(table: "collection") { t in
+                t.add(column: "parent_id", .integer).references("collection")
+            }
+            try db.create(index: "idx_collection_parent_id", on: "collection", columns: ["parent_id"])
+        }
+
         return migrator
     }
 }

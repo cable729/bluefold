@@ -98,6 +98,7 @@ public struct BookTagRecord: Codable, Hashable, Sendable,
 }
 
 /// A user collection, e.g. a course mixing textbooks and homework PDFs.
+/// Hierarchical: `parentID == nil` means a root collection.
 public struct CollectionRecord: Codable, Hashable, Sendable,
     FetchableRecord, MutablePersistableRecord
 {
@@ -106,6 +107,7 @@ public struct CollectionRecord: Codable, Hashable, Sendable,
     public var id: Int64?
     public var name: String
     public var kind: String
+    public var parentID: Int64?
     public var modifiedAt: Int64
     public var deletedAt: Int64?
 
@@ -113,6 +115,7 @@ public struct CollectionRecord: Codable, Hashable, Sendable,
         case id
         case name
         case kind
+        case parentID = "parent_id"
         case modifiedAt = "modified_at"
         case deletedAt = "deleted_at"
     }
@@ -198,6 +201,17 @@ public struct TagNode: Hashable, Sendable {
 
     public init(tag: TagRecord, children: [TagNode] = []) {
         self.tag = tag
+        self.children = children
+    }
+}
+
+/// A node in the collection hierarchy returned by `LibraryStore.collectionTree()`.
+public struct CollectionNode: Hashable, Sendable {
+    public var collection: CollectionRecord
+    public var children: [CollectionNode]
+
+    public init(collection: CollectionRecord, children: [CollectionNode] = []) {
+        self.collection = collection
         self.children = children
     }
 }
