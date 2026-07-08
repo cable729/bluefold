@@ -28,23 +28,23 @@ end-of-session feedback after using the app.
 ## Feature requests (2026-07-07)
 
 ### Reader
-- **Auto (system) theme** — fourth AppTheme option following
+- ✅ DONE 2026-07-08 — **Auto (system) theme** — fourth AppTheme option following
   NSApp.effectiveAppearance; pageRenderFilter resolves per current
   appearance; observe appearance changes.
-- **Faster tooltips** on bottom-bar controls (default help-tag delay feels
+- ✅ DONE 2026-07-08 (status bar; adopt `.instantHint` elsewhere as wanted) — **Faster tooltips** on bottom-bar controls (default help-tag delay feels
   like seconds). Likely custom hover popover instead of .help(), or
   NSToolTipManager delay tweak.
-- **Left/right arrows page-turn** in addition to up/down (PDFView handles
+- 🔄 IN FLIGHT 2026-07-08 (palette agent) — **Left/right arrows page-turn** in addition to up/down (PDFView handles
   some of this in single-page mode; ensure it works in continuous modes —
   likely keyDown in ReaderPDFView → goToNextPage/goToPreviousPage).
-- **"/" or "?" opens a keybinding help overlay** — a sheet/HUD listing all
+- 🔄 IN FLIGHT 2026-07-08 (palette agent) — **"/" or "?" opens a keybinding help overlay** — a sheet/HUD listing all
   shortcuts (data-drive it from one table so the overlay never drifts from
   reality).
-- **⌘⇧[ / ⌘⇧] (and ctrl-tab/ctrl-shift-tab) cycle tabs** — owner wrote
+- 🔄 IN FLIGHT 2026-07-08 (palette agent) — **⌘⇧[ / ⌘⇧] (and ctrl-tab/ctrl-shift-tab) cycle tabs** — owner wrote
   "shift+tab and cmd+shift+tab should cycle between" (tabs). Standard mac
   browser bindings: ⌘⇧[ / ⌘⇧] and ⌃Tab / ⌃⇧Tab. Add to ReaderCommands +
   model.selectNext/PreviousTab (wrap around).
-- **VS Code-style command palette.** Two entry points like Obsidian/VS Code:
+- 🔄 IN FLIGHT 2026-07-08 (palette agent) — **VS Code-style command palette.** Two entry points like Obsidian/VS Code:
   a "navigate" palette (⌘O or ⌘P: fuzzy-search outline entries of the
   current book → jump; also bookmarks and open tabs) and a "run command"
   palette (⌘⇧P: every menu action). Also "go to page" (⌥⌘G or via palette).
@@ -54,35 +54,35 @@ end-of-session feedback after using the app.
   conventions; document in the help overlay.
 
 ### Search
-- **No Enter required** — live search with debounce (~300ms after typing
+- ✅ DONE 2026-07-08 — **No Enter required** — live search with debounce (~300ms after typing
   pauses; cancel in-flight PDFDocument find before restarting). Applies to
   sidebar find and library search.
-- **Show outline breadcrumb per hit** — e.g. "Chapter 1 › 1A Rⁿ and Cⁿ ›
+- ✅ DONE 2026-07-08 — **Show outline breadcrumb per hit** — e.g. "Chapter 1 › 1A Rⁿ and Cⁿ ›
   Complex Numbers". OutlineNode tree already exists; compute the ancestor
   path of the deepest node at-or-before the hit page (extend
   OutlineNode.deepestLabel to return the full path).
 
 ### Library
-- **Selection is laggy and can't be unselected** — profile the tap-gesture
+- ✅ DONE 2026-07-08 — **Selection is laggy and can't be unselected** — profile the tap-gesture
   path (simultaneousGesture may be re-rendering the whole grid; move
   selection to a lighter mechanism, e.g. equatable subviews or List-style
   selection); click on empty space or Esc should clear selection.
-- **Drag books onto tags/collections in the sidebar** — .draggable(item.id)
+- ✅ DONE 2026-07-08 — **Drag books onto tags/collections in the sidebar** — .draggable(item.id)
   on cells + .dropDestination on tag/collection rows → setTags/addToCollection.
-- **Selection action bar** — when something is selected, show contextual
+- ✅ DONE 2026-07-08 — **Selection action bar** — when something is selected, show contextual
   actions in the toolbar (Open, Tag, Add to Collection, Reveal in Finder,
   Remove). Consider multi-select (⌘-click, ⇧-click) at the same time.
-- **"Untagged" and "Not in any collection" smart filters** in the sidebar
+- ✅ DONE 2026-07-08 — **"Untagged" and "Not in any collection" smart filters** in the sidebar
   (simple NOT EXISTS queries over book_tag / collection_item).
-- **Explain tags vs collections in the UI** — general affordance, not
+- ✅ DONE 2026-07-08 — **Explain tags vs collections in the UI** — general affordance, not
   owner-specific examples. E.g. section-header help popovers: tags =
   attributes a book IS (topic; hierarchical; a book has many), collections =
   curated sets a book is IN (courses/projects; ordered; mix any sources).
-- **Covers don't load while scrolling** — investigate: `.task` on cells
+- ✅ DONE 2026-07-08 — **Covers don't load while scrolling** — investigate: `.task` on cells
   inside LazyVGrid may be cancelled by scroll-driven cell churn
   (task(id:) cancels on disappear); consider prefetching, retry-on-appear,
   or loading through a small request queue that survives cell recycling.
-- **Right-click → Reveal in Finder** (NSWorkspace.activateFileViewerSelecting).
+- ✅ DONE 2026-07-08 — **Right-click → Reveal in Finder** (NSWorkspace.activateFileViewerSelecting).
 
 ### Deep linking / anchors (owner question, answered)
 PDFs expose anchors we can link to: **named destinations** (hyperref's
@@ -109,7 +109,7 @@ references inside PDFs already work via PDFActionRemoteGoTo.)
 ## Feature requests (2026-07-07, round 2 — session close)
 
 ### Theming
-- **Theme must sync to ALL windows immediately** and tint the window chrome
+- ✅ DONE 2026-07-08 — **Theme must sync to ALL windows immediately** and tint the window chrome
   (titlebar/toolbar background via NSWindow.backgroundColor +
   titlebarAppearsTransparent or toolbar style), and be changeable from an
   EMPTY window too (the bottom bar only renders when a document is open —
@@ -120,18 +120,18 @@ references inside PDFs already work via PDFActionRemoteGoTo.)
   may capture stale state).
 
 ### Tabs (drag & drop is BROKEN in practice — owner tested)
-- **Reorder tabs within a window by dragging** (not implemented at all).
-- **Drag a tab out to create a new window** (drop on empty desktop area).
-- **Drag tabs between windows** — implemented via .draggable/.dropDestination
+- ✅ DONE 2026-07-08 (AppKit strip rewrite) — **Reorder tabs within a window by dragging** (not implemented at all).
+- ✅ DONE 2026-07-08 — **Drag a tab out to create a new window** (drop on empty desktop area).
+- ✅ DONE 2026-07-08 (AppKit rewrite as predicted) — **Drag tabs between windows** — implemented via .draggable/.dropDestination
   but does not work in practice; likely gesture conflict with onTapGesture
   or drop-target coverage. Consider replacing SwiftUI DnD with an
   AppKit-backed tab strip if SwiftUI gestures keep fighting.
-- **Two-row tab UI**: row 1 = title (as now); row 2 = outline breadcrumb of
+- ✅ DONE 2026-07-08 (incl. spanning group headers replacing the dot) — **Two-row tab UI**: row 1 = title (as now); row 2 = outline breadcrumb of
   that tab's position. Same PDF open in adjacent tabs: render the title ONCE
   spanning the group (real tab-group header), breadcrumbs per tab beneath.
-- **Split view**: two tabs side by side in one window, with management UI;
+- ✅ DONE 2026-07-08 (side-by-side panes + multi-select/close-many) — **Split view**: two tabs side by side in one window, with management UI;
   plus multi-select/close-many tabs.
-- **Commands: "Open Collection" and "Open Collection in New Window"** — open
+- ✅ DONE 2026-07-08 — **Commands: "Open Collection" and "Open Collection in New Window"** — open
   every book in a collection as tabs (pairs well with the command palette).
 
 ### Testing / CI (owner: "the test suite does NOT guarantee everything works")

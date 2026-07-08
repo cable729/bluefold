@@ -32,10 +32,29 @@ the project owner's plan file; the milestone list below is self-contained.
 
 - [x] **UI-2** Feedback round 2: evicted covers download-on-demand (fixes disappearing covers), In Book Text capped at 5 with Show All toggle, selected book highlighted (accent ring), history entries labeled with outline section names, bottom status bar (page layout modes, fit width/height, page x/y with direct jump, theme switcher), plain back/forward buttons with right-click history, ⌘-click opens ADJACENT tab + same-book tabs get group dots, tab context menu (duplicate/close/close others), collections nest in the sidebar (subtree filtering; New Collection nests under selected scope)
 
+- [x] **UI-3** Overnight round 3 (2026-07-08, owner's feedback backlog):
+  - **Tab strip rewritten in AppKit** (`TabStripView.swift`) — SwiftUI DnD was unfixably broken. Chrome-style mouse tracking: drag reorders (live preview), drag past a vertical threshold tears off under a ghost panel; drop on another window's strip moves the tab (screen-level `TabStripRegistry` hit-testing), drop on the desktop opens a new window at the point (staged restorably via `pendingRestore`+`pendingOrder`); a single-tab window just moves. Emptied source windows close.
+  - **Two-row tabs**: title over outline breadcrumb (`ReaderWindowModel.tabBreadcrumbs`, refreshed via `DocumentProvider.loadedDocument` so background tabs never disturb the LRU); adjacent same-book tabs render the title once in a spanning group header (replaces the group dot the owner disliked).
+  - **Split view**: `WindowState.splitTabID` (optional; schema-1 files keep decoding), `openInSplit`/`closeSplit`, secondary pane is a non-primary `ActivePDFView` with its own link routing (`linkActivated(sourceTabID:via:)`); both panes' documents pinned. Strip context menu + slim pane header manage it.
+  - **Tab multi-select**: ⌘-click toggles / ⇧-click ranges in the strip; "Close N Tabs" bulk action.
+  - **Open Collection / in New Window** on library collection rows (subtree included, manual order kept, iCloud downloads first).
+  - **Theme overhaul** (agent): `AppTheme.auto` follows the system; cross-window sync fixed for real (root cause: lazy per-window `.preferredColorScheme` — replaced with a ThemeManager NSWindow registry setting `window.appearance` imperatively); sepia tints titlebars Claude-tan; status bar always visible so themes are switchable in empty windows.
+  - **Live sidebar find** (agent): ~300ms debounce, no Enter; superseding fixed a real PDFKit trap (`beginFindString` from inside `PDFDocumentDidEndFind` delivery is silently ignored — parked queries start one main-actor hop later); per-hit outline breadcrumbs via `OutlineNode.deepestPath` with per-document caching.
+  - **Library polish** (agent): selection made instant (root cause: `filteredItems` was a computed property re-running SQLite scope queries per body evaluation; now stored + Equatable cell content), ⌘/⇧ multi-select with contextual action bar (Remove only for app-owned imports), drag-to-tag/collection, Untagged / Not-in-any-collection smart filters with counts, tags-vs-collections help popovers, covers survive scroll (`.task(id:)` cancellation broke retries permanently; per-URL coalescing loader), right-click Reveal in Finder, debounced live FTS.
+  - **Status bar** (agent): `‹ [page] / N ›` arrows wired to PDFView paging; reusable `.instantHint` hover hints (150ms) because `.help()` felt like seconds.
+
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); library/tags/search/sync UI pending
-- [ ] **M17** XCUITest smoke suite + xcodebuild CI job
+- [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/SmokeUITests.swift`, `PDFReaderUITests` target hand-added to the pbxproj + shared scheme): session-restore, drag-reorder, tear-off, cross-window smoke flows. Locally the reorder test passes end-to-end; restore/tear-off/cross-window tests are limited by macOS 26 local quirks (see Environment notes) and are expected to be exercised on CI. The drag state machine is separately unit-tested with crafted NSEvents (`TabStripDragTests`). Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
 - [ ] **M18** OSS polish, settings window, v0.1 tag
+
+## ⚠️ CI: the suite HANGS on GitHub runners (diagnosis in progress, 2026-07-08)
+Every CI run to date either failed fast (pre-fix compile errors) or hung. Facts:
+- The hang is in TEST EXECUTION, not the build: a probe run compiled everything in 80s, then `swiftpm-testing` produced zero output for 44 minutes and was killed as an orphan. (An earlier probe hit a pathologically slow runner still compiling GRDB at minute 14 — runner variance is real but was a red herring.)
+- Suite runs in <1s locally (179 tests). Prime suspect: Vision OCR tests stalling headless (recognition assets), but unconfirmed.
+- **PR #1 (`ci-hardening`)** adds: job timeout, cancel-in-progress concurrency, SwiftPM `.build` cache, `workflow_dispatch`, and a PTY-wrapped test step (`script -q /dev/null swift test`) so the next hang's log NAMES the stalled test. **MERGE IT** — main's workflow still has no timeout, so every push to main can burn up to 6h of macOS minutes (billed 10x).
+- Old stuck runs from 2026-07-08 04:00–06:00 UTC may still be running — cancel them in the Actions UI.
+Once the culprit test is named: gate it off on CI (env `CI` check) or fix the underlying stall, then delete this section.
 
 ## Environment notes
 - Xcode 26.6 installed, license accepted — plain `git`/`swift`/`xcodebuild` all work. (`scripts/test-clt.sh` remains for CLT-only environments but is no longer required.)
@@ -46,24 +65,35 @@ the project owner's plan file; the milestone list below is self-contained.
 
 ## Key design constraints (do not violate)
 - Never write to Calibre's metadata.db; never open the live file (copy first).
-- Only the active tab may hold a PDFView; PDFDocuments live in a small LRU.
+- Only the ON-SCREEN tabs may hold PDFViews (the active tab, plus the split
+  pane's tab when a window is split); PDFDocuments live in a small LRU with
+  both on-screen paths pinned.
 - NavigationHistory in ReaderCore is the single source of truth for back/forward (not PDFView.goBack).
 - Session restore is custom (session.json), not @SceneStorage/NSWindow restoration.
 - All synced tables carry modified_at + soft-delete tombstones.
 
-## ⚠️ Open loose end at session handoff (2026-07-08 ~04:10 UTC)
-CI status was UNKNOWN when the previous session ended. Three runs were
-in_progress on GitHub Actions (repo cable729/pdf-app, private): run
-28916335669 (macos-15, pre-switch), 28916705846 and 28916767356 (first runs
-on the new `macos-26` runner — the label was accepted and jobs were
-executing, so the image exists). First task for whoever reads this: `gh run
-list --limit 3` and check they passed.
-- If the macos-26 runs failed on toolchain grounds: the code compiles under
-  both Swift 6.0 and 6.3 locally; likeliest culprits are the "Select latest
-  Xcode" step or an image quirk. Fallback: `runs-on: macos-latest` works.
-- If they passed: delete this section.
-Local state at handoff: working tree clean, everything pushed, 120 tests
-green locally, `./scripts/verify.sh` passed end-to-end (all 4 steps).
+## macOS 26 local-machine quirks discovered overnight (2026-07-08)
+These bit hard during UI-test debugging; they are MACHINE/OS behaviors, not
+app bugs:
+- **Second instance of a bundle ID never opens its window.** After one
+  unclean kill of a PDFReader instance, every later direct-exec launch of
+  the same bundle ID runs windowless (menu bar only). LaunchServices
+  launches (`open`, Finder, Dock) are unaffected — normal usage is fine.
+  Consequences: UI tests kill stray instances per-test AND take a
+  `PDFREADER_BUNDLE_ID_SUFFIX` build override (app target only) so each run
+  can use a fresh ID; `scripts/verify.sh`'s direct-exec launch smoke may
+  false-fail on a machine in this state (launch via `open` instead).
+- **XCUITest synthesized input is partially broken locally**: plain
+  `click()` and coordinate-targeted drags are never delivered (drag releases
+  after ~2 interpolation steps); element→element drags inside the KEY window
+  work. Hence: reorder is verified end-to-end locally, tear-off/cross-window
+  drags are unit-tested at the state-machine level (`TabStripDragTests`,
+  crafted NSEvents in real windows) and left to CI/human hands for
+  end-to-end.
+- **Parallel agents + one screen don't mix**: concurrent app instances from
+  several worktrees stole each other's synthesized events and confused
+  window-server state. Rule of thumb going forward: agents do code + unit
+  tests; ONE consolidated GUI pass at the end.
 
 ## Handoff docs (read these first in a fresh session)
 - [ARCHITECTURE.md](ARCHITECTURE.md) — module map, memory model, data stores, diagrams
@@ -72,4 +102,17 @@ green locally, `./scripts/verify.sh` passed end-to-end (all 4 steps).
 - `./scripts/verify.sh` — the one-command quality gate (tests + both app builds + launch smoke)
 
 ## Next step
-Owner's UX priorities: fix tab drag & drop (broken in practice — reorder/new-window/cross-window), theme sync across windows + chrome tinting, command palette (⌘P navigate / ⌘⇧P commands), live search without Enter. Then M15 CloudKit (team A448YLFLYC set — but settle the bundle identifier FIRST, see BACKLOG "Product / business"), iOS part 2, M17 XCUITest, M18 v0.1.
+1. **Morning human pass** (the overnight GUI-verification debt, ~15 min):
+   tab dragging by hand (reorder / tear-off / cross-window / single-tab
+   move), two-row tabs + group headers, split view, theme sync + sepia
+   titlebar + auto mode, live sidebar find with breadcrumbs, library
+   selection/drag-to-tag/smart filters/fast-scroll covers, status-bar
+   arrows + instant hints.
+2. **Merge PR #1 (ci-hardening)** and read its PTY log to name the hanging
+   CI test; gate or fix it, then add CI job B (xcodebuild UI tests + iOS
+   sim build) and wire UI tests into scripts/verify.sh.
+3. Command palette (⌘P/⌘⇧P), "/" help overlay, tab-cycling and arrow-key
+   shortcuts — implementation was in flight at session end; check
+   `git branch --list 'worktree-agent-*'` for the palette agent's branch.
+4. Then: M15 CloudKit (settle the bundle identifier FIRST — see BACKLOG
+   "Product / business"), iOS part 2, M18 v0.1.
