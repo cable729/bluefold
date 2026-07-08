@@ -12,7 +12,9 @@ public struct LibraryView: View {
     @State private var newTagName: String?
     @State private var newCollectionName: String?
     @State private var showAllTextHits = false
-    @State private var selectedItemID: String?
+    @State private var selection = LibrarySelection()
+    @State private var showTagsHelp = false
+    @State private var showCollectionsHelp = false
     @Environment(\.openWindow) private var openWindow
 
     private let columns = [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 20)]
@@ -112,22 +114,72 @@ public struct LibraryView: View {
             Section("Library") {
                 Label("All Books", systemImage: "books.vertical")
                     .tag(LibraryFilter.all)
+                Label("Untagged", systemImage: "tag.slash")
+                    .badge(model.untaggedCount)
+                    .tag(LibraryFilter.untagged)
+                Label("Not in a Collection", systemImage: "questionmark.folder")
+                    .badge(model.notInAnyCollectionCount)
+                    .tag(LibraryFilter.notInAnyCollection)
             }
-            Section("Tags") {
+            Section {
                 OutlineGroup(model.tagTree, children: \.optionalChildren) { node in
                     tagRow(node)
                 }
                 newItemButton("New Tag…") { newTagName = "" }
+            } header: {
+                sectionHeader("Tags", isPresented: $showTagsHelp, help: Self.tagsHelp)
             }
-            Section("Collections") {
+            Section {
                 OutlineGroup(model.collectionTree, children: \.optionalChildren) { node in
                     collectionRow(node.collection)
                 }
                 newItemButton("New Collection…") { newCollectionName = "" }
+            } header: {
+                sectionHeader(
+                    "Collections", isPresented: $showCollectionsHelp, help: Self.collectionsHelp
+                )
             }
         }
         .listStyle(.sidebar)
         .frame(minWidth: 190)
+    }
+
+    private static let tagsHelp = """
+        A tag describes what a book IS — its subject or attributes. \
+        Tags can nest (Algebra ▸ Linear Algebra), and a book can carry \
+        as many as you like. Selecting a tag also shows books tagged \
+        with any of its sub-tags. Drag books here to tag them.
+        """
+
+    private static let collectionsHelp = """
+        A collection is a curated set a book is IN — a course, project, \
+        or reading list. Collections keep a manual order, can nest, and \
+        can mix books from any source. The same book can sit in several \
+        collections. Drag books here to add them.
+        """
+
+    /// Section title plus a small ⓘ that explains the concept in a popover.
+    private func sectionHeader(
+        _ title: String, isPresented: Binding<Bool>, help: String
+    ) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+            Button {
+                isPresented.wrappedValue.toggle()
+            } label: {
+                Image(systemName: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("About \(title.lowercased())")
+            .popover(isPresented: isPresented, arrowEdge: .trailing) {
+                Text(help)
+                    .font(.callout)
+                    .frame(width: 260, alignment: .leading)
+                    .padding(12)
+            }
+        }
     }
 
     private func tagRow(_ node: TagNode) -> some View {
@@ -140,6 +192,11 @@ public struct LibraryView: View {
                         model.deleteTag(id: id)
                     }
                 }
+            }
+            .dropDestination(for: String.self) { ids, _ in
+                guard let tagID = node.tag.id else { return false }
+                model.addTag(tagID: tagID, toItemIDs: dropTargets(for: ids))
+                return true
             }
     }
 
@@ -154,6 +211,22 @@ public struct LibraryView: View {
                     }
                 }
             }
+            .dropDestination(for: String.self) { ids, _ in
+                guard let collectionID = collection.id else { return false }
+                model.addToCollection(collectionID: collectionID, itemIDs: dropTargets(for: ids))
+                return true
+            }
+    }
+
+    /// A drag that starts on a selected cell carries the whole selection;
+    /// dragging an unselected cell affects just that one book.
+    private func dropTargets(for droppedIDs: [String]) -> Set<String> {
+        let dropped = Set(droppedIDs.filter { id in model.items.contains { $0.id == id } })
+        guard !dropped.isEmpty else { return [] }
+        if !dropped.isDisjoint(with: selection.selectedIDs) {
+            return dropped.union(selection.selectedIDs)
+        }
+        return dropped
     }
 
     private func newItemButton(_ title: String, action: @escaping () -> Void) -> some View {
@@ -200,19 +273,119 @@ public struct LibraryView: View {
                                     item: item,
                                     overlayTags: model.itemTags[item.id] ?? [],
                                     isDownloading: model.downloading.contains(item.id),
-                                    isSelected: selectedItemID == item.id,
-                                    select: { selectedItemID = item.id },
-                                    open: { open(item) },
+                                    isSelected: selection.contains(item.id),
+                                    tap: { handleTap(item) },
+                                    open: { openKeepingSelection(item) },
+                                    reveal: { model.revealInFinder([item]) },
+                                    remove: item.source == .imported
+                                        ? { removeFromLibrary(item) } : nil,
                                     tagMenu: { tagMenu(for: item) },
                                     collectionMenu: { collectionMenu(for: item) }
                                 )
+                                .draggable(item.id)
                             }
                         }
                         .padding(20)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                // A click that lands outside every cell clears the selection
+                // (cell gestures sit deeper in the hierarchy and win).
+                .onTapGesture { selection.clear() }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if !selection.isEmpty {
+                        selectionBar
+                    }
+                }
+                .background {
+                    // Esc clears. Rendered only while a selection exists so
+                    // Esc keeps its usual meaning in the search field.
+                    if !selection.isEmpty {
+                        Button("") { selection.clear() }
+                            .keyboardShortcut(.escape, modifiers: [])
+                            .opacity(0)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .onChange(of: model.filteredItems) { _, newItems in
+                    selection.prune(to: newItems.map(\.id))
                 }
             }
         }
+    }
+
+    /// One click on a cell, with whatever modifiers the current event holds.
+    private func handleTap(_ item: LibraryItem) {
+        let flags = NSApp.currentEvent?.modifierFlags ?? []
+        let modifiers: LibrarySelection.Modifiers =
+            flags.contains(.command) ? .command : flags.contains(.shift) ? .shift : .none
+        selection.click(item.id, modifiers: modifiers, orderedIDs: model.filteredItems.map(\.id))
+    }
+
+    private func openKeepingSelection(_ item: LibraryItem) {
+        if !selection.contains(item.id) {
+            selection.click(
+                item.id, modifiers: .none, orderedIDs: model.filteredItems.map(\.id)
+            )
+        }
+        open(item)
+    }
+
+    private func removeFromLibrary(_ item: LibraryItem) {
+        model.removeImportedItems([item])
+        selection.prune(to: model.filteredItems.map(\.id))
+    }
+
+    /// Contextual actions for the current selection, shown as a bottom bar.
+    private var selectionBar: some View {
+        let selected = model.items(withIDs: selection.selectedIDs)
+        let importedOnly = !selected.isEmpty && selected.allSatisfy { $0.source == .imported }
+        return HStack(spacing: 12) {
+            Text("\(selected.count) selected")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("Open") {
+                for item in selected { open(item) }
+            }
+            Menu("Tag") {
+                ForEach(model.allTags, id: \.id) { tag in
+                    Toggle(tag.name, isOn: .init(
+                        get: { model.allHaveTag(tag, items: selected) },
+                        set: { _ in model.toggleTag(tag, forAll: selected) }
+                    ))
+                }
+                Divider()
+                Button("New Tag…") { newTagName = "" }
+            }
+            .fixedSize()
+            Menu("Add to Collection") {
+                ForEach(model.collections, id: \.id) { collection in
+                    Toggle(collection.name, isOn: .init(
+                        get: { model.allInCollection(collection, items: selected) },
+                        set: { _ in model.toggleCollection(collection, forAll: selected) }
+                    ))
+                }
+                Divider()
+                Button("New Collection…") { newCollectionName = "" }
+            }
+            .fixedSize()
+            Button("Reveal in Finder") {
+                model.revealInFinder(selected)
+            }
+            if importedOnly {
+                // Only the app's own imports can be removed — never Calibre
+                // books (Calibre's library is read-only).
+                Button("Remove", role: .destructive) {
+                    model.removeImportedItems(selected)
+                    selection.clear()
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
     }
 
     /// Full-text matches inside book content, shown above the grid while
@@ -432,12 +605,80 @@ private struct BookCell<TagMenu: View, CollectionMenu: View>: View {
     let overlayTags: [TagRecord]
     let isDownloading: Bool
     let isSelected: Bool
-    let select: () -> Void
+    let tap: () -> Void
     let open: () -> Void
+    let reveal: () -> Void
+    /// nil for Calibre books — only the app's own imports are removable.
+    let remove: (() -> Void)?
     @ViewBuilder let tagMenu: () -> TagMenu
     @ViewBuilder let collectionMenu: () -> CollectionMenu
 
     @State private var cover: NSImage?
+    @State private var coverRequested = false
+
+    var body: some View {
+        BookCellContent(
+            item: item,
+            overlayTags: overlayTags,
+            isDownloading: isDownloading,
+            isSelected: isSelected,
+            cover: cover
+        )
+        .equatable()
+        .contentShape(Rectangle())
+        .gesture(TapGesture(count: 2).onEnded(open))
+        .simultaneousGesture(TapGesture(count: 1).onEnded(tap))
+        .contextMenu {
+            Button("Open in Reader", action: open)
+            Menu("Tags", content: tagMenu)
+            Menu("Collections", content: collectionMenu)
+            Divider()
+            Button("Reveal in Finder", action: reveal)
+            if let remove {
+                Divider()
+                Button("Remove from Library", role: .destructive, action: remove)
+            }
+        }
+        .onAppear(perform: requestCover)
+    }
+
+    /// Loads the cover through an UNSTRUCTURED task on purpose: `.task` here
+    /// gets cancelled by LazyVGrid cell churn during fast scrolling — the
+    /// cancelled sleep inside the loader's iCloud check made it bail with
+    /// nil, leaving permanent placeholders. The shared loader dedupes
+    /// concurrent requests, so churn costs nothing.
+    private func requestCover() {
+        guard cover == nil, !coverRequested, let url = item.coverURL else { return }
+        coverRequested = true
+        Task { @MainActor in
+            cover = await CoverImageLoader.thumbnail(for: url)
+            if cover == nil {
+                coverRequested = false  // e.g. still iCloud-evicted; retry next appear
+            }
+        }
+    }
+}
+
+/// The visual content of a cell, equatable so a selection change only
+/// re-renders the two cells whose `isSelected` actually flipped instead of
+/// every visible cell.
+private struct BookCellContent: View, Equatable {
+    let item: LibraryItem
+    let overlayTags: [TagRecord]
+    let isDownloading: Bool
+    let isSelected: Bool
+    let cover: NSImage?
+
+    // nonisolated: the View conformance MainActor-isolates the struct, but
+    // Equatable's witness must be callable anywhere. Compares values plus
+    // NSImage identity — safe without isolation.
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.item == rhs.item
+            && lhs.overlayTags == rhs.overlayTags
+            && lhs.isDownloading == rhs.isDownloading
+            && lhs.isSelected == rhs.isSelected
+            && lhs.cover === rhs.cover
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -464,10 +705,6 @@ private struct BookCell<TagMenu: View, CollectionMenu: View>: View {
             .frame(height: 190)
             .frame(maxWidth: .infinity)
             .shadow(radius: 2, y: 1)
-            .task(id: item.coverURL) {
-                guard let coverURL = item.coverURL else { return }
-                cover = await CoverImageLoader.thumbnail(for: coverURL)
-            }
 
             Text(item.title)
                 .font(.callout.weight(.medium))
@@ -497,17 +734,6 @@ private struct BookCell<TagMenu: View, CollectionMenu: View>: View {
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(Color.accentColor, lineWidth: 2)
             }
-        }
-        .contentShape(Rectangle())
-        .gesture(TapGesture(count: 2).onEnded {
-            select()
-            open()
-        })
-        .simultaneousGesture(TapGesture(count: 1).onEnded(select))
-        .contextMenu {
-            Button("Open in Reader", action: open)
-            Menu("Tags", content: tagMenu)
-            Menu("Collections", content: collectionMenu)
         }
     }
 }
