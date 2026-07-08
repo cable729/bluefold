@@ -532,6 +532,17 @@ public final class LibraryModel {
         reloadOverlay()
     }
 
+    /// Moves a tag under a new parent (nil = root); the store refuses moves
+    /// that would create a cycle. Returns whether anything changed.
+    @discardableResult
+    public func reparentTag(id: Int64, under parentID: Int64?) -> Bool {
+        guard let store, (try? store.setTagParent(id: id, parentID: parentID)) == true else {
+            return false
+        }
+        reloadOverlay()
+        return true
+    }
+
     public func toggleTag(_ tag: TagRecord, for item: LibraryItem) {
         guard let store, let rowID = bookRowIDs[item.id], let tagID = tag.id else { return }
         var current = Set((itemTags[item.id] ?? []).compactMap(\.id))

@@ -166,6 +166,35 @@ private final class TestClock: @unchecked Sendable {
         #expect(mathNode.children.map(\.tag.name) == ["Algebra", "Analysis"])
     }
 
+    @Test func setTagParentMovesTagAndRefusesCycles() throws {
+        let store = try LibraryStore.inMemory()
+        let math = try store.createTag(name: "Math")
+        let algebra = try store.createTag(name: "Algebra", parent: math.id)
+        let linear = try store.createTag(name: "Linear", parent: algebra.id)
+        let cooking = try store.createTag(name: "Cooking")
+
+        // Plain move: Cooking becomes a child of Math.
+        #expect(try store.setTagParent(id: cooking.id!, parentID: math.id) == true)
+        var tree = try store.tagTree()
+        #expect(tree.map(\.tag.name) == ["Math"])
+
+        // Un-nest: Linear moves to the root.
+        #expect(try store.setTagParent(id: linear.id!, parentID: nil) == true)
+        tree = try store.tagTree()
+        #expect(tree.map(\.tag.name) == ["Linear", "Math"])
+
+        // Cycle refusals: onto itself, and onto its own descendant.
+        #expect(try store.setTagParent(id: math.id!, parentID: math.id) == false)
+        #expect(try store.setTagParent(id: math.id!, parentID: algebra.id) == false)
+        // The tree is unchanged by refused moves.
+        tree = try store.tagTree()
+        #expect(tree.map(\.tag.name) == ["Linear", "Math"])
+
+        // Moving under a soft-deleted tag is refused too.
+        try store.softDeleteTag(id: algebra.id!)
+        #expect(try store.setTagParent(id: cooking.id!, parentID: algebra.id) == false)
+    }
+
     @Test func softDeleteTagReparentsChildrenAndTombstonesBookTags() throws {
         let store = try LibraryStore.inMemory()
         let math = try store.createTag(name: "Math")

@@ -128,7 +128,12 @@ public struct LibraryView: View {
                 }
                 newItemButton("New Tag…") { newTagName = "" }
             } header: {
+                // Dropping a tag on the section header un-nests it.
                 sectionHeader("Tags", isPresented: $showTagsHelp, help: Self.tagsHelp)
+                    .dropDestination(for: String.self) { payloads, _ in
+                        guard let dragged = draggedTagID(in: payloads) else { return false }
+                        return model.reparentTag(id: dragged, under: nil)
+                    }
             }
             Section {
                 OutlineGroup(model.collectionTree, children: \.optionalChildren) { node in
@@ -183,23 +188,59 @@ public struct LibraryView: View {
         }
     }
 
+    /// Payload marker distinguishing a dragged TAG from dragged book IDs in
+    /// the shared String transfer type.
+    private static let tagDragPrefix = "tag:"
+
     private func tagRow(_ node: TagNode) -> some View {
         let filterValue: LibraryFilter = node.tag.id.map { LibraryFilter.tag($0) } ?? .all
         return Label(node.tag.name, systemImage: "tag")
             .tag(filterValue)
+            .draggable(Self.tagDragPrefix + String(node.tag.id ?? -1)) {
+                Label(node.tag.name, systemImage: "tag")
+                    .font(.caption)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(.regularMaterial, in: Capsule())
+            }
             .contextMenu {
+                Button("Move to Top Level") {
+                    if let id = node.tag.id {
+                        model.reparentTag(id: id, under: nil)
+                    }
+                }
+                .disabled(node.tag.parentID == nil)
                 Button("Delete Tag", role: .destructive) {
                     if let id = node.tag.id {
                         model.deleteTag(id: id)
                     }
                 }
             }
-            .dropDestination(for: String.self) { ids, _ in
-                let targets = dropTargets(for: ids)
-                guard let tagID = node.tag.id, !targets.isEmpty else { return false }
-                model.addTag(tagID: tagID, toItemIDs: targets)
-                return true
+            .dropDestination(for: String.self) { payloads, _ in
+                handleTagRowDrop(payloads, onto: node.tag.id)
             }
+    }
+
+    /// A tag row accepts two kinds of drags: books (assign the tag) and
+    /// other tags (nest under this one — building the tree by drag).
+    private func handleTagRowDrop(_ payloads: [String], onto tagID: Int64?) -> Bool {
+        guard let tagID else { return false }
+        if let dragged = draggedTagID(in: payloads) {
+            return model.reparentTag(id: dragged, under: tagID)
+        }
+        let targets = dropTargets(for: payloads)
+        guard !targets.isEmpty else { return false }
+        model.addTag(tagID: tagID, toItemIDs: targets)
+        return true
+    }
+
+    private func draggedTagID(in payloads: [String]) -> Int64? {
+        for payload in payloads where payload.hasPrefix(Self.tagDragPrefix) {
+            if let id = Int64(payload.dropFirst(Self.tagDragPrefix.count)), id >= 0 {
+                return id
+            }
+        }
+        return nil
     }
 
     private func collectionRow(_ collection: CollectionRecord) -> some View {
@@ -253,6 +294,24 @@ public struct LibraryView: View {
                 openWindow(id: "reader", value: newID)
             }
         }
+    }
+
+    /// Small pill shown under the cursor while dragging a book — the cell
+    /// itself would cover the tag/collection rows being aimed at. Reflects
+    /// the whole selection when the drag starts on a selected cell.
+    private func dragPreview(for item: LibraryItem) -> some View {
+        let count = selection.contains(item.id) ? max(selection.count, 1) : 1
+        return Label(
+            count > 1 ? "\(count) books" : item.title,
+            systemImage: count > 1 ? "books.vertical" : "book.closed"
+        )
+        .font(.caption)
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .frame(maxWidth: 180)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(.regularMaterial, in: Capsule())
     }
 
     /// A drag that starts on a selected cell carries the whole selection;
@@ -319,7 +378,11 @@ public struct LibraryView: View {
                                     tagMenu: { tagMenu(for: item) },
                                     collectionMenu: { collectionMenu(for: item) }
                                 )
-                                .draggable(item.id)
+                                // Compact preview: dragging the full-size
+                                // cell hides the sidebar rows you aim at.
+                                .draggable(item.id) {
+                                    dragPreview(for: item)
+                                }
                             }
                         }
                         .padding(20)

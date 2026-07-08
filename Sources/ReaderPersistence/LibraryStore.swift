@@ -216,6 +216,34 @@ public final class LibraryStore: Sendable {
         }
     }
 
+    /// Moves a tag under a new parent (nil = root). Refuses moves that would
+    /// create a cycle — onto itself or any of its own descendants — so the
+    /// tree stays a tree; returns whether the move happened.
+    @discardableResult
+    public func setTagParent(id: Int64, parentID: Int64?) throws -> Bool {
+        let ts = now()
+        return try dbQueue.write { db in
+            guard try TagRecord.fetchOne(db, key: id)?.deletedAt == nil else { return false }
+            if let parentID {
+                guard parentID != id else { return false }
+                guard let parent = try TagRecord.fetchOne(db, key: parentID),
+                      parent.deletedAt == nil else { return false }
+                // Walk up from the target parent; hitting `id` means the
+                // target is inside the subtree being moved.
+                var cursor = parent.parentID
+                while let current = cursor {
+                    if current == id { return false }
+                    cursor = try TagRecord.fetchOne(db, key: current)?.parentID
+                }
+            }
+            try db.execute(
+                sql: "UPDATE tag SET parent_id = ?, modified_at = ? WHERE id = ?",
+                arguments: [parentID, ts, id]
+            )
+            return true
+        }
+    }
+
     /// Soft-deletes a tag. Its `book_tag` rows are tombstoned too, and live
     /// child tags are reparented to the deleted tag's own parent.
     public func softDeleteTag(id: Int64) throws {
