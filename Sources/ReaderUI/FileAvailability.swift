@@ -1,17 +1,18 @@
-#if os(macOS)
 import Foundation
 
 /// Handles iCloud-evicted ("dataless") files: books in an iCloud Drive
 /// Calibre library may exist only as placeholders. Opening one directly
 /// yields a broken PDFDocument, so every open path goes through here.
-enum FileAvailability {
-    enum Status {
+/// Cross-platform (Foundation only) — the iOS app uses the same download
+/// flow against the user's iCloud Drive Calibre folder.
+public enum FileAvailability {
+    public enum Status {
         case local
         case downloading
         case notUbiquitous
     }
 
-    static func status(of url: URL) -> Status {
+    public static func status(of url: URL) -> Status {
         guard
             let values = try? url.resourceValues(forKeys: [
                 .ubiquitousItemDownloadingStatusKey, .isUbiquitousItemKey,
@@ -24,7 +25,7 @@ enum FileAvailability {
     }
 
     /// True when the file's bytes are on disk and ready to open.
-    static func isLocal(_ url: URL) -> Bool {
+    public static func isLocal(_ url: URL) -> Bool {
         switch status(of: url) {
         case .local: true
         case .downloading: false
@@ -34,7 +35,7 @@ enum FileAvailability {
 
     /// Triggers download of an evicted file and waits (polling) until its
     /// bytes are local. Fast no-op when already local.
-    static func ensureLocal(_ url: URL, timeout: TimeInterval = 120) async throws {
+    public static func ensureLocal(_ url: URL, timeout: TimeInterval = 120) async throws {
         if isLocal(url) { return }
         try FileManager.default.startDownloadingUbiquitousItem(at: url)
         let deadline = Date(timeIntervalSinceNow: timeout)
@@ -47,4 +48,3 @@ enum FileAvailability {
         ])
     }
 }
-#endif

@@ -3,13 +3,6 @@ import AppKit
 import PDFKit
 import ReaderCore
 
-/// Where an internal link points, resolved to session-model terms.
-struct LinkTarget: Equatable {
-    var entry: NavEntry
-    /// Set when the link leads into a different PDF (PDFActionRemoteGoTo).
-    var remoteFileURL: URL?
-}
-
 /// PDFView subclass that intercepts clicks on link annotations.
 ///
 /// PDFKit's `PDFViewDelegate.pdfViewWillClick(onLink:with:)` fires only for
@@ -56,40 +49,6 @@ final class ReaderPDFView: PDFView {
         super.mouseDown(with: event)
     }
 
-    /// The current reading position in session-model terms.
-    func currentNavEntry() -> NavEntry {
-        guard
-            let document,
-            let destination = currentDestination,
-            let page = destination.page
-        else {
-            return NavEntry(pageIndex: 0, scaleFactor: scaleFactor)
-        }
-        var point: CGPoint? = destination.point
-        if destination.point.x == kPDFDestinationUnspecifiedValue
-            || destination.point.y == kPDFDestinationUnspecifiedValue {
-            point = nil
-        }
-        return NavEntry(
-            pageIndex: document.index(for: page),
-            point: point,
-            scaleFactor: scaleFactor
-        )
-    }
-
-    func go(to entry: NavEntry, in document: PDFDocument) {
-        guard let page = document.page(at: min(entry.pageIndex, max(0, document.pageCount - 1)))
-        else { return }
-        // Point-less jumps synthesize an EXPLICIT top-of-page point. Both a
-        // destination with unspecified coordinates AND go(to: page) — which
-        // wraps one internally — are silent no-ops on macOS 26 PDFKit for
-        // some documents (rounds 12–12.5: jumps moved the model while the
-        // view stayed parked; only explicit in-crop points always scroll).
-        let crop = page.bounds(for: .cropBox)
-        let point = entry.point ?? CGPoint(x: crop.minX, y: crop.maxY)
-        go(to: PDFDestination(page: page, at: point))
-    }
-
     private func linkTarget(atViewPoint viewPoint: CGPoint) -> LinkTarget? {
         guard
             let page = page(for: viewPoint, nearest: false),
@@ -99,56 +58,17 @@ final class ReaderPDFView: PDFView {
         return Self.resolveTarget(of: annotation, in: document)
     }
 
-    /// Resolves a link annotation to its target. Internal so tests can drive
-    /// it with constructed annotations instead of synthetic clicks.
+    // Shims over the shared, cross-platform LinkResolver (existing call
+    // sites and tests address these through the view type). See
+    // LinkResolution.swift for `currentNavEntry()` / `go(to:in:)` too —
+    // they are PDFView extensions now, shared with iOS.
+
     static func resolveTarget(of annotation: PDFAnnotation, in document: PDFDocument) -> LinkTarget? {
-        switch annotation.action {
-        case let action as PDFActionRemoteGoTo:
-            // Destination page/point live on the action itself; the
-            // destination document is a different file.
-            return LinkTarget(
-                entry: NavEntry(pageIndex: action.pageIndex, point: normalize(action.point)),
-                remoteFileURL: action.url
-            )
-        case let action as PDFActionGoTo:
-            return target(for: action.destination, in: document)
-        default:
-            // LaTeX/hyperref output often carries a bare destination with no
-            // action object at all.
-            if let destination = annotation.destination {
-                return target(for: destination, in: document)
-            }
-            return nil
-        }
+        LinkResolver.target(of: annotation, in: document)
     }
 
-    private static func target(for destination: PDFDestination, in document: PDFDocument) -> LinkTarget? {
-        guard let page = destination.page else { return nil }
-        return LinkTarget(
-            entry: NavEntry(
-                pageIndex: document.index(for: page),
-                point: validatedPoint(destination.point, on: page)
-            ),
-            remoteFileURL: nil
-        )
-    }
-
-    private static func normalize(_ point: CGPoint) -> CGPoint? {
-        if point.x == kPDFDestinationUnspecifiedValue || point.y == kPDFDestinationUnspecifiedValue {
-            return nil
-        }
-        return point
-    }
-
-    /// A destination point usable by `PDFView.go(to:)`, or nil to jump to
-    /// the page top instead. Beyond the unspecified-value markers, sloppy
-    /// scans (Munkres/Pearson) carry outline and link points OUTSIDE the
-    /// page's crop box — even negative — and PDFView silently refuses to
-    /// scroll to them, making every outline click a no-op.
     static func validatedPoint(_ point: CGPoint, on page: PDFPage) -> CGPoint? {
-        guard let point = normalize(point) else { return nil }
-        let visible = page.bounds(for: .cropBox).insetBy(dx: -12, dy: -12)
-        return visible.contains(point) ? point : nil
+        LinkResolver.validatedPoint(point, on: page)
     }
 }
 #endif

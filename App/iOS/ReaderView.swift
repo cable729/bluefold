@@ -1,16 +1,25 @@
 import ReaderCore
+import ReaderUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Single-window tabbed reader: a horizontal tab strip over a PDFKit view of
-/// the active tab. Only the active tab holds a live PDFView (`.id(tab.id)`
-/// tears the view down on every switch).
+/// Single-window tabbed reader: a control bar (history, library, theme) and
+/// a horizontal tab strip over a PDFKit view of the active tab. Only the
+/// active tab holds a live PDFView (`.id(...)` tears the view down on every
+/// switch — and on theme change, rebuilding the render caches).
 struct ReaderView: View {
     let model: ReaderSessionModel
+    let theme: ThemeStore
+    let library: LibraryModel
+
     @State private var showingImporter = false
+    @State private var showingLibrary = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 0) {
+            controlBar
+            Divider()
             if !model.tabs.isEmpty {
                 tabStrip
                 Divider()
@@ -27,29 +36,91 @@ struct ReaderView: View {
                 model.open(urls: urls)
             }
         }
+        .sheet(isPresented: $showingLibrary) {
+            LibraryScreen(library: library) { item, entry in
+                model.openTab(url: item.fileURL, at: entry)
+            }
+        }
+        .preferredColorScheme(theme.preferredColorScheme)
+        .onChange(of: colorScheme, initial: true) { _, scheme in
+            theme.noteSystemColorScheme(isDark: scheme == .dark)
+        }
+    }
+
+    // MARK: - Control bar
+
+    private var controlBar: some View {
+        HStack(spacing: 16) {
+            Button {
+                model.goBack()
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            .disabled(!model.canGoBack)
+            .accessibilityLabel("Back")
+
+            Button {
+                model.goForward()
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .disabled(!model.canGoForward)
+            .accessibilityLabel("Forward")
+
+            Spacer()
+
+            themeMenu
+
+            Button {
+                showingLibrary = true
+            } label: {
+                Image(systemName: "books.vertical")
+            }
+            .accessibilityLabel("Library")
+
+            Button {
+                showingImporter = true
+            } label: {
+                Image(systemName: "plus")
+            }
+            .accessibilityLabel("Open PDF")
+        }
+        .font(.body)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    private var themeMenu: some View {
+        Menu {
+            ForEach(AppTheme.allCases, id: \.self) { option in
+                Button {
+                    theme.current = option
+                } label: {
+                    if theme.current == option {
+                        Label(ThemeStore.label(for: option), systemImage: "checkmark")
+                    } else {
+                        Text(ThemeStore.label(for: option))
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "circle.lefthalf.filled")
+        }
+        .accessibilityLabel("Theme")
     }
 
     // MARK: - Tab strip
 
     private var tabStrip: some View {
-        HStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(model.tabs) { tab in
-                        tabChip(for: tab)
-                    }
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(model.tabs) { tab in
+                    tabChip(for: tab)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
             }
-            Button {
-                showingImporter = true
-            } label: {
-                Image(systemName: "plus")
-                    .padding(.horizontal, 12)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Open PDF")
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
         }
         .background(.bar)
     }
@@ -92,20 +163,28 @@ struct ReaderView: View {
     @ViewBuilder
     private var content: some View {
         if let tab = model.activeTab {
-            if let url = model.activeURL {
+            if model.downloadingTabID == tab.id {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Downloading “\(title(for: tab))” from iCloud…")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let document = model.activeDocument {
                 PDFKitView(
-                    url: url,
-                    pageIndex: tab.pageIndex,
-                    destinationPoint: tab.destinationPoint,
-                    onPageChange: { pageIndex in
-                        model.updatePage(tabID: tab.id, pageIndex: pageIndex)
-                    },
-                    onTeardown: { pageIndex, point in
-                        model.captureTeardown(tabID: tab.id, pageIndex: pageIndex, point: point)
-                    }
+                    tab: tab,
+                    document: document,
+                    model: model,
+                    backgroundColor: theme.pdfBackground
                 )
-                .id(tab.id)
+                .id("\(tab.id)-\(theme.resolvedTheme.rawValue)")
                 .ignoresSafeArea(edges: .bottom)
+            } else if let error = model.downloadError {
+                ContentUnavailableView(
+                    "Couldn't Download \(title(for: tab))",
+                    systemImage: "icloud.slash",
+                    description: Text(error)
+                )
             } else {
                 ContentUnavailableView(
                     "Can't Open \(title(for: tab))",
@@ -117,12 +196,15 @@ struct ReaderView: View {
             ContentUnavailableView {
                 Label("No PDF Open", systemImage: "book.closed")
             } description: {
-                Text("Open a PDF to start reading.")
+                Text("Open a book from your library, or a PDF from Files.")
             } actions: {
+                Button("Browse Library…") {
+                    showingLibrary = true
+                }
+                .buttonStyle(.borderedProminent)
                 Button("Open PDF…") {
                     showingImporter = true
                 }
-                .buttonStyle(.borderedProminent)
             }
         }
     }
