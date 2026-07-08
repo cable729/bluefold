@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+# A newer push obsoletes in-flight runs; macOS minutes bill at 10x, so never
+# let two runs of the same ref race.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -12,11 +19,81 @@ jobs:
     # ever sits queued (image retired/renamed), fall back to macos-latest —
     # the code also compiles under Swift 6.0.
     runs-on: macos-26
+    # The known CI failure mode is a WHOLE-RUNNER deadlock: the PTY probe
+    # showed all 116 tests "started" in the same instant and not one
+    # completed in 23 minutes. Running each test target separately with its
+    # own kill-timeout isolates which module(s) carry the deadlock, and any
+    # healthy modules still get exercised.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - name: Select latest Xcode
         run: |
           sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
           swift --version
-      - name: Run tests
-        run: swift test
+      - name: Cache SwiftPM build
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.resolved', 'Package.swift') }}
+          restore-keys: |
+            spm-${{ runner.os }}-${{ runner.arch }}-
+      - name: Build tests
+        run: swift build --build-tests
+      - name: Run tests per module
+        # PTY (`script`) keeps per-test output line-buffered; gtimeout KILLs
+        # a deadlocked module after 5 min instead of eating the whole job.
+        run: |
+          command -v gtimeout >/dev/null 2>&1 || brew install -q coreutils
+          status=0
+          for target in ReaderCoreTests CalibreKitTests ReaderPersistenceTests \
+                        SearchIndexKitTests SyncKitTests ReaderUITests; do
+            echo "::group::${target}"
+            if gtimeout --signal=KILL 300 script -q /dev/null \
+                swift test --skip-build --filter "${target}"; then
+              echo "${target}: OK"
+            else
+              echo "::error::${target}: FAILED or DEADLOCKED (killed at 300s)"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "${status}"
+
+  # Job B (M17): the app built and driven for real — XCUITest smoke flows
+  # (session restore, tab dragging) that unit tests cannot see. Runs in
+  # parallel with the unit-test job; app bundle ID gets a .ci suffix so a
+  # runner reused across attempts can never collide with a stale instance.
+  ui-test:
+    name: XCUITest smoke (macOS)
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select latest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+      - name: Run UI tests
+        run: |
+          set -o pipefail
+          xcodebuild -project App/PDFReader.xcodeproj -scheme PDFReader \
+            -configuration Debug -derivedDataPath DerivedData \
+            test PDFREADER_BUNDLE_ID_SUFFIX=.ci 2>&1 | tail -200
+
+  # iOS still has to compile (shared ReaderCore changes routinely touch it).
+  ios-build:
+    name: iOS simulator build
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select latest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild -project App/PDFReader.xcodeproj -scheme PDFReader-iOS \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath DerivedData-iOS \
+            build CODE_SIGNING_ALLOWED=NO 2>&1 | tail -50
