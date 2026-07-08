@@ -28,6 +28,12 @@ struct PDFReaderApp: App {
         }
         .restorationBehavior(.disabled)
         .keyboardShortcut(Self.libraryShortcut)
+
+        // ⌘, — the standard Settings scene (M18). All logic lives in
+        // ReaderUI.SettingsView; this shell only declares the scene.
+        Settings {
+            SettingsView()
+        }
     }
 
     /// Scene-level Library binding, read from the command table so a

@@ -36,6 +36,16 @@ public final class SessionCoordinator {
 
     public init(sessionFileURL: URL? = nil) {
         self.sessionFileURL = sessionFileURL ?? Self.defaultSessionFileURL()
+        // The document LRU size is a user preference (Settings > Memory):
+        // start from the persisted value and follow changes live, in
+        // ThemeManager's apply-from-didSet style. Growing takes effect on
+        // the next load; shrinking evicts immediately.
+        provider.capacity = AppSettings.shared.documentCapacity
+        AppSettings.shared.onDocumentCapacityChange = { [weak self] capacity in
+            guard let self else { return }
+            self.provider.capacity = capacity
+            self.provider.evictIfNeeded()
+        }
         loadSession()
     }
 

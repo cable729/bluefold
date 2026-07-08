@@ -1,0 +1,111 @@
+# Release: notarized DMG on version tags.
+#
+# INERT BY DEFAULT — this workflow runs ONLY when a `v*` tag is pushed or it
+# is dispatched by hand from the Actions tab. It must never trigger on branch
+# pushes or PRs: CI billing is currently dead (see docs/PROGRESS.md) and the
+# tag push is a deliberate release act, not a side effect.
+#
+# It calls the same scripts/release.sh a human runs locally; there is no
+# CI-only release logic to drift.
+#
+# Required repository secrets (Settings > Secrets and variables > Actions).
+# All are OPTIONAL in the sense that the workflow degrades gracefully: with
+# no signing secrets it still builds an UNSIGNED dmg artifact (useful for
+# checking the pipeline before the Developer ID certificate exists).
+#
+#   DEVELOPER_ID_P12          Developer ID Application certificate + private
+#                             key, exported from Keychain Access as .p12,
+#                             then base64-encoded: `base64 -i cert.p12`.
+#                             (Mint the cert first: Xcode > Settings >
+#                             Accounts > team A448YLFLYC > Manage
+#                             Certificates… > + > Developer ID Application.)
+#   DEVELOPER_ID_P12_PASSWORD Password chosen when exporting the .p12.
+#   NOTARY_APPLE_ID           Apple ID email of the developer account.
+#   NOTARY_TEAM_ID            A448YLFLYC
+#   NOTARY_PASSWORD           App-specific password minted at
+#                             account.apple.com > Sign-In and Security >
+#                             App-Specific Passwords (NOT the account
+#                             password).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Build, sign, notarize DMG
+    runs-on: macos-26
+    timeout-minutes: 60
+    permissions:
+      contents: write # create the GitHub release on tag builds
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select latest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          xcodebuild -version
+
+      # Import the Developer ID certificate into a throwaway keychain.
+      # Skipped (and the build falls back to --skip-sign) when the secret
+      # isn't configured yet.
+      - name: Import signing certificate
+        id: cert
+        env:
+          P12_BASE64: ${{ secrets.DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          if [ -z "$P12_BASE64" ]; then
+            echo "No DEVELOPER_ID_P12 secret — will build an UNSIGNED dmg."
+            echo "have_cert=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          KEYCHAIN=release.keychain-db
+          KEYCHAIN_PW=$(uuidgen)
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          echo "$P12_BASE64" | base64 -d > cert.p12
+          security import cert.p12 -k "$KEYCHAIN" -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign
+          rm cert.p12
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PW" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          echo "have_cert=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build release DMG
+        env:
+          HAVE_CERT: ${{ steps.cert.outputs.have_cert }}
+          PDFREADER_NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          PDFREADER_NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          PDFREADER_NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          FLAGS=""
+          if [ "$HAVE_CERT" != "true" ]; then
+            FLAGS="--skip-sign --skip-notarize"
+          elif [ -z "$PDFREADER_NOTARY_APPLE_ID" ]; then
+            echo "Signing cert present but no notary secrets — signed, unnotarized dmg."
+            FLAGS="--skip-notarize"
+          fi
+          ./scripts/release.sh --output dist $FLAGS
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PDFReader-dmg
+          path: dist/*.dmg
+          if-no-files-found: error
+
+      # Tag builds also publish a draft GitHub release with the dmg attached
+      # (draft so the owner writes notes and presses publish deliberately).
+      - name: Draft GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/*.dmg \
+            --draft --title "PDFReader ${GITHUB_REF_NAME}" \
+            --generate-notes
