@@ -4,10 +4,10 @@ import Testing
 
 @testable import ReaderUI
 
-/// Status-bar |‹ ›| chapter skipping: boundaries are TOP-LEVEL outline
-/// entries only (sections inside a chapter don't count as stops).
-@Suite("Chapter skipping")
-struct ChapterSkipTests {
+/// Status-bar ⇤ ⇥ section skipping: EVERY outline entry (any depth) is a
+/// stop — the owner wants section-granular movement, not chapter jumps.
+@Suite("Section skipping")
+struct SectionSkipTests {
     private var outline: [OutlineNode] {
         [
             OutlineNode(
@@ -21,25 +21,25 @@ struct ChapterSkipTests {
         ]
     }
 
-    @Test func nextStopsAtTopLevelChaptersOnly() {
-        #expect(OutlineNode.chapterStart(in: outline, after: 0) == 4)
-        // From inside chapter 1 (past section 1A): next is chapter 2, not 1A.
-        #expect(OutlineNode.chapterStart(in: outline, after: 5) == 30)
-        #expect(OutlineNode.chapterStart(in: outline, after: 30) == 61)
-        #expect(OutlineNode.chapterStart(in: outline, after: 61) == nil)
+    @Test func nextStopsAtEveryOutlineLevel() {
+        #expect(OutlineNode.sectionStart(in: outline, after: 0) == 4)
+        // Nested section 1A (page 6) IS a stop.
+        #expect(OutlineNode.sectionStart(in: outline, after: 4) == 6)
+        #expect(OutlineNode.sectionStart(in: outline, after: 6) == 30)
+        #expect(OutlineNode.sectionStart(in: outline, after: 61) == nil)
     }
 
-    @Test func previousGoesToEarlierChapterFromAChapterStart() {
-        // Media-player behavior: standing ON chapter 2's first page skips
-        // back to chapter 1, not to chapter 2's own start.
-        #expect(OutlineNode.chapterStart(in: outline, before: 30) == 4)
-        #expect(OutlineNode.chapterStart(in: outline, before: 45) == 30)
-        #expect(OutlineNode.chapterStart(in: outline, before: 4) == nil)
+    @Test func previousGoesToEarlierSectionFromASectionStart() {
+        // Media-player behavior: standing ON a section's first page skips
+        // back to the one before it.
+        #expect(OutlineNode.sectionStart(in: outline, before: 30) == 6)
+        #expect(OutlineNode.sectionStart(in: outline, before: 6) == 4)
+        #expect(OutlineNode.sectionStart(in: outline, before: 4) == nil)
     }
 
     @Test func emptyOutlineHasNoStops() {
-        #expect(OutlineNode.chapterStart(in: [], after: 10) == nil)
-        #expect(OutlineNode.chapterStart(in: [], before: 10) == nil)
+        #expect(OutlineNode.sectionStart(in: [], after: 10) == nil)
+        #expect(OutlineNode.sectionStart(in: [], before: 10) == nil)
     }
 }
 #endif

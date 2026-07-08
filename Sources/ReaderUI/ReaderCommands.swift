@@ -45,7 +45,7 @@ public struct ReaderCommands: Commands {
             items(["nav.back", "nav.forward"])
             Divider()
             items(["nav.previousPage", "nav.nextPage",
-                   "nav.previousChapter", "nav.nextChapter", "nav.goToPage"])
+                   "nav.previousSection", "nav.nextSection", "nav.goToPage"])
             Divider()
             items(["nav.openAnything", "nav.goToSection"])
         }

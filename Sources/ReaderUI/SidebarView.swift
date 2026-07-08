@@ -116,6 +116,7 @@ struct SidebarView: View {
                         )
                     }
                     .listStyle(.sidebar)
+                    .scrollContentBackground(.hidden)  // themed window bg
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -165,6 +166,9 @@ private struct OutlineList: View {
                 )
             }
             .listStyle(.sidebar)
+            // Let the themed window background through — the List's own
+            // opaque background ignored sepia's tan (round-8.5 owner bug).
+            .scrollContentBackground(.hidden)
         }
     }
 
@@ -252,6 +256,7 @@ private struct SearchResultsList: View {
                         .tag(index)
                     }
                     .listStyle(.sidebar)
+                    .scrollContentBackground(.hidden)  // themed window bg
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

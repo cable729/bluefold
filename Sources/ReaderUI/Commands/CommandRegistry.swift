@@ -191,17 +191,17 @@ public enum CommandRegistry {
             isAvailable: { $0.activeDocument != nil },
             run: { $0.model?.activeController?.goToNextPage() }
         ))
-        // Chapter skips (status-bar |‹ ›| buttons; chordless — palette and
+        // Section skips (status-bar ⇤ ⇥ buttons; chordless — palette and
         // Go menu carry them for discoverability).
         commands.append(ReaderCommand(
-            id: "nav.previousChapter", title: "Previous Chapter", category: .navigation,
-            isAvailable: { $0.model?.canGoToPreviousChapter == true },
-            run: { $0.model?.goToPreviousChapter() }
+            id: "nav.previousSection", title: "Previous Section", category: .navigation,
+            isAvailable: { $0.model?.canGoToPreviousSection == true },
+            run: { $0.model?.goToPreviousSection() }
         ))
         commands.append(ReaderCommand(
-            id: "nav.nextChapter", title: "Next Chapter", category: .navigation,
-            isAvailable: { $0.model?.canGoToNextChapter == true },
-            run: { $0.model?.goToNextChapter() }
+            id: "nav.nextSection", title: "Next Section", category: .navigation,
+            isAvailable: { $0.model?.canGoToNextSection == true },
+            run: { $0.model?.goToNextSection() }
         ))
         // ⌘G is free for this (owner request): the M8 find bar's ⌘G cycling
         // is gone — the sidebar find cycles with Enter/⇧Enter in its field.
@@ -274,9 +274,10 @@ public enum CommandRegistry {
 
         // MARK: View
 
+        // ⌘B follows VS Code/Obsidian (owner request; was ⌃⌘S).
         commands.append(ReaderCommand(
             id: "view.toggleSidebar", title: "Show Sidebar", category: .view,
-            chords: [KeyChord("s", [.control, .command])],
+            chords: [KeyChord("b", [.command])],
             isAvailable: { $0.ui != nil },
             isOn: { $0.ui?.showSidebar == true },
             run: { $0.ui?.showSidebar.toggle() }

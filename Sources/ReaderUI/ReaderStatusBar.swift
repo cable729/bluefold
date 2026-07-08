@@ -75,14 +75,14 @@ struct ReaderStatusBar: View {
 
                 HStack(spacing: 4) {
                     Button {
-                        model.goToPreviousChapter()
+                        model.goToPreviousSection()
                     } label: {
                         Image(systemName: "chevron.left.to.line")
                     }
                     .buttonStyle(.borderless)
-                    .disabled(!model.canGoToPreviousChapter)
-                    .instantHint("Previous chapter")
-                    .help("Previous chapter")
+                    .disabled(!model.canGoToPreviousSection)
+                    .instantHint("Previous section")
+                    .help("Previous section")
                     Button {
                         model.goToPreviousPage()
                     } label: {
@@ -114,14 +114,14 @@ struct ReaderStatusBar: View {
                     .instantHint("Next page")
                     .help("Next page")
                     Button {
-                        model.goToNextChapter()
+                        model.goToNextSection()
                     } label: {
                         Image(systemName: "chevron.right.to.line")
                     }
                     .buttonStyle(.borderless)
-                    .disabled(!model.canGoToNextChapter)
-                    .instantHint("Next chapter")
-                    .help("Next chapter")
+                    .disabled(!model.canGoToNextSection)
+                    .instantHint("Next section")
+                    .help("Next section")
                 }
                 .font(.callout)
                 .monospacedDigit()

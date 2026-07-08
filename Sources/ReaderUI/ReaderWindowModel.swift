@@ -337,7 +337,7 @@ public final class ReaderWindowModel {
         activeController?.goToNextPage()
     }
 
-    // MARK: - Chapter skipping (status-bar |‹ ›| buttons)
+    // MARK: - Section skipping (status-bar ⇤ ⇥ buttons)
 
     /// Top-level outline entries of the active document, or [] without one.
     private var activeOutline: [OutlineNode] {
@@ -348,30 +348,30 @@ public final class ReaderWindowModel {
         return outline(for: document)
     }
 
-    public var canGoToPreviousChapter: Bool {
+    public var canGoToPreviousSection: Bool {
         guard let activeTab else { return false }
-        return OutlineNode.chapterStart(in: activeOutline, before: activeTab.pageIndex) != nil
+        return OutlineNode.sectionStart(in: activeOutline, before: activeTab.pageIndex) != nil
     }
 
-    public var canGoToNextChapter: Bool {
+    public var canGoToNextSection: Bool {
         guard let activeTab else { return false }
-        return OutlineNode.chapterStart(in: activeOutline, after: activeTab.pageIndex) != nil
+        return OutlineNode.sectionStart(in: activeOutline, after: activeTab.pageIndex) != nil
     }
 
-    /// Chapter skips are deliberate navigation: they push history, so ⌘[
+    /// Section skips are deliberate navigation: they push history, so ⌘[
     /// returns to where reading left off.
-    public func goToPreviousChapter() {
+    public func goToPreviousSection() {
         guard
             let activeTab,
-            let page = OutlineNode.chapterStart(in: activeOutline, before: activeTab.pageIndex)
+            let page = OutlineNode.sectionStart(in: activeOutline, before: activeTab.pageIndex)
         else { return }
         jump(to: NavEntry(pageIndex: page))
     }
 
-    public func goToNextChapter() {
+    public func goToNextSection() {
         guard
             let activeTab,
-            let page = OutlineNode.chapterStart(in: activeOutline, after: activeTab.pageIndex)
+            let page = OutlineNode.sectionStart(in: activeOutline, after: activeTab.pageIndex)
         else { return }
         jump(to: NavEntry(pageIndex: page))
     }

@@ -44,23 +44,33 @@ struct OutlineNode: Identifiable {
         return best?.path ?? []
     }
 
-    /// Chapter starts = the page indices of TOP-LEVEL outline entries,
-    /// sorted. (Books whose top level is "Part I/II" skip by part — the
-    /// outline's own idea of its coarsest division wins.)
-    static func chapterStarts(in nodes: [OutlineNode]) -> [Int] {
-        nodes.compactMap { $0.entry?.pageIndex }.sorted()
+    /// Section starts = the page indices of EVERY outline entry, any depth,
+    /// deduplicated and sorted (owner round 8.5: skip by section, not by
+    /// top-level chapter).
+    static func sectionStarts(in nodes: [OutlineNode]) -> [Int] {
+        var pages = Set<Int>()
+        func walk(_ nodes: [OutlineNode]) {
+            for node in nodes {
+                if let page = node.entry?.pageIndex {
+                    pages.insert(page)
+                }
+                walk(node.children ?? [])
+            }
+        }
+        walk(nodes)
+        return pages.sorted()
     }
 
-    /// First chapter starting after `pageIndex` (status-bar "next chapter").
-    static func chapterStart(in nodes: [OutlineNode], after pageIndex: Int) -> Int? {
-        chapterStarts(in: nodes).first { $0 > pageIndex }
+    /// First section starting after `pageIndex` (status-bar "next section").
+    static func sectionStart(in nodes: [OutlineNode], after pageIndex: Int) -> Int? {
+        sectionStarts(in: nodes).first { $0 > pageIndex }
     }
 
-    /// Last chapter starting before `pageIndex` (status-bar "previous
-    /// chapter"). Standing ON a chapter's first page goes to the chapter
+    /// Last section starting before `pageIndex` (status-bar "previous
+    /// section"). Standing ON a section's first page goes to the section
     /// before it, media-player-style.
-    static func chapterStart(in nodes: [OutlineNode], before pageIndex: Int) -> Int? {
-        chapterStarts(in: nodes).last { $0 < pageIndex }
+    static func sectionStart(in nodes: [OutlineNode], before pageIndex: Int) -> Int? {
+        sectionStarts(in: nodes).last { $0 < pageIndex }
     }
 
     /// Same search, returning the node id (sidebar highlight).

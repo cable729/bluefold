@@ -76,9 +76,9 @@ public struct ReaderWindowView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
-                // Shortcut ⌃⌘S lives on the View-menu item (command table).
+                // Shortcut ⌘B lives on the View-menu item (command table).
                 Button("Sidebar", systemImage: "sidebar.left") { ui.showSidebar.toggle() }
-                    .help("Show or hide the sidebar (⌃⌘S)")
+                    .help("Show or hide the sidebar (⌘B)")
                 // Click steps once; right-click shows the labeled history.
                 // Shortcuts ⌘[ / ⌘] live in the History menu.
                 Button("Back", systemImage: "chevron.left") { model.goBack() }
