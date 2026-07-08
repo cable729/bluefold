@@ -120,6 +120,32 @@ struct SectionSkipTests {
         #expect(OutlineNode.sectionEntry(in: plain, before: here) == nil)  // A is first
     }
 
+    @Test func chapterAndFirstSectionSharingAnAnchorDoNotWedgePrevious() {
+        // Dummit & Foote page 572: "Chapter 14" and "14.1" anchor at the
+        // same spot (synthesized page tops in scans). Previous from there
+        // must cross into the PREVIOUS chapter's last section, not step to
+        // the invisible twin anchor forever (round 13.7).
+        let top = CGPoint(x: 0, y: 700)
+        let outline = [
+            OutlineNode(label: "13.6", entry: NavEntry(pageIndex: 557, point: top), children: nil),
+            OutlineNode(
+                label: "Chapter 14", entry: NavEntry(pageIndex: 572, point: top),
+                children: [
+                    OutlineNode(label: "14.1", entry: NavEntry(pageIndex: 572, point: top), children: nil),
+                    OutlineNode(label: "14.2", entry: NavEntry(pageIndex: 583, point: top), children: nil),
+                ]
+            ),
+        ]
+        let atChapter14 = NavEntry(pageIndex: 572, point: top)
+        #expect(
+            OutlineNode.sectionEntry(in: outline, before: atChapter14)?.pageIndex == 557
+        )
+        // And next from the merged anchor moves on to 14.2.
+        #expect(
+            OutlineNode.sectionEntry(in: outline, after: atChapter14)?.pageIndex == 583
+        )
+    }
+
     @Test func previousStepsBackThroughPointlessSections() {
         // The scan case (round 13.6): entries whose points were dropped.
         // Standing at B's page top, previous must reach A — a nil point's

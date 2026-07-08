@@ -53,7 +53,11 @@ struct OutlineNode: Identifiable {
         (entry.pageIndex, -(entry.point?.y ?? CGFloat.greatestFiniteMagnitude))
     }
 
-    /// Every outline destination (any depth) in reading order.
+    /// Every outline destination (any depth) in reading order, with
+    /// SAME-SPOT duplicates collapsed: a chapter heading and its first
+    /// section often share one anchor (always, in scans with synthesized
+    /// page-top points) — stepping between identical positions is an
+    /// invisible no-op that wedged ⇤ at chapter starts (round 13.7).
     static func orderedSectionEntries(in nodes: [OutlineNode]) -> [NavEntry] {
         var entries: [NavEntry] = []
         func walk(_ nodes: [OutlineNode]) {
@@ -65,7 +69,20 @@ struct OutlineNode: Identifiable {
             }
         }
         walk(nodes)
-        return entries.sorted { readingKey(of: $0) < readingKey(of: $1) }
+        entries.sort { readingKey(of: $0) < readingKey(of: $1) }
+
+        var deduped: [NavEntry] = []
+        for entry in entries {
+            if let last = deduped.last {
+                let a = readingKey(of: last)
+                let b = readingKey(of: entry)
+                if a.page == b.page, abs(a.offset - b.offset) <= 2 {
+                    continue
+                }
+            }
+            deduped.append(entry)
+        }
+        return deduped
     }
 
     /// Landing slop: after `go(to:)`, PDFKit parks the view slightly BELOW
