@@ -50,6 +50,8 @@ Conventions borrowed from VS Code (palettes, quick-open), Safari/Chrome
 | --- | --- | --- |
 | ⌘B | Show/hide sidebar | VS Code/Obsidian convention (owner request; was ⌃⌘S — do not rebind ⌘B to bold, the app has no text editing). |
 | ⌥⌘1 / ⌥⌘2 / ⌥⌘3 / ⌥⌘4 | Single Page / Continuous Scroll / Two Pages / Two Pages Continuous | Moved from plain ⌘digits, which now switch tabs (browser convention won). |
+| ⌘\ | Split Right (toggle) | VS Code convention. No split → duplicates the active tab into a right split; any split open → closes it. |
+| — | Split Left / Close Split | Menu (checkmarked by side), tab context menu, or command palette. Dragging a tab over a window's PDF area also drops into a left/right split. |
 | — | Fit Width / Fit Height | Bottom bar or command palette. |
 | — | Light / Dark / Sepia theme | Menu (checkmarked), bottom bar, or command palette. |
 
@@ -66,6 +68,12 @@ Conventions borrowed from VS Code (palettes, quick-open), Safari/Chrome
 | Shortcut | Action | Notes |
 | --- | --- | --- |
 | ⌘D | Bookmark This Page | Browser convention. |
+
+## Links
+
+| Shortcut | Action | Notes |
+| --- | --- | --- |
+| — | Copy Link to Here / Copy Link to Selection | Edit menu or command palette. Copies a `pdfreader://` URL (content-hash based, survives file moves) that works from Obsidian or anywhere. Deliberately chordless — bind via keybindings.json if wanted. |
 
 ## Help & Palettes
 
@@ -165,11 +173,14 @@ entries claiming the same chord, the alphabetically-first command id wins.
 | `tabs.duplicate` / `tabs.closeOthers` | Duplicate Tab / Close Other Tabs (unbound) |
 | `view.toggleSidebar` | Show Sidebar (`cmd+b`) |
 | `view.layout.singlePage` / `.continuous` / `.twoUp` / `.twoUpContinuous` | Page layouts (`opt+cmd+1`…`opt+cmd+4`) |
+| `view.splitRight` | Split Right — toggle (`cmd+\`) |
+| `view.splitLeft` / `view.closeSplit` | Split Left / Close Split (unbound) |
 | `view.fitWidth` / `view.fitHeight` | Fit Width / Height (unbound) |
 | `view.theme.light` / `.dark` / `.sepia` / `.auto` | Themes (unbound) |
 | `search.find` | Find in Document (`cmd+f`) |
 | `search.allBooks` | Search All Books… (`shift+cmd+f`) |
 | `bookmarks.add` | Bookmark This Page (`cmd+d`) |
+| `links.copyToHere` / `links.copyToSelection` | Copy Link to Here / to Selection (unbound) |
 | `help.commandPalette` | Command Palette… (`shift+cmd+p`) |
 | `help.shortcuts` | Keyboard Shortcuts overlay (`/`, `?`) |
 | `prefs.openKeybindings` | Preferences: Open Keybindings File (unbound) |
