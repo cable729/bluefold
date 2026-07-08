@@ -728,6 +728,75 @@ public final class ReaderWindowModel {
         pasteboard.setString(link.url().absoluteString, forType: .string)
     }
 
+    // MARK: - Margin anchors
+
+    /// Per-document anchor index (outline + named dests + text detection),
+    /// keyed like the section-stops cache: a split can show two documents.
+    @ObservationIgnored private var anchorIndexCache: [ObjectIdentifier: AnchorIndex] = [:]
+
+    func anchorIndex(for document: PDFDocument) -> AnchorIndex {
+        let key = ObjectIdentifier(document)
+        if let cached = anchorIndexCache[key] { return cached }
+        if anchorIndexCache.count >= 4 {  // stale-document backstop
+            anchorIndexCache.removeAll()
+        }
+        let index = AnchorIndex(document: document, sectionStops: sectionStops(for: document))
+        anchorIndexCache[key] = index
+        return index
+    }
+
+    /// Transient confirmation shown after a clipboard write.
+    public struct Toast: Equatable, Sendable {
+        public let id: UUID
+        public let text: String
+    }
+
+    public private(set) var toast: Toast?
+    @ObservationIgnored private var toastDismissTask: Task<Void, Never>?
+
+    /// Margin-glyph click: copies a deep link to the anchor (⌥ = a markdown
+    /// link ready for notes) and pushes the anchor onto the tab's history —
+    /// a lightweight "mark this spot"; ⌘[ returns here after wandering off.
+    func anchorClicked(_ anchor: Anchor, tabID: UUID? = nil, asMarkdown: Bool = false) {
+        let id = tabID ?? activeTabID
+        guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        let fileURL = url(for: tab)
+        // Registering the book backfills the content hash so the link is
+        // resolvable later (same as Copy Link to Here).
+        _ = bookRowID(for: tab)
+        guard let hash = try? ContentHash.compute(for: fileURL) else {
+            NSSound.beep()
+            return
+        }
+        // Both forms: the named destination wins when it resolves, the
+        // page+point form is the universal fallback.
+        let link = DeepLink(
+            contentHash: hash,
+            destination: anchor.destName,
+            pageIndex: anchor.pageIndex,
+            point: anchor.point
+        )
+        let urlString = link.url().absoluteString
+        let text = asMarkdown ? "[\(anchor.label)](\(urlString))" : urlString
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+
+        updateTab(id: tab.id) { $0.history.push(anchor.entry) }
+        showToast("Link copied — \(anchor.label)")
+    }
+
+    func showToast(_ text: String) {
+        let message = Toast(id: UUID(), text: text)
+        toast = message
+        toastDismissTask?.cancel()
+        toastDismissTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2.2))
+            guard !Task.isCancelled, let self, self.toast?.id == message.id else { return }
+            self.toast = nil
+        }
+    }
+
     public func updateTab(id: UUID, _ mutate: (inout TabState) -> Void) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         mutate(&tabs[index])

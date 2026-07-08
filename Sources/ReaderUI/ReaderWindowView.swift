@@ -81,6 +81,23 @@ public struct ReaderWindowView: View {
                 HelpOverlayView(ui: ui, model: model)
             }
         }
+        // Clipboard confirmation (margin-anchor clicks) — silent copies
+        // feel broken.
+        .overlay(alignment: .bottom) {
+            if let toast = model.toast {
+                Text(toast.text)
+                    .font(.callout)
+                    .lineLimit(1)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 1))
+                    .padding(.bottom, 16)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .id(toast.id)
+            }
+        }
+        .animation(.easeOut(duration: 0.18), value: model.toast)
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 // Shortcut ⌘B lives on the View-menu item (command table).

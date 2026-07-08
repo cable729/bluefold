@@ -23,6 +23,20 @@ struct ActivePDFView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> ReaderPDFView {
         let view = ReaderPDFView()
+        // Margin anchors: the provider must be in place before the document
+        // is assigned or PDFKit never asks for overlays on the first pages.
+        let anchorProvider = AnchorOverlayProvider()
+        anchorProvider.index = model.anchorIndex(for: document)
+        let clickTabID = tab.id
+        anchorProvider.onAnchorClicked = { [weak model] anchor, modifiers in
+            guard let model else { return }
+            model.focusPane(containingTab: clickTabID)
+            model.anchorClicked(
+                anchor, tabID: clickTabID, asMarkdown: modifiers.contains(.option)
+            )
+        }
+        context.coordinator.anchorProvider = anchorProvider
+        view.pageOverlayViewProvider = anchorProvider
         view.document = document
         view.displayMode = PDFDisplayMode(rawValue: tab.displayModeRaw) ?? .singlePageContinuous
         view.displaysPageBreaks = true
@@ -92,6 +106,7 @@ struct ActivePDFView: NSViewRepresentable {
         }
         view.onLinkActivated = nil
         view.onInteract = nil
+        view.pageOverlayViewProvider = nil
         view.document = nil
     }
 
@@ -100,6 +115,8 @@ struct ActivePDFView: NSViewRepresentable {
         let tabID: UUID
         weak var model: ReaderWindowModel?
         weak var view: ReaderPDFView?
+        /// Strong: PDFView holds its overlay provider weakly.
+        var anchorProvider: AnchorOverlayProvider?
         // nonisolated(unsafe): written on main; read in deinit.
         private nonisolated(unsafe) var pageObserver: NSObjectProtocol?
         private nonisolated(unsafe) var scrollObserver: NSObjectProtocol?

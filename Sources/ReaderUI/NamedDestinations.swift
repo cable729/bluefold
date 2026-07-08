@@ -25,15 +25,7 @@ public enum NamedDestinations {
             let catalog = cg.catalog
         else { return nil }
 
-        // Page dictionaries are the only stable page identity CGPDF gives
-        // us; map their pointers to indices once per resolve (cheap even
-        // for 1000-page scans).
-        var pageIndexByDict: [UnsafeRawPointer: Int] = [:]
-        for number in 1...max(cg.numberOfPages, 1) {
-            if let page = cg.page(at: number), let dict = page.dictionary {
-                pageIndexByDict[unsafeBitCast(dict, to: UnsafeRawPointer.self)] = number - 1
-            }
-        }
+        let pageIndexByDict = pageIndexMap(of: cg)
 
         var namesDict: CGPDFDictionaryRef?
         var destsTree: CGPDFDictionaryRef?
@@ -51,6 +43,73 @@ public enum NamedDestinations {
             }
         }
         return nil
+    }
+
+    /// Every named destination in the document, one walk of the name tree.
+    /// Empty for books without one (probed 2026-07-08: coverage varies
+    /// wildly — Axler 2259 names, Tu zero — so callers must treat this as
+    /// a bonus tier, never the only anchor source).
+    public static func all(in document: PDFDocument) -> [String: Target] {
+        guard
+            let cg = document.documentRef,
+            let catalog = cg.catalog
+        else { return [:] }
+
+        let pages = pageIndexMap(of: cg)
+        var result: [String: Target] = [:]
+
+        var namesDict: CGPDFDictionaryRef?
+        var destsTree: CGPDFDictionaryRef?
+        if CGPDFDictionaryGetDictionary(catalog, "Names", &namesDict), let names = namesDict,
+           CGPDFDictionaryGetDictionary(names, "Dests", &destsTree), let tree = destsTree {
+            collect(from: tree, pages: pages, into: &result)
+        }
+        return result
+    }
+
+    /// Page dictionaries are the only stable page identity CGPDF gives us;
+    /// map their pointers to indices once per walk (cheap even for
+    /// 1000-page scans).
+    private static func pageIndexMap(of cg: CGPDFDocument) -> [UnsafeRawPointer: Int] {
+        var pageIndexByDict: [UnsafeRawPointer: Int] = [:]
+        for number in 1...max(cg.numberOfPages, 1) {
+            if let page = cg.page(at: number), let dict = page.dictionary {
+                pageIndexByDict[unsafeBitCast(dict, to: UnsafeRawPointer.self)] = number - 1
+            }
+        }
+        return pageIndexByDict
+    }
+
+    private static func collect(
+        from node: CGPDFDictionaryRef,
+        pages: [UnsafeRawPointer: Int],
+        into result: inout [String: Target]
+    ) {
+        var namesArray: CGPDFArrayRef?
+        if CGPDFDictionaryGetArray(node, "Names", &namesArray), let array = namesArray {
+            let count = CGPDFArrayGetCount(array)
+            var index = 0
+            while index + 1 < count {
+                var stringRef: CGPDFStringRef?
+                var object: CGPDFObjectRef?
+                if CGPDFArrayGetString(array, index, &stringRef), let string = stringRef,
+                   let text = CGPDFStringCopyTextString(string),
+                   CGPDFArrayGetObject(array, index + 1, &object), let obj = object,
+                   let hit = target(from: obj, pages: pages) {
+                    result[text as String] = hit
+                }
+                index += 2
+            }
+        }
+        var kids: CGPDFArrayRef?
+        if CGPDFDictionaryGetArray(node, "Kids", &kids), let kidArray = kids {
+            for index in 0..<CGPDFArrayGetCount(kidArray) {
+                var kid: CGPDFDictionaryRef?
+                if CGPDFArrayGetDictionary(kidArray, index, &kid), let dict = kid {
+                    collect(from: dict, pages: pages, into: &result)
+                }
+            }
+        }
     }
 
     // MARK: - Name tree walk

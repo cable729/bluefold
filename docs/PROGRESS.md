@@ -159,6 +159,52 @@ the project owner's plan file; the milestone list below is self-contained.
     links) — see BACKLOG "Round 15" for the sketch + open questions.
   15 new tests (LivePositionTests + stop ordering/slop).
 
+- [x] **UI-10** Round 16 (2026-07-08): margin heading anchors, first cut —
+  awaiting owner look on his books.
+  - **What ships**: a small link glyph in each page's left margin next to
+    chapters/sections (outline tier), theorems/definitions/examples
+    (text-detection tier), and named-destination anchors. ~50% ink at
+    rest; hover brightens it, shows a dashed extent outline around the
+    heading line (text tier), tooltip carries the label. Click = copy a
+    `pdfreader://` link (`dest=` + page/point fallback both encoded) AND
+    push the anchor onto the tab's back stack (⌘[ returns there — a
+    lightweight "mark this spot"); ⌥-click copies a markdown link
+    `[label](url)` for notes. A bottom toast confirms what was copied
+    (new `model.toast`, reusable).
+  - **Three anchor tiers, merged** (`AnchorIndex`, probed against real
+    books): outline stops (works on every book incl. scans), named-dest
+    enumeration (`NamedDestinations.all` — one Names-tree walk;
+    `AnchorHeadingParser.classifyDestination` whitelists hyperref
+    prefixes), text detection per page, lazy + cached
+    (`AnchorHeadingParser.parse`: LADR "5.2 definition: x" number-first
+    style REQUIRES the colon; classic "Theorem 2.2.1 (Name)." style
+    REQUIRES a dotted number + terminator — both guards kill real
+    mid-prose false positives like "Exercise 21 in Section 5D shows…").
+  - **Probe findings that shaped it** (scratch scripts over Calibre):
+    named dests are NOT a reliable theorem source — Axler has 2259 names
+    but zero theorem.*, Tu (clean LaTeX!) has none at all, Abbott has
+    247. And books share ONE hyperref counter across theorem-family
+    environments (Abbott's `theorem.35.1.3.1` is Definition 1.3.1), so
+    the whole theorem family is one merge family; the text label wins,
+    the dest name rides along for durable links.
+  - **Rendering**: `PDFPageOverlayViewProvider` WORKS on macOS 26
+    (probed): overlay views install per visible page, keep page-point
+    coordinates at every zoom (PDFKit scales by transform), unflipped,
+    origin = crop-box origin. `AnchorPageOverlayView.hitTest` returns
+    glyphs only — page clicks/selection/links pass through. Provider is
+    set BEFORE `view.document` or first pages never get overlays; the
+    coordinator holds it strongly (PDFView's ref is weak).
+  - 25 new tests (AnchorHeadingTests, AnchorSourceTests,
+    AnchorIndexTests, AnchorClickTests; name-tree fixture extracted to
+    NameTreeFixture.swift for reuse). 385 total green; full verify gate
+    passed; owner's app instance relaunched on the new build.
+  - **Round-2 candidates** (owner feedback pending): equations/figures
+    behind a "show all anchors" toggle, anchor visibility setting
+    (always/hover/off), glyph x-position in tight-cropped scans
+    (currently 5pt inside the crop edge — may sit over text in
+    margin-less scans), OCR tier for scanned books, labels on history
+    entries (NavEntry.label).
+
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); F-1 added library/search/theming/link-history UI (simulator BUILD-verified only — needs hand-run); CloudKit sync UI pending
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `PDFReaderUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but local XCUITest synthesis can't drive them (see quirks below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI/human hands end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test PDFREADER_BUNDLE_ID_SUFFIX=.uitest<N>`. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
