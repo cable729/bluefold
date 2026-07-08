@@ -97,10 +97,62 @@ public struct ReaderCommand: Identifiable {
 /// palettes, the help overlay, and docs/KEYBINDINGS.md are projections of it.
 @MainActor
 public enum CommandRegistry {
-    public static let all: [ReaderCommand] = build()
+    /// The pristine default table — what docs/KEYBINDINGS.md and the
+    /// keybindings.json template describe. `all` is this table with the
+    /// user's keybindings.json overlay applied.
+    static let defaults: [ReaderCommand] = build()
+
+    private static let overlaid: (commands: [ReaderCommand], issues: [String]) = {
+        Keybindings.apply(Keybindings.load(url: Keybindings.fileURL()), to: defaults)
+    }()
+
+    public static var all: [ReaderCommand] { overlaid.commands }
+
+    /// Problems found in keybindings.json (empty when the file is absent or
+    /// clean). Surfaced by the launch alert and the help overlay; the valid
+    /// entries still applied.
+    public static var keybindingsIssues: [String] { overlaid.issues }
 
     public static func command(id: String) -> ReaderCommand? {
         all.first { $0.id == id }
+    }
+
+    /// The command a window key monitor should run for a raw keyDown event,
+    /// if any. The monitor owns every chord the menus don't install: alias
+    /// chords (`chords.dropFirst()`) of menu-installed commands plus all
+    /// chords of `installsMenuShortcut == false` ones — so keybindings.json
+    /// overrides reach the monitor-bound chords too. Carve-outs:
+    /// - help.shortcuts: the monitor itself dispatches it (toggle +
+    ///   never-while-typing semantics).
+    /// - file.openLibrary: its chord is installed at scene level.
+    /// - Bare arrow chords: ReaderPDFView.keyDown and list views own them.
+    /// - Chords without ⌘/⌃/⌥ never fire while a text field is editing,
+    ///   so they still type.
+    public static func monitorCommand(
+        matching candidates: [KeyChord], isEditingText: Bool
+    ) -> ReaderCommand? {
+        let exempt: Set<String> = ["help.shortcuts", "file.openLibrary"]
+        for command in all where !exempt.contains(command.id) {
+            let monitorChords = command.installsMenuShortcut
+                ? Array(command.chords.dropFirst())
+                : command.chords
+            for chord in monitorChords where candidates.contains(chord) {
+                let hardModifiers = chord.modifiers.intersection([.command, .control, .option])
+                if hardModifiers.isEmpty {
+                    if isArrow(chord.key) { continue }
+                    if isEditingText { continue }
+                }
+                return command
+            }
+        }
+        return nil
+    }
+
+    private static func isArrow(_ key: KeyChord.Key) -> Bool {
+        switch key {
+        case .upArrow, .downArrow, .leftArrow, .rightArrow: true
+        default: false
+        }
     }
 
     public static func commands(ids: [String]) -> [ReaderCommand] {
@@ -365,6 +417,15 @@ public enum CommandRegistry {
             installsMenuShortcut: false,
             isAvailable: { $0.ui != nil },
             run: { $0.ui?.showHelp = true }
+        ))
+        // Creates ~/Library/Application Support/PDFReader/keybindings.json
+        // (with template docs) if needed and opens it. Chordless — palette
+        // and Help menu only.
+        commands.append(ReaderCommand(
+            id: "prefs.openKeybindings",
+            title: "Preferences: Open Keybindings File",
+            category: .help,
+            run: { _ in Keybindings.openFile() }
         ))
 
         return commands

@@ -38,6 +38,9 @@ struct HelpOverlayView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
+                    if !CommandRegistry.keybindingsIssues.isEmpty {
+                        keybindingsIssuesBanner
+                    }
                     ForEach(CommandCategory.allCases, id: \.self) { category in
                         let commands = CommandRegistry.all.filter { $0.category == category }
                         if !commands.isEmpty {
@@ -63,6 +66,27 @@ struct HelpOverlayView: View {
                 .strokeBorder(.separator, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.25), radius: 18, y: 8)
+    }
+
+    /// Shown when keybindings.json had problems at launch — the shortcuts
+    /// listed below are what actually applied.
+    private var keybindingsIssuesBanner: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label("keybindings.json — some entries were not applied", systemImage: "exclamationmark.triangle.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.orange)
+            ForEach(CommandRegistry.keybindingsIssues, id: \.self) { issue in
+                Text(issue)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            Text("Fix via “Preferences: Open Keybindings File” in the command palette, then relaunch.")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func section(_ category: CommandCategory, _ commands: [ReaderCommand]) -> some View {

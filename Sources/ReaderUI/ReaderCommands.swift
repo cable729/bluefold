@@ -70,6 +70,8 @@ public struct ReaderCommands: Commands {
 
         CommandGroup(replacing: .help) {
             items(["help.commandPalette", "help.shortcuts"])
+            Divider()
+            items(["prefs.openKeybindings"])
         }
     }
 

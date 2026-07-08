@@ -5,7 +5,8 @@ Every shortcut in the app. **Source of truth is the command table**
 command palette (⌘⇧P), and the help overlay ("/" or "?") all render from it,
 and this document mirrors it. If you change a binding, change the table;
 update this file in the same commit. `CommandRegistryTests` enforces unique
-ids and no duplicate chords.
+ids and no duplicate chords. Users can override any of it with a
+keybindings.json overlay — see "User keybindings" below.
 
 Conventions borrowed from VS Code (palettes, quick-open), Safari/Chrome
 (tabs, history), Preview (go to page, layout), and Gmail/GitHub ("?" help).
@@ -84,6 +85,99 @@ shows its effect live: the selected row gets a "→ background tab"/"→ new
 window" badge and the footer legend highlights the active variant. Matched
 characters are highlighted; results are ranked title-match first,
 breadcrumb-match second.
+
+## User keybindings — keybindings.json
+
+Shortcuts are user-editable via a JSON overlay applied over the default
+table at launch (relaunch to apply changes). The palette, help overlay,
+and menus all reflect overrides automatically because they render from
+the one table.
+
+**File**: `~/Library/Application Support/PDFReader/keybindings.json`
+(strictly: `<AppDataDirectory>/keybindings.json`, so `PDFREADER_SESSION_DIR`
+relocates it; `PDFREADER_KEYBINDINGS_FILE` overrides the exact path — both
+for tests/automation). Run **"Preferences: Open Keybindings File"** from the
+command palette (or the Help menu) to create it with a documented template
+and open it.
+
+**Format** — a JSON object mapping command id → chord string:
+
+```json
+{
+  "_docs": ["keys starting with _ are ignored — JSON's comment stand-in"],
+  "view.toggleSidebar": "cmd+shift+b",
+  "tabs.select.1": "ctrl+1",
+  "bookmarks.add": null
+}
+```
+
+- A **chord** is modifiers + one key joined with `+`. Modifiers: `cmd`
+  (aliases `command`, `meta`), `ctrl` (`control`), `opt` (`option`, `alt`),
+  `shift` — any order, any case, spaces tolerated. Keys: single characters
+  (letters, digits, `[ ] \ / ; ' , . = - + ` etc. — shifted punctuation is
+  written as itself: `?`, not `shift+/`) plus `return` (`enter`), `tab`,
+  `escape` (`esc`), `space`, `up`, `down`, `left`, `right`.
+- A chord string **replaces ALL of the command's default chords**, aliases
+  included (e.g. overriding `nav.goToSection` drops both ⌘P and ⌘⇧O).
+- `null` or `""` **unbinds** the command (still runnable from the palette
+  and menus, just chordless).
+- Swaps and freed-chord reuse work in one file regardless of entry order.
+
+**Validation** (never crashes on a bad file): unknown command ids,
+unparseable chords, and chords already bound to another command are each
+rejected individually and reported — one alert at launch plus a banner in
+the "/" help overlay — while every valid entry still applies. Of two
+entries claiming the same chord, the alphabetically-first command id wins.
+
+**Limits** (by design):
+
+- `nav.goToPage` is not rebindable and ⌘G cannot be given to anything else
+  (owner ruling — see the ⌘G audit note below).
+- Bare ←/→ paging is hardwired in `ReaderPDFView.keyDown`; an override on
+  `nav.previousPage`/`nav.nextPage` adds a working chord but arrows keep
+  paging too. Arrow keys can never be *assigned* via the overlay's monitor
+  path (lists and text fields own them).
+- Chords without ⌘/⌃/⌥ (like the default `/` help toggle) never fire while
+  a text field is editing, so they still type.
+- `file.openLibrary` is a scene-level shortcut: rebindable, but unbinding
+  falls back to ⌘⇧L (a scene shortcut cannot be absent).
+- Monitor-owned chords (see the audit notes) work in reader windows;
+  menu-owned chords work app-wide. An override keeps its command's layer.
+
+**Command ids** (defaults in parentheses; ids are stable API):
+
+| Id | Command (default) |
+| --- | --- |
+| `file.newWindow` | New Window (`cmd+n`) |
+| `file.newTab` | New Tab… (`cmd+t`) |
+| `file.openFile` | Open File… (`opt+cmd+o`) |
+| `file.openLibrary` | Open Library (`shift+cmd+l`) |
+| `file.closeTab` | Close Tab (`cmd+w`) |
+| `file.closeWindow` | Close Window (`shift+cmd+w`) |
+| `nav.back` / `nav.forward` | Back / Forward (`cmd+[` / `cmd+]`) |
+| `nav.previousPage` / `nav.nextPage` | Previous / Next Page (`left` / `right`) |
+| `nav.previousSection` / `nav.nextSection` | Previous / Next Section (unbound) |
+| `nav.goToPage` | Go to Page… (`cmd+g`, **not rebindable**) |
+| `nav.openAnything` | Open Anything… (`cmd+o`) |
+| `nav.goToSection` | Go to Section… (`cmd+p`, `shift+cmd+o`) |
+| `tabs.next` / `tabs.previous` | Next / Previous tab (`shift+cmd+]`+`ctrl+tab` / `shift+cmd+[`+`ctrl+shift+tab`) |
+| `tabs.select.1` … `tabs.select.9` | Go to tab N / last (`cmd+1` … `cmd+9`) |
+| `tabs.duplicate` / `tabs.closeOthers` | Duplicate Tab / Close Other Tabs (unbound) |
+| `view.toggleSidebar` | Show Sidebar (`cmd+b`) |
+| `view.layout.singlePage` / `.continuous` / `.twoUp` / `.twoUpContinuous` | Page layouts (`opt+cmd+1`…`opt+cmd+4`) |
+| `view.fitWidth` / `view.fitHeight` | Fit Width / Height (unbound) |
+| `view.theme.light` / `.dark` / `.sepia` / `.auto` | Themes (unbound) |
+| `search.find` | Find in Document (`cmd+f`) |
+| `search.allBooks` | Search All Books… (`shift+cmd+f`) |
+| `bookmarks.add` | Bookmark This Page (`cmd+d`) |
+| `help.commandPalette` | Command Palette… (`shift+cmd+p`) |
+| `help.shortcuts` | Keyboard Shortcuts overlay (`/`, `?`) |
+| `prefs.openKeybindings` | Preferences: Open Keybindings File (unbound) |
+
+Implementation: `KeyChord.parse`/`chordString` (round-tripping string form),
+`Keybindings` (load/parse/apply/template) in
+`Sources/ReaderUI/Commands/`, overlay applied in `CommandRegistry.all`;
+`KeybindingsTests` covers parsing, merge, conflicts, and unbind semantics.
 
 ## Reassignments & conflicts found in the audit (2026-07-08)
 

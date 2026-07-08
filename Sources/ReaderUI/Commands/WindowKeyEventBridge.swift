@@ -61,22 +61,12 @@ struct WindowKeyEventBridge: NSViewRepresentable {
         }
 
         /// Returns nil to consume the event, or the event to let it continue
-        /// to menus and the responder chain.
+        /// to menus and the responder chain. Chord lookup is table-driven
+        /// (`CommandRegistry.monitorCommand`) so keybindings.json overrides
+        /// of monitor-owned chords (⌘1–9, ⌃Tab, aliases, "/") apply here
+        /// exactly like they do in the menus.
         private func handle(_ event: NSEvent, in window: NSWindow) -> NSEvent? {
             guard let model, let ui else { return event }
-            let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
-
-            // ⌃Tab / ⌃⇧Tab — tab cycling. keyCode 48 = Tab.
-            if event.keyCode == 48 {
-                if modifiers == .control {
-                    model.selectNextTab()
-                    return nil
-                }
-                if modifiers == [.control, .shift] {
-                    model.selectPreviousTab()
-                    return nil
-                }
-            }
 
             // Esc — dismiss overlays (backstop; runs before SwiftUI focus
             // handling, so the PDF regains key focus deterministically).
@@ -94,40 +84,40 @@ struct WindowKeyEventBridge: NSViewRepresentable {
                 return event
             }
 
-            // ⌘1…⌘9 — direct tab selection (browser-style; 9 = last).
-            // A menu binding would be nine items of clutter.
-            if modifiers == .command,
-               let characters = event.charactersIgnoringModifiers,
-               characters.count == 1, let digit = Int(characters), (1...9).contains(digit) {
-                model.selectTab(number: digit)
-                return nil
-            }
+            let candidates = KeyChord.candidates(for: event)
+            guard !candidates.isEmpty else { return event }
+            let editingText = isEditingText(in: window)
 
-            // ⌘⇧O — in-book palette alias (VS Code go-to-symbol); ⌘O and
-            // ⌘P are menu-owned. Releasing first responder first is what
-            // lets the palette's query field take focus (the AppKit
-            // PDFView won't yield it for monitor-dispatched presentations).
-            if modifiers == [.command, .shift],
-               event.charactersIgnoringModifiers?.lowercased() == "o" {
-                window.makeFirstResponder(nil)
-                ui.presentPalette(.outline)
-                return nil
-            }
-
-            // "/" or "?" — help overlay. Never while typing (search fields,
-            // palette query, page-number field) so the keys still insert.
-            if modifiers.subtracting(.shift).isEmpty,
-               let characters = event.charactersIgnoringModifiers,
-               characters == "/" || characters == "?" {
+            // Help overlay — toggles, and never fires while typing (search
+            // fields, palette query, page-number field) so its keys ("/"
+            // and "?" by default) still insert.
+            if let help = CommandRegistry.command(id: "help.shortcuts"),
+               help.chords.contains(where: candidates.contains) {
                 if ui.showHelp {
                     ui.showHelp = false
                     model.focusActivePDFView()
                     return nil
                 }
-                if ui.palette == nil, !isEditingText(in: window) {
+                if ui.palette == nil, !editingText {
                     ui.showHelp = true
                     return nil
                 }
+                return event
+            }
+
+            // Every other chord the menus don't install: ⌘1…⌘9 tab
+            // selection, ⌃Tab/⌃⇧Tab cycling, the ⌘⇧O palette alias, and
+            // whatever keybindings.json rebinds onto monitor-owned commands.
+            let context = CommandContext(model: model, ui: ui)
+            if let command = CommandRegistry.monitorCommand(
+                matching: candidates, isEditingText: editingText
+            ), command.isAvailable(context) {
+                // Release the first responder before running: palette
+                // presentations need it or the AppKit PDFView won't yield
+                // key focus to the query field.
+                window.makeFirstResponder(nil)
+                command.run(context)
+                return nil
             }
 
             return event
