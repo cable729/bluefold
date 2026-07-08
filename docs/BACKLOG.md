@@ -171,3 +171,38 @@ macOS apps (Docker is impossible — macOS doesn't containerize):
   store Vision word geometry to fix (extractor_version bump).
 - macOS 26 "footprint" tool reports two PDFReader lines occasionally
   (stale process match) — cosmetic in verification scripts.
+
+## Feedback round 4 (2026-07-08, morning after overnight round 3)
+
+### Tab strip (owner tested with two Axler tabs + Dummit & Foote)
+- **Group header is too skinny / hard to read** (17pt row). Also the header
+  title RENDERS OUTSIDE the strip, overlapping the window titlebar area —
+  NSViews don't clip subviews by default; the strip (or its header/item
+  frames during layout) needs explicit clipping (`layer?.masksToBounds`) and
+  the header likely deserves ~20-22pt with a background that reads as a
+  group. Consider a full design pass on the two-row look with the owner
+  live: he called the current group rendering "a little funny".
+- **Title text animates from OUTSIDE the tab box on selection — "looks
+  awful".** Hypotheses: (a) newly created header/item views get
+  `animator().frame` animations starting from frame .zero (top-left), so
+  text glides in from nowhere; (b) `setGrouped` re-showing the hidden title
+  row mid-animation. Fix: never animate a view's FIRST layout (set frame
+  directly when the view was just added), and suppress implicit text
+  animations.
+- **Tear-off drag by hand FAILED and wedged the strip**: ghost panel stayed
+  floating (see owner screenshot), dragged tab stayed hidden. ⌘Q+relaunch
+  recovers (session intact). Implication: `endPress` never ran — the ghost
+  is only closed there. Debug live with `PDFREADER_SESSION_DIR` set so the
+  strip's dragdebug.log records begin/continue/end; suspects: mouseUp not
+  delivered to the item view when the pointer is outside the window over
+  another app, or the item view being replaced mid-drag. Also add a
+  belt-and-braces failsafe: watch for `mouseUp` at the strip/window level
+  (local NSEvent monitor during a drag) and force-finish the drag if the
+  item view misses it.
+
+### Status bar
+- ✅ DONE 2026-07-08 — hide the PDF display controls entirely in empty
+  windows (only the theme switcher remains).
+
+### Verified good by owner
+- Theme sync/tinting, live search + breadcrumbs, status-bar page arrows.
