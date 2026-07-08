@@ -23,6 +23,10 @@ public protocol ActivePDFControlling: AnyObject {
     func apply(displayModeRaw: Int)
     func fitWidth()
     func fitHeight()
+    /// Turn one "step" back/forward — the view decides what a step is for
+    /// its display mode (e.g. a spread in two-up).
+    func goToPreviousPage()
+    func goToNextPage()
 }
 
 /// View-control hooks are optional for test fakes.
@@ -30,6 +34,8 @@ public extension ActivePDFControlling {
     func apply(displayModeRaw: Int) {}
     func fitWidth() {}
     func fitHeight() {}
+    func goToPreviousPage() {}
+    func goToNextPage() {}
 }
 
 @Observable
@@ -222,6 +228,17 @@ public final class ReaderWindowModel {
         guard let activeTab else { return }
         updateTab(id: activeTab.id) { $0.autoScales = false }
         activeController?.fitHeight()
+    }
+
+    /// Page-turn arrows (status bar). Not a history event: the resulting
+    /// page change streams back via the live view's page-change observer,
+    /// exactly like scrolling.
+    public func goToPreviousPage() {
+        activeController?.goToPreviousPage()
+    }
+
+    public func goToNextPage() {
+        activeController?.goToNextPage()
     }
 
     // MARK: - Outline (cached per live document)
