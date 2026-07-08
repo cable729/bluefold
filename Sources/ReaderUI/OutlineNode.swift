@@ -44,33 +44,72 @@ struct OutlineNode: Identifiable {
         return best?.path ?? []
     }
 
-    /// Section starts = the page indices of EVERY outline entry, any depth,
-    /// deduplicated and sorted (owner round 8.5: skip by section, not by
-    /// top-level chapter).
-    static func sectionStarts(in nodes: [OutlineNode]) -> [Int] {
-        var pages = Set<Int>()
+    /// Reading-order key for a destination: page first, then top-to-bottom
+    /// WITHIN the page (PDF y points up, so higher y = earlier). A missing
+    /// point counts as the page top. Round 10: section skips land on the
+    /// section's exact anchor, not the top of its page — several sections
+    /// share a page in real books.
+    static func readingKey(of entry: NavEntry) -> (page: Int, offset: CGFloat) {
+        (entry.pageIndex, -(entry.point?.y ?? CGFloat.greatestFiniteMagnitude))
+    }
+
+    /// Every outline destination (any depth) in reading order.
+    static func orderedSectionEntries(in nodes: [OutlineNode]) -> [NavEntry] {
+        var entries: [NavEntry] = []
         func walk(_ nodes: [OutlineNode]) {
             for node in nodes {
-                if let page = node.entry?.pageIndex {
-                    pages.insert(page)
+                if let entry = node.entry {
+                    entries.append(entry)
                 }
                 walk(node.children ?? [])
             }
         }
         walk(nodes)
-        return pages.sorted()
+        return entries.sorted { readingKey(of: $0) < readingKey(of: $1) }
     }
 
-    /// First section starting after `pageIndex` (status-bar "next section").
-    static func sectionStart(in nodes: [OutlineNode], after pageIndex: Int) -> Int? {
-        sectionStarts(in: nodes).first { $0 > pageIndex }
+    /// Tolerance when comparing in-page offsets: "where I am" (the view's
+    /// scroll anchor) and a destination a hair away must count as the same
+    /// spot, or next/previous gets stuck re-selecting the current section.
+    private static let sameSpotTolerance: CGFloat = 8
+
+    /// First section anchored after the current position.
+    static func sectionEntry(in nodes: [OutlineNode], after current: NavEntry) -> NavEntry? {
+        let here = readingKey(of: current)
+        return orderedSectionEntries(in: nodes).first { entry in
+            let key = readingKey(of: entry)
+            return key.page > here.page
+                || (key.page == here.page && key.offset > here.offset + sameSpotTolerance)
+        }
     }
 
-    /// Last section starting before `pageIndex` (status-bar "previous
-    /// section"). Standing ON a section's first page goes to the section
-    /// before it, media-player-style.
-    static func sectionStart(in nodes: [OutlineNode], before pageIndex: Int) -> Int? {
-        sectionStarts(in: nodes).last { $0 < pageIndex }
+    /// Last section anchored before the current position. Standing ON a
+    /// section's anchor goes to the one before it, media-player-style.
+    static func sectionEntry(in nodes: [OutlineNode], before current: NavEntry) -> NavEntry? {
+        let here = readingKey(of: current)
+        return orderedSectionEntries(in: nodes).last { entry in
+            let key = readingKey(of: entry)
+            return key.page < here.page
+                || (key.page == here.page && key.offset < here.offset - sameSpotTolerance)
+        }
+    }
+
+    /// IDs of the ancestors of `targetID`, root first — the disclosure
+    /// groups the sidebar must expand to reveal it (follow mode).
+    static func ancestorIDs(of targetID: UUID, in nodes: [OutlineNode]) -> [UUID] {
+        func walk(_ nodes: [OutlineNode], path: [UUID]) -> [UUID]? {
+            for node in nodes {
+                if node.id == targetID {
+                    return path
+                }
+                if let children = node.children,
+                   let found = walk(children, path: path + [node.id]) {
+                    return found
+                }
+            }
+            return nil
+        }
+        return walk(nodes, path: []) ?? []
     }
 
     /// Same search, returning the node id (sidebar highlight).

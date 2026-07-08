@@ -475,32 +475,63 @@ struct PaletteOverlay: View {
     }
 
     /// Opens a batch of books per the variant: as tabs here (first one
-    /// activated), as background tabs (⌘), or in a fresh window (⌥).
-    /// iCloud-evicted files download first; files that never materialize
-    /// are skipped rather than blocking the rest.
+    /// activated), as background tabs (⌘), or in a fresh window (⇧/⌥).
+    ///
+    /// Every book that is ALREADY local opens immediately; iCloud-evicted
+    /// ones download concurrently and open as they arrive. (The first
+    /// version awaited all downloads sequentially before opening anything —
+    /// one evicted book made "open the Probability tag" look completely
+    /// dead for minutes.)
     private func openBooks(urls: [URL], variant: RunVariant) {
         guard !urls.isEmpty else { return }
         let model = self.model
         let present = context.presentReaderWindow
-        Task { @MainActor [weak model] in
-            var local: [URL] = []
-            for url in urls {
-                try? await FileAvailability.ensureLocal(url)
-                if FileAvailability.isLocal(url) {
-                    local.append(url)
-                }
+
+        var localNow: [URL] = []
+        var evicted: [URL] = []
+        for url in urls {
+            if FileAvailability.isLocal(url) {
+                localNow.append(url)
+            } else {
+                evicted.append(url)
             }
-            guard !local.isEmpty else { return }
-            switch variant {
-            case .newWindow:
-                present(SessionCoordinator.shared.openInNewWindow(fileURLs: local))
-            case .background:
-                for url in local {
-                    model?.openTab(fileURL: url, activate: false)
+        }
+
+        // Where late arrivals land: this window, or the new window's model.
+        var lateTarget = model
+        switch variant {
+        case .newWindow:
+            let windowID = SessionCoordinator.shared.openInNewWindow(fileURLs: localNow)
+            present(windowID)
+            lateTarget = SessionCoordinator.shared.model(for: windowID)
+        case .background:
+            for url in localNow {
+                model.openTab(fileURL: url, activate: false)
+            }
+        case .activate:
+            for (index, url) in localNow.enumerated() {
+                model.openTab(fileURL: url, activate: index == 0)
+            }
+        }
+
+        guard !evicted.isEmpty else { return }
+        let activateFirstArrival = variant == .activate && localNow.isEmpty
+        Task { @MainActor [weak lateTarget] in
+            await withTaskGroup(of: URL?.self) { group in
+                for url in evicted {
+                    group.addTask {
+                        try? await FileAvailability.ensureLocal(url)
+                        return FileAvailability.isLocal(url) ? url : nil
+                    }
                 }
-            case .activate:
-                for (index, url) in local.enumerated() {
-                    model?.openTab(fileURL: url, activate: index == 0)
+                var isFirst = true
+                for await downloaded in group {
+                    guard let downloaded else { continue }
+                    lateTarget?.openTab(
+                        fileURL: downloaded,
+                        activate: activateFirstArrival && isFirst
+                    )
+                    isFirst = false
                 }
             }
         }

@@ -344,7 +344,7 @@ public final class ReaderWindowModel {
 
     // MARK: - Section skipping (status-bar ⇤ ⇥ buttons)
 
-    /// Top-level outline entries of the active document, or [] without one.
+    /// Outline of the active document, or [] without one.
     private var activeOutline: [OutlineNode] {
         guard
             let activeTab,
@@ -353,32 +353,41 @@ public final class ReaderWindowModel {
         return outline(for: document)
     }
 
+    /// Where the reader actually IS — the live view's scroll anchor when
+    /// available (page + in-page point), falling back to the tab's stored
+    /// position. Point precision matters: several sections share a page.
+    private var currentPosition: NavEntry? {
+        activeController?.liveNavEntry ?? activeTab?.currentNavEntry
+    }
+
     public var canGoToPreviousSection: Bool {
-        guard let activeTab else { return false }
-        return OutlineNode.sectionStart(in: activeOutline, before: activeTab.pageIndex) != nil
+        guard let currentPosition else { return false }
+        return OutlineNode.sectionEntry(in: activeOutline, before: currentPosition) != nil
     }
 
     public var canGoToNextSection: Bool {
-        guard let activeTab else { return false }
-        return OutlineNode.sectionStart(in: activeOutline, after: activeTab.pageIndex) != nil
+        guard let currentPosition else { return false }
+        return OutlineNode.sectionEntry(in: activeOutline, after: currentPosition) != nil
     }
 
     /// Section skips are deliberate navigation: they push history, so ⌘[
-    /// returns to where reading left off.
+    /// returns to where reading left off. The target is the section's exact
+    /// destination (page AND point) — identical to clicking it in the
+    /// outline (round 10: page-only jumps landed at the top of the page).
     public func goToPreviousSection() {
         guard
-            let activeTab,
-            let page = OutlineNode.sectionStart(in: activeOutline, before: activeTab.pageIndex)
+            let currentPosition,
+            let entry = OutlineNode.sectionEntry(in: activeOutline, before: currentPosition)
         else { return }
-        jump(to: NavEntry(pageIndex: page))
+        jump(to: entry)
     }
 
     public func goToNextSection() {
         guard
-            let activeTab,
-            let page = OutlineNode.sectionStart(in: activeOutline, after: activeTab.pageIndex)
+            let currentPosition,
+            let entry = OutlineNode.sectionEntry(in: activeOutline, after: currentPosition)
         else { return }
-        jump(to: NavEntry(pageIndex: page))
+        jump(to: entry)
     }
 
     // MARK: - Outline (cached per live document)
@@ -419,6 +428,16 @@ public final class ReaderWindowModel {
     /// Transient (not persisted) and kept after document eviction so
     /// background tabs keep their label without reloading anything.
     public private(set) var tabBreadcrumbs: [UUID: String] = [:]
+
+    /// Refreshes the breadcrumb of every tab showing the document at `url`
+    /// — called when a view attaches (the document just became resident),
+    /// so restored background tabs get labels without being activated.
+    public func refreshBreadcrumbs(forDocumentAt url: URL) {
+        let path = DocumentProvider.canonicalPath(for: url)
+        for tab in tabs where tab.pathHint == path {
+            refreshBreadcrumb(tabID: tab.id)
+        }
+    }
 
     /// Recomputes a tab's breadcrumb if its document is resident; keeps the
     /// last known value otherwise. Never loads a document (LRU stays intact).

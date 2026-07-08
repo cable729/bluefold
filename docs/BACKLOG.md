@@ -205,6 +205,27 @@ macOS apps (Docker is impossible — macOS doesn't containerize):
   default at launch) makes EVERY `.help` tooltip near-instant, matching
   the custom `.instantHint` bubbles.
 
+## Feedback round 10 (2026-07-08, owner) — ✅ all done same day
+- **"Open the Probability tag did NOTHING"**: palette batch-opens awaited
+  every iCloud download SEQUENTIALLY before opening anything — one
+  evicted book (Durrett, of 5) stalled the lot for up to 120s silently.
+  Now: already-local books open instantly; evicted ones download
+  concurrently and each opens on arrival (new-window variant opens the
+  window immediately and stragglers append to it).
+- **Tabs showed "p.N" after relaunch**: restored background tabs never
+  got breadcrumbs until first activation. When a document's view
+  attaches, every tab of that book refreshes its label.
+- **Section skips land on the exact anchor**: stops are now full
+  destinations (page + in-page point) ordered by reading position, so
+  books with several sections per page (Aluffi III.2.1 → III.2.2) step
+  correctly instead of jumping to a page top. Current position uses the
+  live view's scroll anchor.
+- **Sidebar follows the current section** (VS Code-style): scope button
+  next to the sidebar mode picker (default ON, persisted); the outline
+  auto-expands ancestors and scrolls the current section into view as
+  reading/section-skipping progresses. Expansion state is app-owned now
+  (custom recursive DisclosureGroups).
+
 ## Known bugs / rough edges (not yet scheduled)
 - Tooltip delay (above).
 - Cover loading during scroll (above).

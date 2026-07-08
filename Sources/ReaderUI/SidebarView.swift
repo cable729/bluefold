@@ -41,17 +41,36 @@ struct SidebarView: View {
     /// Incremented by ⌘F so the search field grabs focus.
     let searchFocusToken: Int
 
+    /// VS Code-style "follow the cursor": the outline expands and scrolls
+    /// to the section being read as it changes (round-10 owner request).
+    @AppStorage("SidebarFollowsCurrentSection") private var followSection = true
+
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Sidebar mode", selection: $mode) {
-                ForEach(SidebarMode.allCases, id: \.self) { mode in
-                    Image(systemName: mode.icon)
-                        .help(mode.help)
-                        .tag(mode)
+            HStack(spacing: 6) {
+                Picker("Sidebar mode", selection: $mode) {
+                    ForEach(SidebarMode.allCases, id: \.self) { mode in
+                        Image(systemName: mode.icon)
+                            .help(mode.help)
+                            .tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                if mode == .outline {
+                    Button {
+                        followSection.toggle()
+                    } label: {
+                        Image(systemName: followSection ? "scope" : "circle.dashed")
+                            .foregroundStyle(followSection ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    }
+                    .buttonStyle(.borderless)
+                    .instantHint(followSection
+                        ? "Following the current section — click to stop"
+                        : "Follow the current section")
+                    .help("Track the section being read in the outline")
                 }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .padding(8)
 
             Group {
@@ -60,6 +79,7 @@ struct SidebarView: View {
                     OutlineList(
                         outline: outline,
                         currentPageIndex: currentPageIndex,
+                        followsCurrentSection: followSection,
                         onJump: { model.jump(to: $0) }
                     )
                 case .thumbnails:
@@ -134,10 +154,15 @@ struct SidebarView: View {
 }
 
 /// Contents list with the section containing the current page highlighted.
+/// Expansion is app-owned (not List's automatic disclosure) so follow mode
+/// can reveal the current section as reading progresses.
 private struct OutlineList: View {
     let outline: [OutlineNode]
     let currentPageIndex: Int
+    let followsCurrentSection: Bool
     let onJump: (NavEntry) -> Void
+
+    @State private var expanded: Set<UUID> = []
 
     var body: some View {
         if outline.isEmpty {
@@ -147,34 +172,113 @@ private struct OutlineList: View {
                 description: Text("This PDF has no outline.")
             )
         } else {
-            List(outline, children: \.children) { node in
-                Button {
-                    if let entry = node.entry {
-                        onJump(entry)
-                    }
-                } label: {
-                    Text(node.label)
-                        .lineLimit(2)
-                        .fontWeight(node.id == currentNodeID ? .semibold : .regular)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+            ScrollViewReader { proxy in
+                List {
+                    OutlineRows(
+                        nodes: outline,
+                        currentNodeID: currentNodeID,
+                        expanded: $expanded,
+                        onJump: onJump
+                    )
                 }
-                .buttonStyle(.plain)
-                .listRowBackground(
-                    node.id == currentNodeID
-                        ? Color.accentColor.opacity(0.18) : Color.clear
-                )
+                .listStyle(.sidebar)
+                // Let the themed window background through — the List's own
+                // opaque background ignored sepia's tan (round-8.5 bug).
+                .scrollContentBackground(.hidden)
+                .onAppear { revealCurrent(with: proxy, animated: false) }
+                .onChange(of: currentNodeID) { _, _ in
+                    revealCurrent(with: proxy, animated: true)
+                }
+                .onChange(of: followsCurrentSection) { _, follows in
+                    if follows {
+                        revealCurrent(with: proxy, animated: true)
+                    }
+                }
             }
-            .listStyle(.sidebar)
-            // Let the themed window background through — the List's own
-            // opaque background ignored sepia's tan (round-8.5 owner bug).
-            .scrollContentBackground(.hidden)
         }
     }
 
     /// The deepest outline entry at or before the current page.
     private var currentNodeID: UUID? {
         OutlineNode.deepestNodeID(in: outline, atOrBefore: currentPageIndex)
+    }
+
+    /// Follow mode: expand the current section's ancestors, then scroll it
+    /// into view (next runloop tick, after the expansion has laid out).
+    private func revealCurrent(with proxy: ScrollViewProxy, animated: Bool) {
+        guard followsCurrentSection, let id = currentNodeID else { return }
+        expanded.formUnion(OutlineNode.ancestorIDs(of: id, in: outline))
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            } else {
+                proxy.scrollTo(id, anchor: .center)
+            }
+        }
+    }
+}
+
+/// Recursive outline rows over app-owned disclosure state.
+private struct OutlineRows: View {
+    let nodes: [OutlineNode]
+    let currentNodeID: UUID?
+    @Binding var expanded: Set<UUID>
+    let onJump: (NavEntry) -> Void
+
+    var body: some View {
+        ForEach(nodes) { node in
+            if let children = node.children {
+                DisclosureGroup(isExpanded: isExpanded(node.id)) {
+                    OutlineRows(
+                        nodes: children,
+                        currentNodeID: currentNodeID,
+                        expanded: $expanded,
+                        onJump: onJump
+                    )
+                } label: {
+                    row(for: node)
+                }
+                .listRowBackground(background(for: node))
+            } else {
+                row(for: node)
+                    .listRowBackground(background(for: node))
+            }
+        }
+    }
+
+    private func isExpanded(_ id: UUID) -> Binding<Bool> {
+        Binding(
+            get: { expanded.contains(id) },
+            set: { open in
+                if open {
+                    expanded.insert(id)
+                } else {
+                    expanded.remove(id)
+                }
+            }
+        )
+    }
+
+    private func row(for node: OutlineNode) -> some View {
+        Button {
+            if let entry = node.entry {
+                onJump(entry)
+            }
+        } label: {
+            Text(node.label)
+                .lineLimit(2)
+                .fontWeight(node.id == currentNodeID ? .semibold : .regular)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .id(node.id)
+    }
+
+    private func background(for node: OutlineNode) -> Color {
+        node.id == currentNodeID ? Color.accentColor.opacity(0.18) : Color.clear
     }
 }
 

@@ -56,8 +56,10 @@ struct ActivePDFView: NSViewRepresentable {
         if isPrimary {
             model.activeController = context.coordinator
         }
-        // The document is resident now; give the tab strip its breadcrumb.
-        model.refreshBreadcrumb(tabID: tab.id)
+        // The document is resident now: give EVERY tab of this book its
+        // strip breadcrumb — restored background tabs sat as "p.N" until
+        // first activated (round 10).
+        model.refreshBreadcrumbs(forDocumentAt: model.url(for: tab))
         return view
     }
 
