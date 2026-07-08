@@ -358,14 +358,82 @@ public final class LibraryStore: Sendable {
         }
     }
 
-    public func createCollection(name: String, kind: String = "course") throws -> CollectionRecord {
+    public func createCollection(name: String, kind: String = "course", parent: Int64? = nil) throws -> CollectionRecord {
         let ts = now()
         return try dbQueue.write { db in
             var collection = CollectionRecord(
-                id: nil, name: name, kind: kind, modifiedAt: ts, deletedAt: nil
+                id: nil, name: name, kind: kind, parentID: parent, modifiedAt: ts, deletedAt: nil
             )
             try collection.insert(db)
             return collection
+        }
+    }
+
+    /// Soft-deletes a collection. Its `collection_item` rows are tombstoned
+    /// too, and live child collections are reparented to the deleted
+    /// collection's own parent.
+    public func softDeleteCollection(id: Int64) throws {
+        let ts = now()
+        try dbQueue.write { db in
+            guard let collection = try CollectionRecord.fetchOne(db, key: id) else { return }
+            try db.execute(
+                sql: "UPDATE collection SET deleted_at = ?, modified_at = ? WHERE id = ? AND deleted_at IS NULL",
+                arguments: [ts, ts, id]
+            )
+            try db.execute(
+                sql: "UPDATE collection_item SET deleted_at = ?, modified_at = ? WHERE collection_id = ? AND deleted_at IS NULL",
+                arguments: [ts, ts, id]
+            )
+            try db.execute(
+                sql: "UPDATE collection SET parent_id = ?, modified_at = ? WHERE parent_id = ? AND deleted_at IS NULL",
+                arguments: [collection.parentID, ts, id]
+            )
+        }
+    }
+
+    /// The live collection hierarchy: root collections with recursively
+    /// nested children, each level sorted by name.
+    public func collectionTree() throws -> [CollectionNode] {
+        try dbQueue.read { db in
+            let collections = try CollectionRecord
+                .filter(Column("deleted_at") == nil)
+                .order(Column("name"))
+                .fetchAll(db)
+            var childrenByParent: [Int64?: [CollectionRecord]] = [:]
+            for collection in collections {
+                childrenByParent[collection.parentID, default: []].append(collection)
+            }
+            func nodes(under parent: Int64?) -> [CollectionNode] {
+                (childrenByParent[parent] ?? []).map { collection in
+                    CollectionNode(collection: collection, children: nodes(under: collection.id))
+                }
+            }
+            return nodes(under: nil)
+        }
+    }
+
+    /// The live books in the collection or any live descendant collection,
+    /// de-duplicated and sorted by title.
+    public func books(inCollectionSubtree collectionID: Int64) throws -> [BookRecord] {
+        try dbQueue.read { db in
+            try BookRecord.fetchAll(
+                db,
+                sql: """
+                    WITH RECURSIVE sub(id) AS (
+                        SELECT ?
+                        UNION
+                        SELECT c.id FROM collection c
+                        JOIN sub ON c.parent_id = sub.id
+                        WHERE c.deleted_at IS NULL
+                    )
+                    SELECT DISTINCT b.* FROM book b
+                    JOIN collection_item ci ON ci.book_id = b.id AND ci.deleted_at IS NULL
+                    JOIN sub ON sub.id = ci.collection_id
+                    WHERE b.deleted_at IS NULL
+                    ORDER BY b.title
+                    """,
+                arguments: [collectionID]
+            )
         }
     }
 

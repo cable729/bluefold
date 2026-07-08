@@ -52,6 +52,37 @@ private final class TestClock: @unchecked Sendable {
         #expect(foreignKeysOn == true)
     }
 
+    @Test func migrationV2PreservesV1CollectionsWithNullParent() throws {
+        // Build a populated v1 database, then run the remaining migrations.
+        let dbQueue = try DatabaseQueue()
+        let migrator = LibrarySchema.migrator()
+        try migrator.migrate(dbQueue, upTo: "v1")
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "INSERT INTO collection (name, kind, modified_at) VALUES ('Algebra', 'course', 1), ('Analysis', 'course', 2)"
+            )
+            try db.execute(
+                sql: "INSERT INTO book (calibre_uuid, title, modified_at) VALUES ('u1', 'Book', 3)"
+            )
+            try db.execute(
+                sql: "INSERT INTO collection_item (collection_id, book_id, modified_at) VALUES (1, 1, 4)"
+            )
+        }
+
+        try migrator.migrate(dbQueue)
+
+        let collections = try dbQueue.read { db in
+            try CollectionRecord.order(Column("name")).fetchAll(db)
+        }
+        #expect(collections.map(\.name) == ["Algebra", "Analysis"])
+        #expect(collections.allSatisfy { $0.parentID == nil })
+        #expect(collections.map(\.modifiedAt) == [1, 2])
+        let itemCount = try dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM collection_item")
+        }
+        #expect(itemCount == 1)
+    }
+
     // MARK: Books
 
     @Test func calibreUpsertIsIdempotent() throws {
@@ -204,6 +235,62 @@ private final class TestClock: @unchecked Sendable {
         let items = try store.items(inCollection: course.id!)
         #expect(items.map(\.bookID) == [book.id!])
         #expect(items[0].sortOrder == 5)
+    }
+
+    @Test func collectionTreeNestsChildrenUnderRoots() throws {
+        let store = try LibraryStore.inMemory()
+        let math = try store.createCollection(name: "Math")
+        _ = try store.createCollection(name: "Algebra", parent: math.id)
+        _ = try store.createCollection(name: "Analysis", parent: math.id)
+        _ = try store.createCollection(name: "Cooking")
+
+        let tree = try store.collectionTree()
+        #expect(tree.map(\.collection.name) == ["Cooking", "Math"])
+        let mathNode = try #require(tree.first { $0.collection.name == "Math" })
+        #expect(mathNode.children.map(\.collection.name) == ["Algebra", "Analysis"])
+        // collections() still lists everything flat, with parent_id populated.
+        let flat = try store.collections()
+        #expect(flat.map(\.name) == ["Algebra", "Analysis", "Cooking", "Math"])
+        #expect(flat.first { $0.name == "Algebra" }?.parentID == math.id)
+    }
+
+    @Test func softDeleteCollectionReparentsChildrenAndTombstonesItems() throws {
+        let store = try LibraryStore.inMemory()
+        let math = try store.createCollection(name: "Math")
+        let algebra = try store.createCollection(name: "Algebra", parent: math.id)
+        let linear = try store.createCollection(name: "Linear Algebra", parent: algebra.id)
+        let book = try store.upsertCalibreBook(uuid: "b1", title: "Book")
+        try store.addToCollection(collectionID: algebra.id!, bookID: book.id!)
+
+        try store.softDeleteCollection(id: algebra.id!)
+
+        // Child reparented to the deleted collection's parent.
+        let tree = try store.collectionTree()
+        #expect(tree.map(\.collection.name) == ["Math"])
+        #expect(tree[0].children.map(\.collection.id) == [linear.id])
+        // The deleted collection no longer carries its items.
+        #expect(try store.items(inCollection: algebra.id!).isEmpty)
+        #expect(try store.books(inCollectionSubtree: math.id!).isEmpty)
+    }
+
+    @Test func collectionSubtreeFindsBooksUnderDescendantsDeduplicated() throws {
+        let store = try LibraryStore.inMemory()
+        let math = try store.createCollection(name: "Math")
+        let algebra = try store.createCollection(name: "Algebra", parent: math.id)
+        let linear = try store.createCollection(name: "Linear Algebra", parent: algebra.id)
+        let axler = try store.upsertCalibreBook(uuid: "axler", title: "Linear Algebra Done Right")
+        let artin = try store.upsertCalibreBook(uuid: "artin", title: "Algebra")
+        try store.addToCollection(collectionID: linear.id!, bookID: axler.id!)
+        try store.addToCollection(collectionID: algebra.id!, bookID: artin.id!)
+        // Also directly in the root: must not appear twice in the result.
+        try store.addToCollection(collectionID: math.id!, bookID: axler.id!)
+
+        // Root subtree finds both books, de-duplicated, ordered by title.
+        #expect(try store.books(inCollectionSubtree: math.id!).map(\.id) == [artin.id, axler.id])
+        // Mid-level subtree finds its own book plus the grandchild's.
+        #expect(try store.books(inCollectionSubtree: algebra.id!).map(\.id) == [artin.id, axler.id])
+        // Leaf subtree finds only its own book.
+        #expect(try store.books(inCollectionSubtree: linear.id!).map(\.id) == [axler.id])
     }
 
     // MARK: Bookmarks
