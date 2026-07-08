@@ -42,6 +42,79 @@ struct TabMoveTests {
         #expect(target.activeTabID == moving)
     }
 
+    @Test func reorderWithinWindow() {
+        let coordinator = makeCoordinator()
+        let model = coordinator.model(for: UUID())
+        let a = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        let b = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/b.pdf"))
+        let c = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/c.pdf"))
+
+        model.moveTab(id: c, toIndex: 0)
+        #expect(model.tabs.map(\.id) == [c, a, b])
+
+        // Out-of-range indices clamp instead of crashing.
+        model.moveTab(id: c, toIndex: 99)
+        #expect(model.tabs.map(\.id) == [a, b, c])
+        model.moveTab(id: a, toIndex: -3)
+        #expect(model.tabs.map(\.id) == [a, b, c])
+
+        // Reordering never changes the active tab.
+        model.selectTab(id: b)
+        model.moveTab(id: b, toIndex: 2)
+        #expect(model.activeTabID == b)
+    }
+
+    @Test func moveInsertsAtRequestedIndex() {
+        let coordinator = makeCoordinator()
+        let sourceID = UUID()
+        let targetID = UUID()
+        let source = coordinator.model(for: sourceID)
+        let target = coordinator.model(for: targetID)
+        let moving = source.openTab(fileURL: URL(fileURLWithPath: "/tmp/m.pdf"))
+        let first = target.openTab(fileURL: URL(fileURLWithPath: "/tmp/1.pdf"))
+        let second = target.openTab(fileURL: URL(fileURLWithPath: "/tmp/2.pdf"))
+
+        coordinator.moveTab(moving, from: sourceID, to: targetID, at: 1)
+        #expect(target.tabs.map(\.id) == [first, moving, second])
+        #expect(target.activeTabID == moving)
+    }
+
+    @Test func detachToNewWindowStagesRestorableState() throws {
+        let coordinator = makeCoordinator()
+        let sourceID = UUID()
+        let source = coordinator.model(for: sourceID)
+        source.setWindowFrame(CGRect(x: 100, y: 100, width: 800, height: 600))
+        let staying = source.openTab(fileURL: URL(fileURLWithPath: "/tmp/stay.pdf"))
+        let leaving = source.openTab(fileURL: URL(fileURLWithPath: "/tmp/leave.pdf"))
+        source.updateTab(id: leaving) { $0.pageIndex = 42 }
+
+        let newID = try #require(coordinator.detachTabToNewWindow(
+            leaving, from: sourceID, at: CGPoint(x: 500, y: 900)
+        ))
+
+        #expect(source.tabs.map(\.id) == [staying])
+
+        // The staged window survives a snapshot round-trip even before any
+        // scene claims it (quit right after the drag must not lose the tab).
+        let snapshot = coordinator.snapshot()
+        let staged = try #require(snapshot.windows.first { $0.id == newID })
+        #expect(staged.tabs.map(\.id) == [leaving])
+        #expect(staged.tabs.first?.pageIndex == 42)
+        #expect(staged.frame?.size == CGSize(width: 800, height: 600))
+
+        // Claiming the model adopts the staged state.
+        let adopted = coordinator.model(for: newID)
+        #expect(adopted.tabs.map(\.id) == [leaving])
+        #expect(adopted.activeTabID == leaving)
+    }
+
+    @Test func detachUnknownTabReturnsNil() {
+        let coordinator = makeCoordinator()
+        let windowID = UUID()
+        _ = coordinator.model(for: windowID)
+        #expect(coordinator.detachTabToNewWindow(UUID(), from: windowID) == nil)
+    }
+
     @Test func moveToSameWindowIsNoOp() {
         let coordinator = makeCoordinator()
         let windowID = UUID()

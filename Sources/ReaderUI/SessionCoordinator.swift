@@ -132,16 +132,58 @@ public final class SessionCoordinator {
     }
 
     /// Moves a tab between windows (tab-strip drag & drop), preserving its
-    /// reading position, zoom, and history.
-    public func moveTab(_ tabID: UUID, from sourceWindowID: UUID, to targetWindowID: UUID) {
+    /// reading position, zoom, and history. `index` is the insertion point
+    /// in the target strip (append when nil).
+    public func moveTab(
+        _ tabID: UUID,
+        from sourceWindowID: UUID,
+        to targetWindowID: UUID,
+        at index: Int? = nil
+    ) {
         guard
             sourceWindowID != targetWindowID,
             let source = models[sourceWindowID],
             let target = models[targetWindowID],
             let tab = source.detachTab(id: tabID)
         else { return }
-        target.adoptTab(tab)
+        target.adoptTab(tab, at: index)
         scheduleSave()
+    }
+
+    /// Detaches a tab into a freshly staged window (tab dragged out of the
+    /// strip onto the desktop). Returns the new window ID; the caller must
+    /// present it via `openWindow(id: "reader", value:)`. The new window
+    /// inherits the source window's size, positioned under the drop point.
+    public func detachTabToNewWindow(
+        _ tabID: UUID,
+        from sourceWindowID: UUID,
+        at screenPoint: CGPoint? = nil
+    ) -> UUID? {
+        guard
+            let source = models[sourceWindowID],
+            source.tabs.contains(where: { $0.id == tabID }),
+            let tab = source.detachTab(id: tabID)
+        else { return nil }
+        let newID = UUID()
+        var frame: CGRect?
+        if let screenPoint {
+            let size = source.windowFrame?.size ?? CGSize(width: 900, height: 700)
+            // Drop point becomes roughly the new window's tab-strip area.
+            frame = CGRect(
+                x: screenPoint.x - size.width / 2,
+                y: screenPoint.y - size.height + 24,
+                width: size.width,
+                height: size.height
+            )
+        }
+        pendingRestore[newID] = WindowState(
+            id: newID, frame: frame, tabs: [tab], activeTabID: tab.id
+        )
+        // Listed in pendingOrder so the snapshot keeps this window even if
+        // the app quits before the scene claims the model.
+        pendingOrder.append(newID)
+        scheduleSave()
+        return newID
     }
 
     // MARK: - Persistence

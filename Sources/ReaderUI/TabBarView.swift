@@ -2,36 +2,23 @@
 import ReaderCore
 import SwiftUI
 
-/// Browser-style tab strip drawn by the app (native window tabbing is
-/// disabled so tab behavior is identical across platforms). Tabs can be
-/// dragged between windows; payload is "sourceWindowID|tabID".
+/// Browser-style tab strip. Rendering and drag tracking live in the
+/// AppKit-backed `TabStripNSView` (SwiftUI's .draggable/.onTapGesture pairing
+/// could not express reorder, tear-off, or reliable cross-window drops); this
+/// wrapper feeds it display state and wires its actions to the window model
+/// and session coordinator.
 struct TabBarView: View {
     @Bindable var model: ReaderWindowModel
     let onNewTab: () -> Void
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         HStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 1) {
-                    ForEach(model.tabs) { tab in
-                        TabItemView(
-                            title: title(for: tab),
-                            isActive: tab.id == model.activeTabID,
-                            groupColor: groupColor(for: tab),
-                            select: { model.selectTab(id: tab.id) },
-                            close: { model.closeTab(id: tab.id) }
-                        )
-                        .draggable("\(model.windowID.uuidString)|\(tab.id.uuidString)")
-                        .contextMenu {
-                            Button("Duplicate Tab") { model.duplicateTab(id: tab.id) }
-                            Divider()
-                            Button("Close Tab") { model.closeTab(id: tab.id) }
-                            Button("Close Other Tabs") { model.closeOtherTabs(keeping: tab.id) }
-                                .disabled(model.tabs.count < 2)
-                        }
-                    }
-                }
-            }
+            TabStripRepresentable(
+                model: model,
+                items: displayItems,
+                openWindow: openWindow
+            )
             Button(action: onNewTab) {
                 Image(systemName: "plus")
             }
@@ -41,91 +28,90 @@ struct TabBarView: View {
         }
         .frame(height: 32)
         .background(.bar)
-        .dropDestination(for: String.self) { payloads, _ in
-            handleDrop(payloads)
+    }
+
+    /// Reading `model.tabs` here keeps the strip inside SwiftUI's observation
+    /// tracking: any tab mutation re-evaluates this body and pushes fresh
+    /// items into the NSView.
+    private var displayItems: [TabDisplayItem] {
+        let counts = model.tabCountByPath
+        return model.tabs.map { tab in
+            TabDisplayItem(
+                id: tab.id,
+                title: URL(fileURLWithPath: tab.pathHint)
+                    .deletingPathExtension()
+                    .lastPathComponent,
+                isActive: tab.id == model.activeTabID,
+                groupColorHue: (counts[tab.pathHint] ?? 0) > 1
+                    ? Double(abs(tab.pathHint.hashValue % 360)) / 360.0
+                    : nil
+            )
         }
-    }
-
-    private func handleDrop(_ payloads: [String]) -> Bool {
-        var accepted = false
-        for payload in payloads {
-            let parts = payload.split(separator: "|").map(String.init)
-            guard
-                parts.count == 2,
-                let sourceWindowID = UUID(uuidString: parts[0]),
-                let tabID = UUID(uuidString: parts[1])
-            else { continue }
-            guard sourceWindowID != model.windowID else { continue }
-            SessionCoordinator.shared.moveTab(tabID, from: sourceWindowID, to: model.windowID)
-            accepted = true
-        }
-        return accepted
-    }
-
-    private func title(for tab: TabState) -> String {
-        URL(fileURLWithPath: tab.pathHint)
-            .deletingPathExtension()
-            .lastPathComponent
-    }
-
-    /// Tabs of the same book share a stable color marker (only shown when a
-    /// book has more than one tab — Chrome-style implicit groups; ⌘-clicked
-    /// links already insert next to their source tab).
-    private func groupColor(for tab: TabState) -> Color? {
-        guard (model.tabCountByPath[tab.pathHint] ?? 0) > 1 else { return nil }
-        let hue = Double(abs(tab.pathHint.hashValue % 360)) / 360.0
-        return Color(hue: hue, saturation: 0.65, brightness: 0.85)
     }
 }
 
-private struct TabItemView: View {
-    let title: String
-    let isActive: Bool
-    let groupColor: Color?
-    let select: () -> Void
-    let close: () -> Void
+private struct TabStripRepresentable: NSViewRepresentable {
+    let model: ReaderWindowModel
+    let items: [TabDisplayItem]
+    let openWindow: OpenWindowAction
 
-    @State private var isHovered = false
+    func makeNSView(context: Context) -> TabStripNSView {
+        let view = TabStripNSView(
+            windowID: model.windowID,
+            actions: TabStripActions(
+                select: { _ in }, close: { _ in }, duplicate: { _ in },
+                closeOthers: { _ in }, reorder: { _, _ in },
+                moveToWindow: { _, _, _ in }, detachToNewWindow: { _, _ in }
+            )
+        )
+        view.actions = actions(for: view)
+        view.update(items: items)
+        return view
+    }
 
-    var body: some View {
-        HStack(spacing: 4) {
-            Button(action: close) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
+    func updateNSView(_ view: TabStripNSView, context: Context) {
+        view.actions = actions(for: view)
+        view.update(items: items)
+    }
+
+    private func actions(for view: TabStripNSView) -> TabStripActions {
+        let model = self.model
+        let openWindow = self.openWindow
+        return TabStripActions(
+            select: { model.selectTab(id: $0) },
+            close: { model.closeTab(id: $0) },
+            duplicate: { model.duplicateTab(id: $0) },
+            closeOthers: { model.closeOtherTabs(keeping: $0) },
+            reorder: { model.moveTab(id: $0, toIndex: $1) },
+            moveToWindow: { [weak view] tabID, targetWindowID, index in
+                SessionCoordinator.shared.moveTab(
+                    tabID, from: model.windowID, to: targetWindowID, at: index
+                )
+                closeWindowIfEmptied(model: model, view: view)
+            },
+            detachToNewWindow: { [weak view] tabID, screenPoint in
+                // A single-tab window dragged to the desktop just moves —
+                // detaching and closing would only add churn and flicker.
+                if model.tabs.count == 1, let window = view?.window {
+                    window.setFrameOrigin(CGPoint(
+                        x: screenPoint.x - window.frame.width / 2,
+                        y: screenPoint.y - window.frame.height + 24
+                    ))
+                    return
+                }
+                guard let newID = SessionCoordinator.shared.detachTabToNewWindow(
+                    tabID, from: model.windowID, at: screenPoint
+                ) else { return }
+                openWindow(id: "reader", value: newID)
+                closeWindowIfEmptied(model: model, view: view)
             }
-            .buttonStyle(.borderless)
-            .opacity(isHovered || isActive ? 1 : 0)
+        )
+    }
 
-            if let groupColor {
-                Circle()
-                    .fill(groupColor)
-                    .frame(width: 6, height: 6)
-            }
-
-            Text(title)
-                .font(.system(size: 12, weight: isActive ? .semibold : .regular))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .foregroundStyle(isActive ? .primary : .secondary)
+    private func closeWindowIfEmptied(model: ReaderWindowModel, view: TabStripNSView?) {
+        if model.tabs.isEmpty {
+            view?.window?.close()
         }
-        .padding(.horizontal, 10)
-        .frame(maxHeight: .infinity)
-        .frame(minWidth: 80, maxWidth: 220)
-        .background {
-            if isActive {
-                Rectangle().fill(Color(nsColor: .textBackgroundColor))
-            } else if isHovered {
-                Rectangle().fill(.quaternary.opacity(0.5))
-            }
-        }
-        .overlay(alignment: .top) {
-            if isActive {
-                Rectangle().fill(.tint).frame(height: 2)
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: select)
-        .onHover { isHovered = $0 }
     }
 }
 #endif

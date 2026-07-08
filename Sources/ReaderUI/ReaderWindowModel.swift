@@ -389,7 +389,17 @@ public final class ReaderWindowModel {
         onMutation?()
     }
 
-    // MARK: - Cross-window tab transfer
+    // MARK: - Tab reordering & cross-window transfer
+
+    /// Moves a tab to a new position in the strip (drag reorder).
+    public func moveTab(id: UUID, toIndex: Int) {
+        guard let from = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let to = max(0, min(toIndex, tabs.count - 1))
+        guard from != to else { return }
+        let tab = tabs.remove(at: from)
+        tabs.insert(tab, at: to)
+        onMutation?()
+    }
 
     /// Detaches a tab, preserving its full state. The shared document stays
     /// in the provider (the receiving window uses the same one).
@@ -407,9 +417,14 @@ public final class ReaderWindowModel {
     }
 
     /// Adopts a tab detached from another window, keeping its position,
-    /// zoom, and history intact.
-    func adoptTab(_ tab: TabState) {
-        tabs.append(tab)
+    /// zoom, and history intact. `index` is the strip insertion point
+    /// (append when nil or out of range).
+    func adoptTab(_ tab: TabState, at index: Int? = nil) {
+        if let index, (0...tabs.count).contains(index) {
+            tabs.insert(tab, at: index)
+        } else {
+            tabs.append(tab)
+        }
         selectTab(id: tab.id)
         onMutation?()
     }
