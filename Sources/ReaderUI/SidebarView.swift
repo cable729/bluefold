@@ -202,8 +202,9 @@ private struct BookmarkRow: View {
     }
 }
 
-/// In-document search: results accumulate in a list the user scans and
-/// clicks — typing never navigates the document.
+/// In-document search: results stream in live as the user types (debounced),
+/// accumulating in a list the user scans and clicks — typing never navigates
+/// the document.
 private struct SearchResultsList: View {
     let document: PDFDocument
     unowned let model: ReaderWindowModel
@@ -211,6 +212,7 @@ private struct SearchResultsList: View {
     let focusToken: Int
 
     @State private var query = ""
+    @State private var debounce: Task<Void, Never>?
     @FocusState private var fieldFocused: Bool
 
     var body: some View {
@@ -219,7 +221,7 @@ private struct SearchResultsList: View {
                 TextField("Find in document", text: $query)
                     .textFieldStyle(.roundedBorder)
                     .focused($fieldFocused)
-                    .onSubmit(startSearch)
+                    .onSubmit(searchNow)
                 if find.isSearching {
                     ProgressView().controlSize(.small)
                 }
@@ -241,9 +243,11 @@ private struct SearchResultsList: View {
                     ContentUnavailableView.search(text: query)
                 } else {
                     List(find.matches.indices, id: \.self, selection: selectionBinding) { index in
+                        let selection = find.matches[index]
                         SearchHitRow(
-                            selection: find.matches[index],
-                            document: document
+                            selection: selection,
+                            document: document,
+                            breadcrumb: breadcrumb(for: selection)
                         )
                         .tag(index)
                     }
@@ -253,11 +257,31 @@ private struct SearchResultsList: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear { fieldFocused = true }
+        .onDisappear { debounce?.cancel() }
         .onChange(of: focusToken) { _, _ in fieldFocused = true }
+        .onChange(of: query) { _, newValue in
+            // Live search: fire ~300ms after typing pauses. No navigation —
+            // results just fill the list (and highlight in place).
+            debounce?.cancel()
+            debounce = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                startSearch(newValue)
+            }
+        }
         .onChange(of: find.matches.count) { _, _ in
             // Show highlights as they stream in — without moving the view.
             model.activeController?.showFindResults(find.matches, current: nil)
         }
+    }
+
+    /// Outline ancestor path of the hit's page, joined for display. Empty
+    /// when the PDF has no outline (scans) — the row then omits the line.
+    private func breadcrumb(for selection: PDFSelection) -> String {
+        guard let page = selection.pages.first else { return "" }
+        return model
+            .breadcrumbPath(for: document.index(for: page), in: document)
+            .joined(separator: " › ")
     }
 
     /// Row selection = explicit navigation (pushes history).
@@ -279,7 +303,13 @@ private struct SearchResultsList: View {
         )
     }
 
-    private func startSearch() {
+    /// Enter still works: search immediately, skipping the debounce.
+    private func searchNow() {
+        debounce?.cancel()
+        startSearch(query)
+    }
+
+    private func startSearch(_ query: String) {
         model.activeController?.showFindResults([], current: nil)
         find.search(query, in: document)
     }
@@ -288,16 +318,27 @@ private struct SearchResultsList: View {
 private struct SearchHitRow: View {
     let selection: PDFSelection
     let document: PDFDocument
+    /// Outline path of the hit's page ("Ch 1 › 1A › …"); empty = no line.
+    let breadcrumb: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(context)
                 .font(.callout)
                 .lineLimit(2)
-            Text("p.\(pageNumber)")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
+            HStack(spacing: 4) {
+                Text("p.\(pageNumber)")
+                    .monospacedDigit()
+                    .layoutPriority(1)
+                if !breadcrumb.isEmpty {
+                    Text(breadcrumb)
+                        .lineLimit(1)
+                        // Keep the deepest (last) component visible.
+                        .truncationMode(.middle)
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
     }

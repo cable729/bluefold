@@ -82,6 +82,98 @@ struct OutlineNodeTests {
     }
 }
 
+@Suite("Outline breadcrumb path")
+@MainActor
+struct OutlineDeepestPathTests {
+    /// 8 pages. Outline:
+    ///   Part I (no destination)
+    ///     Chapter 1 (p.1)
+    ///       1.A Rⁿ and Cⁿ (p.2)
+    ///         Complex Numbers (p.3)
+    ///   Chapter 2 (p.5)
+    private func makeOutlinedDocument() -> PDFDocument {
+        let document = PDFDocument()
+        for i in 0..<8 {
+            document.insert(PDFPage(), at: i)
+        }
+        func node(_ label: String, page: Int?) -> PDFOutline {
+            let outline = PDFOutline()
+            outline.label = label
+            if let page {
+                outline.destination = PDFDestination(
+                    page: document.page(at: page)!, at: CGPoint(x: 0, y: 700)
+                )
+            }
+            return outline
+        }
+        let root = PDFOutline()
+        let part = node("Part I", page: nil)
+        let chapter1 = node("Chapter 1", page: 1)
+        let sectionA = node("1.A Rⁿ and Cⁿ", page: 2)
+        let complex = node("Complex Numbers", page: 3)
+        let chapter2 = node("Chapter 2", page: 5)
+        root.insertChild(part, at: 0)
+        root.insertChild(chapter2, at: 1)
+        part.insertChild(chapter1, at: 0)
+        chapter1.insertChild(sectionA, at: 0)
+        sectionA.insertChild(complex, at: 0)
+        document.outlineRoot = root
+        return document
+    }
+
+    private func tree() -> [OutlineNode] {
+        OutlineNode.tree(from: makeOutlinedDocument())
+    }
+
+    @Test func emptyOutlineGivesEmptyPath() {
+        let document = PDFDocument()
+        document.insert(PDFPage(), at: 0)
+        let nodes = OutlineNode.tree(from: document)
+        #expect(OutlineNode.deepestPath(in: nodes, atOrBefore: 0).isEmpty)
+        #expect(OutlineNode.deepestPath(in: [], atOrBefore: 3).isEmpty)
+    }
+
+    @Test func pageBeforeFirstSectionGivesEmptyPath() {
+        #expect(OutlineNode.deepestPath(in: tree(), atOrBefore: 0).isEmpty)
+    }
+
+    @Test func nestedSectionGivesFullAncestorPath() {
+        #expect(
+            OutlineNode.deepestPath(in: tree(), atOrBefore: 3)
+                == ["Part I", "Chapter 1", "1.A Rⁿ and Cⁿ", "Complex Numbers"]
+        )
+        // Pages after the subsection but before the next chapter stay in it.
+        #expect(
+            OutlineNode.deepestPath(in: tree(), atOrBefore: 4)
+                == ["Part I", "Chapter 1", "1.A Rⁿ and Cⁿ", "Complex Numbers"]
+        )
+    }
+
+    @Test func ancestorWithoutDestinationStillContributesLabel() {
+        #expect(OutlineNode.deepestPath(in: tree(), atOrBefore: 1) == ["Part I", "Chapter 1"])
+        #expect(
+            OutlineNode.deepestPath(in: tree(), atOrBefore: 2)
+                == ["Part I", "Chapter 1", "1.A Rⁿ and Cⁿ"]
+        )
+    }
+
+    @Test func hitAfterLastSectionMapsToLastSection() {
+        #expect(OutlineNode.deepestPath(in: tree(), atOrBefore: 7) == ["Chapter 2"])
+    }
+
+    @Test func deepestLabelIsLastPathComponent() {
+        let nodes = tree()
+        for page in 0..<8 {
+            #expect(
+                OutlineNode.deepestLabel(in: nodes, atOrBefore: page)
+                    == OutlineNode.deepestPath(in: nodes, atOrBefore: page).last
+            )
+        }
+        #expect(OutlineNode.deepestLabel(in: nodes, atOrBefore: 5) == "Chapter 2")
+        #expect(OutlineNode.deepestLabel(in: nodes, atOrBefore: 0) == nil)
+    }
+}
+
 @Suite("FindController")
 @MainActor
 struct FindControllerTests {
@@ -143,6 +235,58 @@ struct FindControllerTests {
         #expect(find.matches.isEmpty)
         #expect(find.currentIndex == nil)
         #expect(!find.didSearch)
+    }
+
+    /// Live-search core guarantee: restarting while a find is still
+    /// streaming supersedes it — no stale matches from the old query may
+    /// land after the new one.
+    @Test func restartSupersedesInFlightSearch() async throws {
+        let url = try makeTextPDF(pageTexts: ["alpha alpha", "alpha beta", "beta"])
+        defer { try? FileManager.default.removeItem(at: url) }
+        let document = try #require(PDFDocument(url: url))
+
+        let find = FindController()
+        find.search("alpha", in: document)
+        // Immediately supersede, before the first find's notifications drain.
+        find.search("beta", in: document)
+        try await waitForSearchEnd(find)
+
+        #expect(find.matches.count == 2)
+        #expect(find.matches.allSatisfy { $0.string?.lowercased().contains("beta") == true })
+        #expect(find.didSearch)
+    }
+
+    @Test func rapidFireRestartsKeepOnlyLastQuery() async throws {
+        let url = try makeTextPDF(pageTexts: ["alpha beta gamma", "alpha gamma", "gamma"])
+        defer { try? FileManager.default.removeItem(at: url) }
+        let document = try #require(PDFDocument(url: url))
+
+        let find = FindController()
+        for query in ["alpha", "beta", "gam", "gamma"] {
+            find.search(query, in: document)
+        }
+        try await waitForSearchEnd(find)
+
+        #expect(find.matches.count == 3)
+        #expect(find.matches.allSatisfy { $0.string?.lowercased().contains("gamma") == true })
+    }
+
+    /// Clearing the query mid-flight cancels: nothing stale may land after.
+    @Test func emptyQueryCancelsInFlightSearch() async throws {
+        let url = try makeTextPDF(pageTexts: ["alpha alpha", "alpha"])
+        defer { try? FileManager.default.removeItem(at: url) }
+        let document = try #require(PDFDocument(url: url))
+
+        let find = FindController()
+        find.search("alpha", in: document)
+        find.search("   ", in: document)
+        #expect(!find.isSearching)
+        #expect(!find.didSearch)
+
+        // Let any stale notifications from the cancelled find drain.
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(find.matches.isEmpty)
+        #expect(find.currentIndex == nil)
     }
 
     @Test func noMatchesLeavesEmptyState() async throws {
