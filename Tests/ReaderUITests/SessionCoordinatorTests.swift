@@ -163,26 +163,45 @@ struct SessionCoordinatorTests {
         #expect(model.tabs.first?.pathHint.hasSuffix("axler.pdf") == true)
     }
 
-    @Test func emptiedSessionFileFallsBackToBackup() throws {
+    @Test func deliberatelyEmptySessionDoesNotResurrectBackup() throws {
         let file = try makeTempSessionFile()
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
 
         let first = SessionCoordinator(sessionFileURL: file)
-        first.model(for: first.claimLaunchWindowID())
-            .openTab(fileURL: URL(fileURLWithPath: "/tmp/axler.pdf"))
+        let window = first.claimLaunchWindowID()
+        let model = first.model(for: window)
+        model.openTab(fileURL: URL(fileURLWithPath: "/tmp/axler.pdf"))
         first.saveNow()
         _ = SessionCoordinator(sessionFileURL: file)  // rotates the backup
 
-        // A bug (or interrupted run) writes a windowless session.
-        let second = SessionCoordinator(
-            sessionFileURL: FileManager.default.temporaryDirectory
-                .appendingPathComponent("empty-\(UUID().uuidString).json")
-        )
-        try SessionCodec.encode(second.snapshot()).write(to: file)
+        // The user closes every tab, then quits: a decodable-but-empty
+        // session is DELIBERATE — the backup must stay buried.
+        model.closeTab(id: model.tabs[0].id)
+        first.saveNow()
 
-        let recovered = SessionCoordinator(sessionFileURL: file)
-        let model = recovered.model(for: recovered.claimLaunchWindowID())
-        #expect(model.tabs.first?.pathHint.hasSuffix("axler.pdf") == true)
+        let reloaded = SessionCoordinator(sessionFileURL: file)
+        let restored = reloaded.model(for: reloaded.claimLaunchWindowID())
+        #expect(restored.tabs.isEmpty)
+    }
+
+    @Test func emptyWindowsAreNotRestored() throws {
+        let file = try makeTempSessionFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+
+        // One real window + two stray empty ones (accidental default
+        // scenes) — only the real one may come back (round-7 bug: empties
+        // accumulated forever).
+        let coordinator = SessionCoordinator(sessionFileURL: file)
+        coordinator.model(for: coordinator.claimLaunchWindowID())
+            .openTab(fileURL: URL(fileURLWithPath: "/tmp/axler.pdf"))
+        _ = coordinator.model(for: UUID())
+        _ = coordinator.model(for: UUID())
+        coordinator.saveNow()
+
+        let reloaded = SessionCoordinator(sessionFileURL: file)
+        let launch = reloaded.model(for: reloaded.claimLaunchWindowID())
+        #expect(launch.tabs.count == 1)
+        #expect(reloaded.takeRemainingRestoreIDs().isEmpty)
     }
 
     @Test func stagedDetachSurvivesQuitWithoutPresentation() throws {

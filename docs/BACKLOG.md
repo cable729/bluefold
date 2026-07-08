@@ -166,6 +166,33 @@ macOS apps (Docker is impossible — macOS doesn't containerize):
   Long-horizon; don't let new code deepen PDFKit coupling outside
   ReaderUI/SearchIndexKit extraction paths.
 
+## Feedback round 7 (2026-07-08, owner) — feature requests to schedule
+
+### Library / tags
+- **Right-click a tag → create a sub-tag** ("add more" from the tag's own
+  context menu; today nesting requires drag or the New Tag flow from
+  inside a scope). Also consider "Rename Tag" in the same menu.
+- **Tag colors** — color per tag (tag row dot + tinted tag chips on book
+  cells; store adds a `color` column to `tag`, sync-safe).
+- **Library view modes**:
+  - List view (rows, not covers) with sortable columns — title, author,
+    date added, last read.
+  - Sectioned-by-tag view: within a tag scope (e.g. Math), group the grid
+    under headings — books tagged ONLY Math first, then one section per
+    child tag (Algebra, …). Owner sketched this explicitly.
+
+### ✅ Fixed same day (round-7 bugs)
+- Tag/collection ⓘ popovers: now open on HOVER (200ms) and the text
+  wraps at 320pt instead of truncating to one line (`.fixedSize` was
+  missing). Click still pins.
+- Multi-select + right-click: tag/collection toggles, Open, Reveal, and
+  Remove from Library now act on the WHOLE selection when the clicked
+  cell is part of it (labels say the count, e.g. "Remove 3 Books…").
+- "Opens like 5 windows": empty (tabless) windows are no longer saved
+  into the session — stray default scenes from odd launches had been
+  accumulating forever. Corollary: a deliberately emptied session no
+  longer falls back to the .bak (only a corrupt/missing file does).
+
 ## Known bugs / rough edges (not yet scheduled)
 - Tooltip delay (above).
 - Cover loading during scroll (above).

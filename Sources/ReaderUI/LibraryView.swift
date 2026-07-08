@@ -186,26 +186,13 @@ public struct LibraryView: View {
         """
 
     /// Section title plus a small ⓘ that explains the concept in a popover.
+    /// Shows on HOVER (no click needed); clicking pins/unpins it.
     private func sectionHeader(
         _ title: String, isPresented: Binding<Bool>, help: String
     ) -> some View {
         HStack(spacing: 4) {
             Text(title)
-            Button {
-                isPresented.wrappedValue.toggle()
-            } label: {
-                Image(systemName: "info.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("About \(title.lowercased())")
-            .popover(isPresented: isPresented, arrowEdge: .trailing) {
-                Text(help)
-                    .font(.callout)
-                    .frame(width: 260, alignment: .leading)
-                    .padding(12)
-            }
+            HelpBadge(subject: title, help: help, isPresented: isPresented)
         }
     }
 
@@ -395,11 +382,7 @@ public struct LibraryView: View {
                                     isSelected: selection.contains(item.id),
                                     tap: { handleTap(item) },
                                     open: { openKeepingSelection(item) },
-                                    reveal: { model.revealInFinder([item]) },
-                                    remove: item.source == .imported
-                                        ? { removeFromLibrary(item) } : nil,
-                                    tagMenu: { tagMenu(for: item) },
-                                    collectionMenu: { collectionMenu(for: item) }
+                                    menu: { cellContextMenu(for: item) }
                                 )
                                 // Compact preview: dragging the full-size
                                 // cell hides the sidebar rows you aim at.
@@ -462,9 +445,37 @@ public struct LibraryView: View {
         open(item)
     }
 
-    private func removeFromLibrary(_ item: LibraryItem) {
-        model.removeImportedItems([item])
-        selection.prune(to: model.filteredItems.map(\.id))
+    /// What a right-click on `item` acts on: the whole selection when the
+    /// cell is part of it (round-7 bug: menu actions hit only the clicked
+    /// book while several were selected), else just that book.
+    private func contextTargets(for item: LibraryItem) -> [LibraryItem] {
+        guard selection.contains(item.id), selection.count > 1 else { return [item] }
+        return model.items(withIDs: selection.selectedIDs)
+    }
+
+    /// The cell context menu, selection-aware. Every action names the count
+    /// it will hit so bulk edits are never a surprise.
+    @ViewBuilder
+    private func cellContextMenu(for item: LibraryItem) -> some View {
+        let targets = contextTargets(for: item)
+        let suffix = targets.count > 1 ? " \(targets.count) Books" : ""
+        Button("Open\(suffix) in Reader") {
+            for target in targets { open(target) }
+        }
+        Menu("Tags") { tagMenu(for: targets) }
+        Menu("Collections") { collectionMenu(for: targets) }
+        Divider()
+        Button("Reveal\(suffix) in Finder") {
+            model.revealInFinder(targets)
+        }
+        // Only the app's own imports can be removed — never Calibre books.
+        if targets.allSatisfy({ $0.source == .imported }) {
+            Divider()
+            Button("Remove\(suffix.isEmpty ? "" : suffix) from Library", role: .destructive) {
+                model.removeImportedItems(targets)
+                selection.prune(to: model.filteredItems.map(\.id))
+            }
+        }
     }
 
     /// Contextual actions for the current selection, shown as a bottom bar.
@@ -594,11 +605,11 @@ public struct LibraryView: View {
     }
 
     @ViewBuilder
-    private func tagMenu(for item: LibraryItem) -> some View {
+    private func tagMenu(for items: [LibraryItem]) -> some View {
         ForEach(model.allTags, id: \.id) { tag in
             Toggle(tag.name, isOn: .init(
-                get: { model.hasTag(tag, item: item) },
-                set: { _ in model.toggleTag(tag, for: item) }
+                get: { model.allHaveTag(tag, items: items) },
+                set: { _ in model.toggleTag(tag, forAll: items) }
             ))
         }
         Divider()
@@ -606,11 +617,11 @@ public struct LibraryView: View {
     }
 
     @ViewBuilder
-    private func collectionMenu(for item: LibraryItem) -> some View {
+    private func collectionMenu(for items: [LibraryItem]) -> some View {
         ForEach(model.collections, id: \.id) { collection in
             Toggle(collection.name, isOn: .init(
-                get: { model.isInCollection(collection, item: item) },
-                set: { _ in model.toggleCollection(collection, for: item) }
+                get: { model.allInCollection(collection, items: items) },
+                set: { _ in model.toggleCollection(collection, forAll: items) }
             ))
         }
         Divider()
@@ -685,6 +696,52 @@ private struct LibrarySetupView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(40)
+    }
+}
+
+/// A small ⓘ whose explanation appears on HOVER after a short delay (the
+/// round-4 popovers required a click, which nobody discovered, and their
+/// text truncated to one line). Click pins the popover open.
+private struct HelpBadge: View {
+    let subject: String
+    let help: String
+    @Binding var isPresented: Bool
+    @State private var hoverTask: Task<Void, Never>?
+
+    var body: some View {
+        Button {
+            hoverTask?.cancel()
+            isPresented.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("About \(subject.lowercased())")
+        .onHover { hovering in
+            hoverTask?.cancel()
+            if hovering {
+                hoverTask = Task {
+                    try? await Task.sleep(for: .milliseconds(200))
+                    guard !Task.isCancelled else { return }
+                    isPresented = true
+                }
+            } else {
+                hoverTask = nil
+                isPresented = false
+            }
+        }
+        .popover(isPresented: $isPresented, arrowEdge: .trailing) {
+            Text(help)
+                .font(.callout)
+                .lineLimit(nil)
+                // Without this the popover collapses the text to one
+                // truncated line (round-7 owner screenshot).
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: 320, alignment: .leading)
+                .padding(14)
+        }
     }
 }
 
@@ -785,18 +842,16 @@ private struct NamePromptSheet: View {
     }
 }
 
-private struct BookCell<TagMenu: View, CollectionMenu: View>: View {
+private struct BookCell<MenuContent: View>: View {
     let item: LibraryItem
     let overlayTags: [TagRecord]
     let isDownloading: Bool
     let isSelected: Bool
     let tap: () -> Void
     let open: () -> Void
-    let reveal: () -> Void
-    /// nil for Calibre books — only the app's own imports are removable.
-    let remove: (() -> Void)?
-    @ViewBuilder let tagMenu: () -> TagMenu
-    @ViewBuilder let collectionMenu: () -> CollectionMenu
+    /// The full context menu — built by LibraryView so it can act on the
+    /// whole selection, not just this cell.
+    @ViewBuilder let menu: () -> MenuContent
 
     @State private var cover: NSImage?
     @State private var coverRequested = false
@@ -813,17 +868,7 @@ private struct BookCell<TagMenu: View, CollectionMenu: View>: View {
         .contentShape(Rectangle())
         .gesture(TapGesture(count: 2).onEnded(open))
         .simultaneousGesture(TapGesture(count: 1).onEnded(tap))
-        .contextMenu {
-            Button("Open in Reader", action: open)
-            Menu("Tags", content: tagMenu)
-            Menu("Collections", content: collectionMenu)
-            Divider()
-            Button("Reveal in Finder", action: reveal)
-            if let remove {
-                Divider()
-                Button("Remove from Library", role: .destructive, action: remove)
-            }
-        }
+        .contextMenu(menuItems: menu)
         .onAppear(perform: requestCover)
     }
 

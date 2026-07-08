@@ -53,15 +53,19 @@ public final class SessionCoordinator {
 
     private func loadSession() {
         let backupURL = Self.backupSessionFileURL(for: sessionFileURL)
-        if let snapshot = Self.decodeSession(at: sessionFileURL),
-           !snapshot.windows.isEmpty {
+        if let snapshot = Self.decodeSession(at: sessionFileURL) {
             stage(snapshot)
-            // This file restored real windows: it becomes the fallback.
-            try? FileManager.default.removeItem(at: backupURL)
-            try? FileManager.default.copyItem(at: sessionFileURL, to: backupURL)
+            if !snapshot.windows.isEmpty {
+                // This file restored real windows: it becomes the fallback.
+                try? FileManager.default.removeItem(at: backupURL)
+                try? FileManager.default.copyItem(at: sessionFileURL, to: backupURL)
+            }
+            // A decodable-but-empty session is LEGITIMATE (every tab was
+            // closed) — resurrecting the backup here would bring back
+            // long-closed books.
         } else if let backup = Self.decodeSession(at: backupURL) {
-            // Main file missing, corrupt, or empty while a previous session
-            // had windows — recover rather than silently losing everything.
+            // Main file corrupt or missing while a backup exists:
+            // recover rather than silently losing everything.
             stage(backup)
         }
     }
@@ -72,7 +76,9 @@ public final class SessionCoordinator {
     }
 
     private func stage(_ snapshot: SessionSnapshot) {
-        for window in snapshot.windows {
+        // Tabless windows are filtered on save AND on load — the load-side
+        // filter cleans sessions written before the save-side one existed.
+        for window in snapshot.windows where !window.tabs.isEmpty {
             pendingRestore[window.id] = window
             pendingOrder.append(window.id)
         }
@@ -266,6 +272,11 @@ public final class SessionCoordinator {
         var windows = windowOrder.compactMap { models[$0]?.stateSnapshot }
         // Windows never shown this run keep their saved state.
         windows.append(contentsOf: pendingOrder.compactMap { pendingRestore[$0] })
+        // Empty windows don't restore (Chrome/Safari behavior): they carry
+        // nothing worth resurrecting, and stray default scenes from odd
+        // launches were accumulating as ghost windows across restarts
+        // (round 7: the owner's session held four of them).
+        windows.removeAll { $0.tabs.isEmpty }
         return SessionSnapshot(windows: windows)
     }
 
