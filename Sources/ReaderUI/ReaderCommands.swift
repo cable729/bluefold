@@ -39,6 +39,8 @@ public struct ReaderCommands: Commands {
 
         CommandGroup(after: .pasteboard) {
             items(["search.find", "search.allBooks", "bookmarks.add"])
+            Divider()
+            items(["links.copyToHere", "links.copyToSelection"])
         }
 
         CommandMenu("Go") {

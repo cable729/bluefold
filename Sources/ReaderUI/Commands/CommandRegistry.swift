@@ -46,6 +46,7 @@ public enum CommandCategory: String, CaseIterable, Sendable {
     case view = "View"
     case search = "Search"
     case bookmarks = "Bookmarks"
+    case links = "Links"
     case help = "Help & Palettes"
 }
 
@@ -347,6 +348,22 @@ public enum CommandRegistry {
             chords: [KeyChord("d", [.command])],
             isAvailable: { $0.model?.activeTab != nil },
             run: { $0.model?.addBookmarkAtCurrentPosition() }
+        ))
+
+        // MARK: Links
+
+        // Chordless (palette + Edit menu); the keybindings overlay is the
+        // place to give them chords. Links resolve by content hash, so
+        // they survive file moves — paste them into Obsidian, anywhere.
+        commands.append(ReaderCommand(
+            id: "links.copyToHere", title: "Copy Link to Here", category: .links,
+            isAvailable: { $0.model?.activeTab != nil },
+            run: { $0.model?.copyDeepLinkToCurrentPosition() }
+        ))
+        commands.append(ReaderCommand(
+            id: "links.copyToSelection", title: "Copy Link to Selection", category: .links,
+            isAvailable: { $0.model?.activeController?.selectionNavEntry != nil },
+            run: { $0.model?.copyDeepLinkToSelection() }
         ))
 
         // MARK: Help & palettes

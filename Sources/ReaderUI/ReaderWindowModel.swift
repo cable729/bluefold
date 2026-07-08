@@ -5,6 +5,7 @@ import Observation
 import PDFKit
 import ReaderCore
 import ReaderPersistence
+import SearchIndexKit
 
 /// State of one reader window: its tab strip and the active tab.
 ///
@@ -18,6 +19,9 @@ import ReaderPersistence
 @MainActor
 public protocol ActivePDFControlling: AnyObject {
     var liveNavEntry: NavEntry? { get }
+    /// Position of the current text selection (page + top-left of its
+    /// bounds), nil without one — "Copy Link to Selection".
+    var selectionNavEntry: NavEntry? { get }
     func execute(_ entry: NavEntry)
     /// Applies find highlights; pass an empty array to clear them.
     func showFindResults(_ matches: [PDFSelection], current: PDFSelection?)
@@ -33,6 +37,7 @@ public protocol ActivePDFControlling: AnyObject {
 
 /// View-control hooks are optional for test fakes.
 public extension ActivePDFControlling {
+    var selectionNavEntry: NavEntry? { nil }
     func apply(displayModeRaw: Int) {}
     func fitWidth() {}
     func fitHeight() {}
@@ -517,6 +522,38 @@ public final class ReaderWindowModel {
     public func deleteBookmark(id: Int64) {
         try? store?.softDeleteBookmark(id: id)
         refreshBookmarks()
+    }
+
+    // MARK: - Deep links (Copy Link…)
+
+    /// Copies a pdfreader:// link to the active tab's current position (the
+    /// live scroll anchor when available — same precision as ⇤ ⇥).
+    public func copyDeepLinkToCurrentPosition() {
+        guard let activeTab else { return }
+        copyDeepLink(entry: activeController?.liveNavEntry ?? activeTab.currentNavEntry)
+    }
+
+    /// Copies a pdfreader:// link to the current text selection.
+    public func copyDeepLinkToSelection() {
+        guard let entry = activeController?.selectionNavEntry else { return }
+        copyDeepLink(entry: entry)
+    }
+
+    private func copyDeepLink(entry: NavEntry?) {
+        guard let activeTab else { return }
+        let fileURL = url(for: activeTab)
+        // Registering the book (BookResolver backfills the content hash
+        // onto Calibre rows) is what makes the link resolvable later —
+        // hash lookup is how links survive file moves.
+        _ = bookRowID(for: activeTab)
+        guard let hash = try? ContentHash.compute(for: fileURL) else {
+            NSSound.beep()
+            return
+        }
+        let link = DeepLink(contentHash: hash, pageIndex: entry?.pageIndex, point: entry?.point)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(link.url().absoluteString, forType: .string)
     }
 
     public func updateTab(id: UUID, _ mutate: (inout TabState) -> Void) {

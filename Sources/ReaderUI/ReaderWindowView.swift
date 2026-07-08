@@ -138,6 +138,8 @@ public struct ReaderWindowView: View {
             for id in SessionCoordinator.shared.takeRemainingRestoreIDs() {
                 openWindow(id: "reader", value: id)
             }
+            // Deep links staged before any scene existed flush through this.
+            DeepLinkRouter.shared.registerPresenter { openWindow(id: "reader", value: $0) }
         }
         .onChange(of: model.activeTabID) { _, _ in
             // Find state is per-document; a tab switch invalidates it.

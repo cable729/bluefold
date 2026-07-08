@@ -120,6 +120,18 @@ public final class LibraryStore: Sendable {
         }
     }
 
+    /// The reverse of `bookID(forPathHint:)` — where a book's file lives
+    /// (deep links resolve hash → book → path).
+    public func pathHint(forBookID id: Int64) throws -> String? {
+        try dbQueue.read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT path_hint FROM file_ref WHERE book_id = ? LIMIT 1",
+                arguments: [id]
+            )
+        }
+    }
+
     /// Backfills a book's content hash (e.g. once the indexer has computed
     /// it for a Calibre-sourced book), unifying hash-based lookups.
     public func setContentHash(bookID: Int64, hash: String) throws {

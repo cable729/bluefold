@@ -39,4 +39,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SessionCoordinator.shared.prepareForTermination()
         return .terminateNow
     }
+
+    /// pdfreader:// deep links (Info.plist registers the scheme). At launch
+    /// these can arrive before any scene exists; the router queues them.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            DeepLinkRouter.shared.handle(url)
+        }
+    }
 }

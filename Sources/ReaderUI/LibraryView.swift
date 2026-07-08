@@ -60,6 +60,8 @@ public struct LibraryView: View {
             if LibrarySearchFocusBridge.shared.token > 0 {
                 searchFocused = true
             }
+            // A deep link can arrive while only the library window exists.
+            DeepLinkRouter.shared.registerPresenter { openWindow(id: "reader", value: $0) }
         }
         .toolbar {
             ToolbarItemGroup {

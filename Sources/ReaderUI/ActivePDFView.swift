@@ -126,6 +126,22 @@ struct ActivePDFView: NSViewRepresentable {
             view?.currentNavEntry()
         }
 
+        var selectionNavEntry: NavEntry? {
+            guard
+                let view,
+                let document = view.document,
+                let selection = view.currentSelection,
+                let page = selection.pages.first,
+                selection.string?.isEmpty == false
+            else { return nil }
+            let bounds = selection.bounds(for: page)
+            return NavEntry(
+                pageIndex: document.index(for: page),
+                point: CGPoint(x: bounds.minX, y: bounds.maxY),
+                scaleFactor: view.scaleFactor
+            )
+        }
+
         func execute(_ entry: NavEntry) {
             guard let view, let document = view.document else { return }
             view.go(to: entry, in: document)
