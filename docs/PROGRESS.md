@@ -48,13 +48,29 @@ the project owner's plan file; the milestone list below is self-contained.
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `PDFReaderUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but local XCUITest synthesis can't drive them (see quirks below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI/human hands end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test PDFREADER_BUNDLE_ID_SUFFIX=.uitest<N>`. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
 - [ ] **M18** OSS polish, settings window, v0.1 tag
 
-## ⚠️ CI: the suite HANGS on GitHub runners (diagnosis in progress, 2026-07-08)
-Every CI run to date either failed fast (pre-fix compile errors) or hung. Facts:
-- The hang is in TEST EXECUTION, not the build: a probe run compiled everything in 80s, then `swiftpm-testing` produced zero output for 44 minutes and was killed as an orphan. (An earlier probe hit a pathologically slow runner still compiling GRDB at minute 14 — runner variance is real but was a red herring.)
-- Suite runs in <1s locally (179 tests). Prime suspect: Vision OCR tests stalling headless (recognition assets), but unconfirmed.
-- **PR #1 (`ci-hardening`)** adds: job timeout, cancel-in-progress concurrency, SwiftPM `.build` cache, `workflow_dispatch`, and a PTY-wrapped test step (`script -q /dev/null swift test`) so the next hang's log NAMES the stalled test. **MERGE IT** — main's workflow still has no timeout, so every push to main can burn up to 6h of macOS minutes (billed 10x).
-- Old stuck runs from 2026-07-08 04:00–06:00 UTC may still be running — cancel them in the Actions UI.
-Once the culprit test is named: gate it off on CI (env `CI` check) or fix the underlying stall, then delete this section.
+## ⚠️ CI: BLOCKED ON BILLING; underlying deadlock diagnosed but not yet pinpointed (2026-07-08)
+Chronology of findings, most important first:
+1. **CI is dead until billing is fixed.** As of ~09:57 UTC every queued job
+   fails with GitHub's verbatim message: "The job was not started because
+   recent account payments have failed or your spending limit needs to be
+   increased." The pre-hardening zombie runs (multiple concurrent 6-hour
+   hangs, macOS billed at 10x) exhausted the included minutes. Fix in
+   GitHub Settings → Billing & plans (raise the spending limit or wait for
+   the monthly reset). Nothing runs — including PR checks — until then.
+2. **The underlying failure is a whole-runner test deadlock, not slowness:**
+   a PTY-instrumented probe showed the build completing in 80s, then all
+   116 tests printing "started" in the same instant and NOT ONE completing
+   in 23 minutes (suite takes <1s locally). Vision/OCR was the original
+   suspect but the all-at-once pattern points at something process-wide —
+   plausibly AppKit/WindowServer access in the runner's session (locally,
+   denying WindowServer via sandbox-exec breaks even test *discovery*).
+3. **PR #1 (`ci-hardening`) is ready and MUST land before any other push**:
+   job timeouts, cancel-in-progress concurrency, SwiftPM build cache,
+   workflow_dispatch, per-module test execution with 300s kill-timeouts
+   (the next run pinpoints WHICH module(s) deadlock), and CI job B —
+   XCUITest smoke + iOS simulator build (completes M17's CI side).
+4. After billing + merge: read the per-module run's log; gate or fix the
+   deadlocking module(s); then delete this section.
 
 ## Environment notes
 - Xcode 26.6 installed, license accepted — plain `git`/`swift`/`xcodebuild` all work. (`scripts/test-clt.sh` remains for CLT-only environments but is no longer required.)
