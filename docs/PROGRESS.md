@@ -141,7 +141,16 @@ the project owner's plan file; the milestone list below is self-contained.
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); F-1 added library/search/theming/link-history UI (simulator BUILD-verified only — needs hand-run); CloudKit sync UI pending
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `PDFReaderUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but local XCUITest synthesis can't drive them (see quirks below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI/human hands end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test PDFREADER_BUNDLE_ID_SUFFIX=.uitest<N>`. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
-- [ ] **M18** OSS polish, settings window, v0.1 tag
+- [~] **M18** code side DONE (2026-07-08): Settings window ⌘, (AppSettings:
+  LRU capacity live-applied via SessionCoordinator, indexing + OCR toggles
+  with per-pass IndexingService recreation, theme picker, Calibre folder
+  attach/detach via LibraryModel.shared, keybindings + deep-link sections),
+  scripts/release.sh (build→Developer-ID sign→DMG→notarize→staple, each
+  step skippable; DMG path exercised locally), .github/workflows/release.yml
+  (v* tags + workflow_dispatch only — inert while CI billing is dead;
+  secrets documented inline), CONTRIBUTING.md. REMAINING (owner): app icon,
+  README screenshots (Axler), mint Developer ID cert + notary credentials
+  (steps in scripts/release.sh output), repo public, tag v0.1.
 
 ## ⚠️ CI: BLOCKED ON BILLING; underlying deadlock diagnosed but not yet pinpointed (2026-07-08)
 Chronology of findings, most important first:
