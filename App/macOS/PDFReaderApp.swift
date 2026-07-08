@@ -27,12 +27,24 @@ struct PDFReaderApp: App {
             LibraryView()
         }
         .restorationBehavior(.disabled)
-        .keyboardShortcut("l", modifiers: [.command, .shift])
+        .keyboardShortcut(Self.libraryShortcut)
+    }
+
+    /// Scene-level Library binding, read from the command table so a
+    /// keybindings.json override of file.openLibrary lands here too.
+    /// Scene shortcuts can't be absent, so unbinding falls back to ⌘⇧L.
+    private static var libraryShortcut: KeyboardShortcut {
+        CommandRegistry.command(id: "file.openLibrary")?.chords.first?.keyboardShortcut
+            ?? KeyboardShortcut("l", modifiers: [.command, .shift])
     }
 }
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        presentKeybindingsIssuesIfNeeded()
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // Flush the session before windows tear down, and stop window-close
         // events from erasing windows out of it.
@@ -45,6 +57,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             DeepLinkRouter.shared.handle(url)
+        }
+    }
+
+    /// One alert listing every keybindings.json problem found at launch.
+    /// Deferred a runloop turn so session-restored windows appear first.
+    private func presentKeybindingsIssuesIfNeeded() {
+        let issues = CommandRegistry.keybindingsIssues
+        guard !issues.isEmpty else { return }
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Some keybindings could not be applied"
+            alert.informativeText = "keybindings.json has problems — the valid entries "
+                + "were applied, these were not:\n\n"
+                + issues.map { "• \($0)" }.joined(separator: "\n")
+            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: "Open Keybindings File")
+            if alert.runModal() == .alertSecondButtonReturn {
+                Keybindings.openFile()
+            }
         }
     }
 }
