@@ -173,14 +173,14 @@ public enum CommandRegistry {
         // steal arrows from every text field in the window).
         commands.append(ReaderCommand(
             id: "nav.previousPage", title: "Previous Page", category: .navigation,
-            chords: [KeyChord(.leftArrow), KeyChord(.upArrow)],
+            chords: [KeyChord(.leftArrow)],
             installsMenuShortcut: false,
             isAvailable: { $0.activeDocument != nil },
             run: { $0.model?.activeController?.pageBackward() }
         ))
         commands.append(ReaderCommand(
             id: "nav.nextPage", title: "Next Page", category: .navigation,
-            chords: [KeyChord(.rightArrow), KeyChord(.downArrow)],
+            chords: [KeyChord(.rightArrow)],
             installsMenuShortcut: false,
             isAvailable: { $0.activeDocument != nil },
             run: { $0.model?.activeController?.pageForward() }
