@@ -27,6 +27,7 @@ public final class AppSettings {
     static let ocrIndexingKey = "OCRIndexingEnabled"
     static let marginAnchorsKey = "MarginAnchorsEnabled"
     static let autoReloadDocumentsKey = "AutoReloadDocumentsEnabled"
+    static let syncEnabledKey = "CloudKitSyncEnabled"
 
     public static let defaultDocumentCapacity = 3
     /// PDFDocuments are memory-mapped so residency is cheap, but each one
@@ -98,6 +99,21 @@ public final class AppSettings {
         }
     }
 
+    /// Whether library data (tags, collections, bookmarks, reading positions)
+    /// syncs between this user's devices via iCloud. Off by default: it only
+    /// does anything in a build signed with iCloud entitlements (see
+    /// docs/SYNC.md), and the Settings UI explains why when it can't run.
+    public var syncEnabled: Bool {
+        didSet {
+            guard syncEnabled != oldValue else { return }
+            defaults?.set(syncEnabled, forKey: Self.syncEnabledKey)
+            onSyncEnabledChange?(syncEnabled)
+        }
+    }
+
+    /// Live-apply hook for the sync toggle (SyncCoordinator starts/stops).
+    @ObservationIgnored public var onSyncEnabledChange: ((Bool) -> Void)?
+
     /// Live-apply hook for the document LRU. Called with the new (already
     /// clamped) capacity after it persisted; never called when the value
     /// didn't actually change.
@@ -123,6 +139,8 @@ public final class AppSettings {
             defaults?.object(forKey: Self.marginAnchorsKey) as? Bool ?? true
         autoReloadDocumentsEnabled =
             defaults?.object(forKey: Self.autoReloadDocumentsKey) as? Bool ?? true
+        syncEnabled =
+            defaults?.object(forKey: Self.syncEnabledKey) as? Bool ?? false
     }
 
     static func clampedCapacity(_ value: Int) -> Int {

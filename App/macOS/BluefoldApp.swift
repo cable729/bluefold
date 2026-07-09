@@ -54,6 +54,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // launch, not from the first time the Library window opens.
         let library = LibraryModel.shared
         Task { await library.reload() }
+        // iCloud sync engages only if the user enabled it (and the build is
+        // entitled — see docs/SYNC.md); otherwise this is a no-op.
+        SyncCoordinator.shared.startIfEnabled()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

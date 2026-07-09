@@ -82,3 +82,22 @@ Reasoning behind choices that aren't obvious from the code. Newest last.
     conflicts, and verifies. An agent killed mid-run by an API error was
     resumed with no loss — worktree + small commits make interruptions
     cheap.
+
+16. **Sync (M15): snapshot-diff engine over plain CKDatabase ops, not
+    CKSyncEngine.** The plan named CKSyncEngine, but its inverted delegate
+    model (the framework schedules and asks you for batches) fights a
+    pull-style `SyncTransport` protocol, and none of it can be live-tested
+    until the owner's signing steps land — blind code should be simple
+    code. So: the engine exports full portable snapshots, diffs against a
+    `sync_shadow` of last-server-confirmed records, and pushes with
+    `.allKeys` (safe because merging is field-level LWW by modified_at and
+    every push is preceded by a fetch; a racing overwrite converges next
+    cycle). Deterministic record names double as the dedup strategy; names
+    can be hashed (255-byte cap) so they are never parsed — the shadow is
+    the only name→content resolver, which is also what makes incoming
+    CK deletes resolvable. Soft deletes travel as tombstone RECORDS (LWW
+    keeps delete-vs-edit sane); only 30-day purges become CK deletes. Own
+    push echoes (fetched records whose change tag matches the shadow) are
+    skipped — applying them resurrects purged/renamed rows (test-pinned).
+    CKSyncEngine (push-notification-driven sync) remains a possible later
+    upgrade behind the same transport seam. Full notes: SYNC.md.

@@ -21,6 +21,7 @@ public struct SettingsView: View {
             indexingSection
             calibreSection
             watchedFoldersSection
+            syncSection
             keybindingsSection
             deepLinksSection
         }
@@ -199,6 +200,48 @@ public struct SettingsView: View {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         guard path.hasPrefix(home) else { return path }
         return "~" + path.dropFirst(home.count)
+    }
+
+    // MARK: - iCloud sync
+
+    @ViewBuilder
+    private var syncSection: some View {
+        let sync = SyncCoordinator.shared
+        Section("iCloud sync") {
+            Toggle("Sync library between devices", isOn: $settings.syncEnabled)
+            LabeledContent("Status") {
+                Text(syncStatusDescription)
+                    .foregroundStyle(.secondary)
+            }
+            if sync.status.isSyncable {
+                Button("Sync Now") { sync.syncNow() }
+                    .disabled(sync.status == .syncing)
+            }
+            Text(
+                "Syncs tags, collections, bookmarks, and reading positions "
+                    + "across your Macs and devices through your private "
+                    + "iCloud — never the files themselves, and never "
+                    + "Calibre's own data. Newest change wins when two "
+                    + "devices disagree."
+            )
+            .settingsCaption()
+        }
+    }
+
+    private var syncStatusDescription: String {
+        switch SyncCoordinator.shared.status {
+        case .disabled:
+            return "Off"
+        case .unavailable(let reason):
+            return reason
+        case .syncing:
+            return "Syncing…"
+        case .error(let detail):
+            return "Error: \(detail)"
+        case .idle(let lastSync):
+            guard let lastSync else { return "Ready" }
+            return "Last synced \(lastSync.formatted(date: .omitted, time: .shortened))"
+        }
     }
 
     // MARK: - Keybindings

@@ -141,6 +141,36 @@ enum LibrarySchema {
             try db.execute(sql: "UPDATE book SET created_at = modified_at")
         }
 
+        migrator.registerMigration("v6") { db in
+            // Local-only CloudKit sync state (M15). None of these tables are
+            // themselves synced.
+            //
+            // sync_shadow: the last server-confirmed wire record per record
+            // name — the diff base for pushes AND the record-name → natural-key
+            // resolver for incoming deletes (record names are opaque identity;
+            // they are never parsed). payload is an opaque SyncKit-encoded
+            // blob; ReaderPersistence just stores it.
+            try db.create(table: "sync_shadow") { t in
+                t.column("record_name", .text).primaryKey()
+                t.column("record_type", .text).notNull()
+                t.column("payload", .blob).notNull()
+                t.column("change_tag", .text)
+            }
+            // sync_meta: small KV store (server change token, etc.).
+            try db.create(table: "sync_meta") { t in
+                t.column("key", .text).primaryKey()
+                t.column("value", .blob).notNull()
+            }
+            // sync_pending: fetched records that could not be applied yet
+            // (e.g. a book_tag whose book record hasn't arrived) — retried at
+            // the start of every sync.
+            try db.create(table: "sync_pending") { t in
+                t.column("record_name", .text).primaryKey()
+                t.column("payload", .blob).notNull()
+                t.column("first_seen", .integer).notNull()
+            }
+        }
+
         return migrator
     }
 }

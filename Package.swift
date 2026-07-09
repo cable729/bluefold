@@ -70,7 +70,7 @@ let package = Package(
         .testTarget(name: "ReaderPersistenceTests", dependencies: ["ReaderPersistence"]),
         .testTarget(name: "CalibreKitTests", dependencies: ["CalibreKit"]),
         .testTarget(name: "SearchIndexKitTests", dependencies: ["SearchIndexKit"]),
-        .testTarget(name: "SyncKitTests", dependencies: ["SyncKit"]),
+        .testTarget(name: "SyncKitTests", dependencies: ["SyncKit", "ReaderPersistence"]),
         .testTarget(name: "ReaderUITests", dependencies: ["ReaderUI"]),
     ]
 )

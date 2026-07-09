@@ -21,7 +21,7 @@ graph TD
         RP[ReaderPersistence\noverlay library.db via GRDB:\nbooks, tags, collections,\nbookmarks, reading state]
         CK[CalibreKit\nread-only metadata.db access]
         SIK[SearchIndexKit\nFTS5 index.db + OCR extraction]
-        SYK[SyncKit\nCloudKit sync — STUB, M15]
+        SYK[SyncKit\nCloudKit sync engine + transport]
     end
     MAC --> RUI
     IOS --> RC
@@ -132,14 +132,28 @@ blend modes in `draw(with:to:)` — dark = difference-invert, sepia = multiply
 does not). `PageFilterStore` is a lock, not MainActor state: PDFKit draws
 tiles off-main. Theme switch rebuilds the PDFView (its `.id` includes theme).
 
-## CloudKit sync design (M15, not yet implemented)
+## CloudKit sync (M15 — code done; live activation pending, see SYNC.md)
 
-CKSyncEngine, private DB, one custom zone. Deterministic record names
-(calibre uuid / content hash / relation-key concatenations) so devices mint
-identical records — no dedup pass. Conflicts: LWW by modified_at;
-reading_state = max(updatedAt) wins. Local-only: session, index, file_ref.
-Everything behind a `SyncTransport` protocol so the app runs sync-less and
-tests use a fake. Team ID A448YLFLYC is set on the project.
+Private DB, one custom zone (`BluefoldLibrary`). Deterministic record names
+(calibre uuid / content hash / paths / relation-key concatenations) so
+devices mint identical records — no dedup pass; names >250 bytes hash, so
+names are NEVER parsed (the `sync_shadow` table resolves name → content).
+Conflicts: LWW by modified_at; reading_state = max(updatedAt) wins. Soft
+deletes sync as tombstone records; only 30-day purges become real record
+deletions. Local-only: session, index, file_ref, and the sync-state tables
+themselves (migration v6).
+
+Layering: `ReaderPersistence` = everything that touches SQLite
+(`Portable*` natural-key types, `syncExport`, `syncApplyRemote` (LWW),
+`syncApplyRemoteDeletes`, shadow/meta/pending storage); `SyncKit` = wire
+types, `RecordMapper`, `SyncTransport` protocol, `SyncEngine` actor
+(fetch → apply → shadow-diff → push, echo-skip rule, pending retry,
+bounded conflict rounds); `ReaderUI.SyncCoordinator` = lifecycle (Settings
+toggle default-off, launch + 15-min timer + Sync Now, availability gating
+so unsigned builds never construct a CKContainer). Tests run two in-memory
+"devices" against `FakeTransport`, whose conflict detection is STRICTER
+than the CloudKit adapter's `.allKeys` mode. Team ID A448YLFLYC is set on
+the project; activation runbook in [SYNC.md](SYNC.md).
 
 ## Testing & verification patterns
 

@@ -25,7 +25,19 @@ the project owner's plan file; the milestone list below is self-contained.
 - [x] **M13** Library-wide FTS search UI + background auto-indexing: LibraryModel owns index.db (IndexStore + IndexingService), reload() kicks a cancellable utility-priority pass that indexes local files only (never triggers iCloud downloads), `indexingProgress` toolbar readout, "In Book Text" hit list above the grid (title / p.N / plain snippet), click opens the book at that page via `openItem(_:at:)` → `openInReader(fileURL:at:)`
 - [x] **M13b** OCR indexing for scanned PDFs: extractor v2, ~200 DPI CGBitmapContext render + VNRecognizeTextRequest inside the IndexingService actor, `.indexed` reports ocrPages, `.notSearchable` = no text layer AND OCR found nothing; `IndexingService(store:ocrEnabled:)` opt-out. (OCR word boxes for in-page highlights = future)
 - [x] **M14** Bookmarks + reading state: BookResolver (content-hash first, file_ref path, auto-register any opened PDF), reading-state writes on capture, Bookmarks sidebar mode + ⌘D, shared AppStores.library. ("Continue Reading" library section pending M13 merge)
-- [ ] **M15** CloudKit sync via CKSyncEngine (dev account enrolled; owner must add it in Xcode > Settings > Accounts first)
+- [~] **M15** CloudKit sync — CODE DONE + unit-tested (2026-07-09); live
+  CloudKit pending owner signing steps (docs/SYNC.md runbook). What shipped:
+  `SyncKit` engine (shadow-diff push / fetch-then-apply, LWW by modified_at,
+  reading_state max-updated_at, deterministic record names so devices mint
+  identical records), `ReaderPersistence` portable export/apply + migration
+  v6 (local-only sync_shadow/sync_meta/sync_pending), `CloudKitTransport`
+  (private DB, one zone, opaque payload field, entitlement-gated so unsigned
+  builds never touch CKContainer), `SyncCoordinator` + Settings "iCloud
+  sync" section (toggle default OFF, status line, Sync Now). 27 new tests
+  incl. two-device convergence via FakeTransport (rename keeps memberships,
+  tombstone purge propagates as hard delete, push-echo skip prevents
+  resurrection, orphan relations pend + heal, expired token refetches
+  idempotently). Design + maintainer notes: docs/SYNC.md.
 
 - [x] **UI-1** Feedback round 1: search moved into the sidebar (results list, no navigation while typing, click = jump+history), 4 icon-tab sidebar modes (fixes segmented overflow), sidebar/window fill constraints (fixes dead-space collapse), active tab highlighted (accent top bar + bold), tabs draggable between windows (payload windowID|tabID -> SessionCoordinator.moveTab), back/forward buttons are history menus, ⌘[/⌘] moved to a History menu, current section highlighted in Contents, live page tracking via PDFViewPageChanged
 - [x] **P-1** Collections support tree nesting (migration v2: collection.parent_id; collectionTree(), subtree book queries, reparenting delete)
@@ -473,28 +485,36 @@ destinations/crops before theorizing.
 - `./scripts/verify.sh` — the one-command quality gate (tests + both app builds + launch smoke)
 
 ## Next step
-1. **Owner decisions pending** (do NOT do these unprompted):
+1. **Owner actions pending** (do NOT do these unprompted):
+   - **Activate iCloud sync** (M15 code is done): the 15-minute signing
+     runbook in docs/SYNC.md (add Apple ID in Xcode, add the iCloud
+     capability with container `iCloud.com.cable729.bluefold`, run, toggle
+     sync on, verify in CloudKit Console; deploy schema to Production
+     before any release build).
    - Merge the 4 duplicate book rows (Calibre + pre-mirror auto-registered
      twins; the auto rows hold reading state, the Calibre rows hold tags;
      palette dedupes by path so it's cosmetic). Shown to the owner
      2026-07-08 with concrete rows (D&F, Axler, Tao, Aluffi) — awaiting
-     his go/no-go; back up library.db before running.
-   - **App + LLC rename** (owner confirmed he wants both): brainstorm
-     session needed. Gates M15 (CloudKit container is bundle-id-scoped)
-     and the deep-link scheme (DeepLink.schemes — new scheme first, keep
-     `bluefold` as alias).
+     his go/no-go; back up library.db before running. NOTE: sync
+     deliberately never merges these rows either (test-pinned).
+   - **Fix GitHub Actions billing** (Settings → Billing & plans): still
+     dead as of 2026-07-09 — even merged-PR runs fail in seconds with the
+     spending-limit message ("job was not acquired" on the one run that
+     queued). PR #1 (hardening) and PR #2 (frugal) are both MERGED, so the
+     first billed run will be the per-module one that names the deadlocking
+     test module — read its log, gate or fix that module, then delete the
+     ⚠️ CI section above.
    - Still parked: first-launch shortcuts HUD; sub-tag context menu
      (right-click tag → New Sub-Tag / Rename).
-2. **Owner hand-verification debt**: F-1 wave UI (tag colors, list/
-   sectioned views, keybindings.json flow, split left/right + drag-to-
-   split, Copy Link commands), iOS part 2 on a simulator/device, plus the
-   older items: ⇤ ⇥ full backward trip through a scan, sidebar follow-mode
-   feel, ⇧⏎/⌘⏎ palette variants. VERIFIED by owner 2026-07-08: tab
-   tear-off + cross-window drags; deep links land exactly (session-tested
-   by agent).
-3. **Merge PR #1 (ci-hardening) + PR #2 (ci-frugal)** once GitHub billing
-   resets; read the per-module PTY log to name the deadlocking CI module;
-   then CI job B (XCUITest + iOS sim build) and wire UI tests into
-   scripts/verify.sh.
-4. Then: M15 CloudKit (settle bundle identifier FIRST), M18 v0.1
-   (settings window, app icon, notarized DMG, screenshots — use Axler).
+2. **Owner hand-verification debt**: ⌘⇧T reopen (round 19), F-1 wave UI
+   (tag colors, list/sectioned views, keybindings.json flow, split
+   left/right + drag-to-split, Copy Link commands), iOS part 2 on a
+   simulator/device, plus the older items: ⇤ ⇥ full backward trip through
+   a scan, sidebar follow-mode feel, ⇧⏎/⌘⏎ palette variants. VERIFIED by
+   owner 2026-07-08: tab tear-off + cross-window drags; deep links land
+   exactly (session-tested by agent).
+3. After billing: CI job B (XCUITest + iOS sim build) and wire UI tests
+   into scripts/verify.sh (M17's CI side).
+4. Then M18 v0.1 remainder (owner): mint Developer ID cert + notary
+   credentials (steps in scripts/release.sh output), README screenshots
+   (use Axler), make the repo public, tag v0.1. App icon DONE (round 20).

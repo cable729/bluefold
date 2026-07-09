@@ -17,7 +17,7 @@ public final class LibraryStore: Sendable {
     }
 
     let dbQueue: DatabaseQueue
-    private let now: @Sendable () -> Int64
+    let now: @Sendable () -> Int64
 
     /// Opens (creating if needed) the library database at `path`.
     public init(path: String, now: @escaping @Sendable () -> Int64 = LibraryStore.systemClock) throws {

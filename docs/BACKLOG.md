@@ -6,13 +6,13 @@ end-of-session feedback after using the app.
 
 ## Remaining roadmap milestones
 
-- **M15 — CloudKit sync.** Design is in ARCHITECTURE.md §CloudKit. Team ID
-  A448YLFLYC is set on the project; the owner's Apple ID is in Xcode. First
-  signed build mints the dev certificate. Add iCloud/CloudKit + push
-  entitlements to both targets, create container
-  `iCloud.com.cable729.bluefold`, implement SyncKit with CKSyncEngine
-  behind `SyncTransport` (fake transport for tests), deploy schema to
-  production in CloudKit Console before any release build.
+- ✅ CODE-DONE 2026-07-09 (live CloudKit pending the owner's 15-minute
+  signing runbook in docs/SYNC.md) — **M15 — CloudKit sync.** SyncKit
+  engine + FakeTransport convergence tests, CloudKitTransport
+  (entitlement-gated), Settings toggle + status + Sync Now. Remaining
+  owner steps: add Apple ID in Xcode, add iCloud capability/container
+  `iCloud.com.cable729.bluefold` to both targets, verify a live round
+  trip, deploy schema to Production before any release build.
 - ✅ CODE-DONE 2026-07-08 (F-1; simulator build only — needs hand-run) —
   **iOS part 2.** Library UI (Calibre via iCloud Drive picker, tags,
   collections), FTS search UI, theming, link-tap history interception,

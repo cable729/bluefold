@@ -45,6 +45,7 @@ private final class TestClock: @unchecked Sendable {
         #expect(tables == [
             "book", "file_ref", "tag", "book_tag",
             "collection", "collection_item", "user_bookmark", "reading_state",
+            "sync_shadow", "sync_meta", "sync_pending",
         ])
         let foreignKeysOn = try store.dbQueue.read { db in
             try Bool.fetchOne(db, sql: "PRAGMA foreign_keys")
