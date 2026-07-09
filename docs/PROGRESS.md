@@ -383,7 +383,7 @@ the project owner's plan file; the milestone list below is self-contained.
   → simctl io screenshot; theme via `simctl spawn <sim> defaults write
   com.cable729.bluefold.ios BluefoldTheme <raw>`. CloudKit sync UI pending
   (M15 Settings section is macOS-only so far).
-- [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `BluefoldUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but local XCUITest synthesis can't drive them (see quirks below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI/human hands end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest<N>`. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
+- [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `BluefoldUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but local XCUITest synthesis can't drive them (see quirks below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI/human hands end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest$(date +%s)` — but as of 2026-07-09 full-suite local runs degrade mid-run on this machine (mid-suite bundle-ID poisoning, see quirks below); spot-check single tests locally, full passes belong to CI. `VERIFY_UITESTS=1 ./scripts/verify.sh` runs the suite as opt-in step 5. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
 - [~] **M18** code side DONE (2026-07-08): Settings window ⌘, (AppSettings:
   LRU capacity live-applied via SessionCoordinator, indexing + OCR toggles
   with per-pass IndexingService recreation, theme picker, Calibre folder
@@ -446,6 +446,16 @@ app bugs:
   `BLUEFOLD_BUNDLE_ID_SUFFIX` build override (app target only) so each run
   can use a fresh ID; `scripts/verify.sh`'s direct-exec launch smoke may
   false-fail on a machine in this state (launch via `open` instead).
+  **2026-07-09 escalation**: the poisoning now sets in MID-SUITE — with one
+  fresh suffix per `xcodebuild test` run, some early test's teardown
+  poisons the shared ID and every later test's launch times out windowless
+  (31s failures; which test trips it varies run to run). Any single test
+  passes in seconds with a virgin suffix, so these are NOT code
+  regressions — spot-check individual tests locally
+  (`-only-testing:… BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest$(date +%s)`) and
+  leave full-suite passes to CI's fresh runners. Verified post-rename/M15:
+  quit-relaunch restore and the split-view render smoke both pass in
+  isolation.
 - **XCUITest synthesized input is partially broken locally**: plain
   `click()` and coordinate-targeted drags are never delivered (drag releases
   after ~2 interpolation steps); element→element drags inside the KEY window

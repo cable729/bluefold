@@ -63,5 +63,18 @@ else
     echo "== 4/4 launch smoke skipped on CI (XCUITest will cover this — M17) =="
 fi
 
+if [ -n "${VERIFY_UITESTS:-}" ]; then
+    echo "== 5/5 macOS XCUITest smoke (VERIFY_UITESTS set) =="
+    # The same suite CI job B runs. Opt-in because it drives real windows
+    # for several minutes — don't run it while using the Mac for something
+    # else, and never from parallel agents (docs/PROGRESS.md quirks).
+    # Timestamp suffix: a bundle ID that EVER died uncleanly on this machine
+    # launches windowless forever after (macOS 26 quirk), so every run gets
+    # a virgin ID.
+    xcodebuild -project App/Bluefold.xcodeproj -scheme Bluefold \
+        -configuration Debug -derivedDataPath .build/DerivedData-UITest \
+        test "BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest$(date +%s)" 2>&1 | tail -30
+fi
+
 echo ""
 echo "ALL VERIFY STEPS PASSED"
