@@ -366,7 +366,23 @@ the project owner's plan file; the milestone list below is self-contained.
     unit-covered.
 
 ### Phase C
-- [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); F-1 added library/search/theming/link-history UI (simulator BUILD-verified only — needs hand-run); CloudKit sync UI pending
+- [~] **M16** iOS app: minimal tabbed reader + session restore DONE
+  (simulator-verified); F-1 added library/search/theming/link-history UI.
+  **Simulator hand-run 2026-07-09** (iPhone 17 sim, iOS 26.5, agent):
+  VERIFIED live — session restore from a seeded Documents/session.json
+  (two tabs, pathHint fallback, correct page landing in Axler), tab strip
+  rendering + active highlight, control-bar states, and all three forced
+  themes: dark difference-invert (inverted images, dark pages) and sepia
+  multiply-tan PIXEL-verified (page body 247,240,231 ≈ Claude tan vs pure
+  white in light) via the shared BluefoldTheme UserDefaults key. NOT yet
+  verified (simctl can't synthesize taps): library sheet/folder picker,
+  FTS search UI, link-tap history, dataless download — needs owner hands
+  or a future iOS XCUITest target. Seeding recipe for future agents:
+  simctl install → copy PDFs into the app container's Documents → write
+  session.json (schemaVersion 1, tabs with pathHint only) → simctl launch
+  → simctl io screenshot; theme via `simctl spawn <sim> defaults write
+  com.cable729.bluefold.ios BluefoldTheme <raw>`. CloudKit sync UI pending
+  (M15 Settings section is macOS-only so far).
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `BluefoldUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but local XCUITest synthesis can't drive them (see quirks below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI/human hands end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest<N>`. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
 - [~] **M18** code side DONE (2026-07-08): Settings window ⌘, (AppSettings:
   LRU capacity live-applied via SessionCoordinator, indexing + OCR toggles
