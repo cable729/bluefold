@@ -229,6 +229,138 @@ struct SessionCoordinatorTests {
         #expect(totalTabs == 2)  // no tab may be lost by an unpresented stage
     }
 
+    // MARK: - Reopen closed tabs & windows (⌘⇧T)
+
+    @Test func reopenClosedTabReturnsToSourceWindowAtItsOldPosition() throws {
+        let file = try makeTempSessionFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+
+        let coordinator = SessionCoordinator(sessionFileURL: file)
+        let model = coordinator.model(for: UUID())
+        model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        model.openTab(fileURL: URL(fileURLWithPath: "/tmp/b.pdf"), at: NavEntry(pageIndex: 51))
+        model.openTab(fileURL: URL(fileURLWithPath: "/tmp/c.pdf"))
+
+        #expect(!coordinator.canReopenClosedItem)
+        model.closeTab(id: model.tabs[1].id)
+        #expect(coordinator.canReopenClosedItem)
+
+        // Lands back in the same window, same slot, same position; active.
+        #expect(coordinator.reopenLastClosed() == nil)
+        #expect(model.tabs.count == 3)
+        #expect(model.tabs[1].pathHint.hasSuffix("b.pdf"))
+        #expect(model.tabs[1].pageIndex == 51)
+        #expect(model.activeTabID == model.tabs[1].id)
+        #expect(!coordinator.canReopenClosedItem)
+    }
+
+    @Test func reopenClosedTabFallsBackWhenSourceWindowIsGone() throws {
+        let file = try makeTempSessionFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+
+        let coordinator = SessionCoordinator(sessionFileURL: file)
+        let a = UUID()
+        let modelA = coordinator.model(for: a)
+        modelA.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        let modelB = coordinator.model(for: UUID())
+        modelB.openTab(fileURL: URL(fileURLWithPath: "/tmp/b.pdf"))
+
+        // Close A's only tab, then A itself (now empty: no window record).
+        modelA.closeTab(id: modelA.tabs[0].id)
+        coordinator.windowClosed(a)
+
+        #expect(coordinator.reopenLastClosed() == nil)
+        #expect(modelB.tabs.count == 2)
+        #expect(modelB.tabs.last?.pathHint.hasSuffix("a.pdf") == true)
+    }
+
+    @Test func reopenClosedWindowRestagesItWithItsTabs() throws {
+        let file = try makeTempSessionFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+
+        let coordinator = SessionCoordinator(sessionFileURL: file)
+        let a = UUID()
+        let modelA = coordinator.model(for: a)
+        modelA.openTab(fileURL: URL(fileURLWithPath: "/tmp/a1.pdf"), at: NavEntry(pageIndex: 7))
+        modelA.openTab(fileURL: URL(fileURLWithPath: "/tmp/a2.pdf"))
+        coordinator.model(for: UUID()).openTab(fileURL: URL(fileURLWithPath: "/tmp/b.pdf"))
+
+        coordinator.windowClosed(a)  // other windows remain: recorded for ⌘⇧T
+        #expect(coordinator.canReopenClosedItem)
+
+        let staged = coordinator.reopenLastClosed()
+        #expect(staged == a)
+        let restored = coordinator.model(for: try #require(staged))
+        #expect(restored.tabs.count == 2)
+        #expect(restored.tabs[0].pathHint.hasSuffix("a1.pdf"))
+        #expect(restored.tabs[0].pageIndex == 7)
+    }
+
+    @Test func closingLastWindowIsStashedNotRecordedTwice() throws {
+        let file = try makeTempSessionFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+
+        // The last window's state goes to the Dock-reopen stash (round 5);
+        // recording it on the ⌘⇧T stack too would restore it twice.
+        let coordinator = SessionCoordinator(sessionFileURL: file)
+        let window = coordinator.claimLaunchWindowID()
+        coordinator.model(for: window).openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        coordinator.windowClosed(window)
+        #expect(!coordinator.canReopenClosedItem)
+    }
+
+    @Test func reopenClosedTabWithNoWindowsStagesAFreshOne() throws {
+        let file = try makeTempSessionFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+
+        let coordinator = SessionCoordinator(sessionFileURL: file)
+        let a = UUID()
+        let model = coordinator.model(for: a)
+        model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        model.openTab(fileURL: URL(fileURLWithPath: "/tmp/b.pdf"))
+        model.closeTab(id: model.tabs[1].id)
+        coordinator.windowClosed(a)  // last window: stashed, not recorded
+
+        // Only the closed TAB is on the stack; no live window can adopt it.
+        let staged = coordinator.reopenLastClosed()
+        let restored = coordinator.model(for: try #require(staged))
+        #expect(restored.tabs.count == 1)
+        #expect(restored.tabs[0].pathHint.hasSuffix("b.pdf"))
+    }
+
+    @Test func tabsMovedBetweenWindowsAreNotRecorded() throws {
+        let file = try makeTempSessionFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+
+        let coordinator = SessionCoordinator(sessionFileURL: file)
+        let a = UUID()
+        let b = UUID()
+        let modelA = coordinator.model(for: a)
+        modelA.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        modelA.openTab(fileURL: URL(fileURLWithPath: "/tmp/moved.pdf"))
+        _ = coordinator.model(for: b)
+
+        coordinator.moveTab(modelA.tabs[1].id, from: a, to: b)
+        #expect(!coordinator.canReopenClosedItem)
+    }
+
+    @Test func reopenedTabKeepsItsHistory() throws {
+        let file = try makeTempSessionFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+
+        let coordinator = SessionCoordinator(sessionFileURL: file)
+        let model = coordinator.model(for: UUID())
+        model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        model.openTab(fileURL: URL(fileURLWithPath: "/tmp/b.pdf"))
+        let id = model.tabs[1].id
+        model.updateTab(id: id) { $0.history.push(NavEntry(pageIndex: 3)) }
+
+        model.closeTab(id: id)
+        _ = coordinator.reopenLastClosed()
+        let reopened = model.tabs.first { $0.id == id }
+        #expect(reopened?.history.canGoBack == true)
+    }
+
     @Test func modelsShareOneProvider() {
         let coordinator = SessionCoordinator(
             sessionFileURL: FileManager.default.temporaryDirectory

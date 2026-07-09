@@ -70,6 +70,11 @@ public final class ReaderWindowModel {
     @ObservationIgnored
     public var onMutation: (() -> Void)?
 
+    /// Fired when a tab is CLOSED (not detached to another window), with its
+    /// strip index — the session coordinator records it for ⌘⇧T reopen.
+    @ObservationIgnored
+    public var onTabClosed: ((TabState, Int) -> Void)?
+
     /// The primary pane's live view; registered on creation, dropped on
     /// teardown.
     @ObservationIgnored
@@ -405,6 +410,12 @@ public final class ReaderWindowModel {
 
     public func closeTab(id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        // On-screen tabs: fold the live scroll position in first, so the
+        // reopen stack gets the exact spot (the view's teardown capture
+        // arrives after the tab has left `tabs` — too late).
+        if let entry = paneController(forTab: id)?.liveNavEntry {
+            tabs[index].apply(entry)
+        }
         let closed = tabs.remove(at: index)
         if splitTabID == id {
             splitTabID = nil
@@ -420,6 +431,7 @@ public final class ReaderWindowModel {
         if !tabs.contains(where: { $0.pathHint == closed.pathHint }) {
             provider.evict(path: closed.pathHint)
         }
+        onTabClosed?(closed, index)
         onMutation?()
     }
 

@@ -10,6 +10,9 @@ import SwiftUI
 public struct CommandContext {
     public var model: ReaderWindowModel?
     public var ui: ReaderWindowUIState?
+    /// The session coordinator, for commands that reach across windows
+    /// (⌘⇧T reopen). Nil in test contexts that don't inject one.
+    public var session: SessionCoordinator?
     public var openReaderWindow: () -> Void
     public var openLibraryWindow: () -> Void
     /// Presents a staged reader window by ID (`openWindow(id:"reader",
@@ -19,12 +22,14 @@ public struct CommandContext {
     public init(
         model: ReaderWindowModel? = nil,
         ui: ReaderWindowUIState? = nil,
+        session: SessionCoordinator? = nil,
         openReaderWindow: @escaping () -> Void = {},
         openLibraryWindow: @escaping () -> Void = {},
         presentReaderWindow: @escaping (UUID) -> Void = { _ in }
     ) {
         self.model = model
         self.ui = ui
+        self.session = session
         self.openReaderWindow = openReaderWindow
         self.openLibraryWindow = openLibraryWindow
         self.presentReaderWindow = presentReaderWindow
@@ -211,6 +216,18 @@ public enum CommandRegistry {
             id: "file.closeWindow", title: "Close Window", category: .file,
             chords: [KeyChord("w", [.command, .shift])],
             run: { _ in NSApp.keyWindow?.performClose(nil) }
+        ))
+        // ⌘⇧T, browser-style: pops the most recently closed tab OR window,
+        // with position, zoom, and history intact.
+        commands.append(ReaderCommand(
+            id: "tabs.reopenClosed", title: "Reopen Closed Tab", category: .tabs,
+            chords: [KeyChord("t", [.command, .shift])],
+            isAvailable: { $0.session?.canReopenClosedItem == true },
+            run: { context in
+                if let windowID = context.session?.reopenLastClosed() {
+                    context.presentReaderWindow(windowID)
+                }
+            }
         ))
 
         // MARK: Navigation

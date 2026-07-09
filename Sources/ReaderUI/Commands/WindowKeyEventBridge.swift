@@ -108,7 +108,7 @@ struct WindowKeyEventBridge: NSViewRepresentable {
             // Every other chord the menus don't install: ⌘1…⌘9 tab
             // selection, ⌃Tab/⌃⇧Tab cycling, the ⌘⇧O palette alias, and
             // whatever keybindings.json rebinds onto monitor-owned commands.
-            let context = CommandContext(model: model, ui: ui)
+            let context = CommandContext(model: model, ui: ui, session: .shared)
             if let command = CommandRegistry.monitorCommand(
                 matching: candidates, isEditingText: editingText
             ), command.isAvailable(context) {

@@ -18,6 +18,7 @@ public struct ReaderCommands: Commands {
         CommandContext(
             model: model,
             ui: ui,
+            session: SessionCoordinator.shared,
             openReaderWindow: { openWindow(id: "reader", value: UUID()) },
             openLibraryWindow: { openWindow(id: "library") },
             presentReaderWindow: { openWindow(id: "reader", value: $0) }
@@ -30,7 +31,7 @@ public struct ReaderCommands: Commands {
         }
 
         CommandGroup(replacing: .saveItem) {
-            items(["file.closeTab", "file.closeWindow"])
+            items(["file.closeTab", "file.closeWindow", "tabs.reopenClosed"])
         }
 
         // Frees ⌘P for the navigate palette (VS Code quick-open convention).

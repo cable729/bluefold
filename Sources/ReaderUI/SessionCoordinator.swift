@@ -230,6 +230,9 @@ public final class SessionCoordinator {
             restoring: restored
         )
         model.onMutation = { [weak self] in self?.scheduleSave() }
+        model.onTabClosed = { [weak self] tab, index in
+            self?.noteClosed(.tab(tab, sourceWindowID: windowID, index: index))
+        }
         models[windowID] = model
         windowOrder.append(windowID)
         scheduleSave()
@@ -247,11 +250,73 @@ public final class SessionCoordinator {
         if let closing, models.isEmpty, !closing.tabs.isEmpty {
             pendingRestore[windowID] = closing.stateSnapshot
             pendingOrder.append(windowID)
+        } else if let closing, !closing.tabs.isEmpty {
+            // Other windows remain, so this state would otherwise be gone —
+            // ⌘⇧T can bring the whole window back. (The last-window branch
+            // above already preserves its state for Dock reopen / relaunch;
+            // recording it here too would restore it twice.)
+            noteClosed(.window(closing.stateSnapshot))
         }
         if lastFocusedWindowID == windowID {
             lastFocusedWindowID = nil
         }
         scheduleSave()
+    }
+
+    // MARK: - Recently closed (⌘⇧T)
+
+    /// A tab or window the user closed this run — what ⌘⇧T restores,
+    /// most recent last.
+    enum ClosedItem {
+        case tab(TabState, sourceWindowID: UUID, index: Int)
+        case window(WindowState)
+    }
+
+    private(set) var recentlyClosed: [ClosedItem] = []
+    private let recentlyClosedLimit = 30
+
+    private func noteClosed(_ item: ClosedItem) {
+        recentlyClosed.append(item)
+        if recentlyClosed.count > recentlyClosedLimit {
+            recentlyClosed.removeFirst(recentlyClosed.count - recentlyClosedLimit)
+        }
+    }
+
+    public var canReopenClosedItem: Bool { !recentlyClosed.isEmpty }
+
+    /// Pops the most recently closed tab or window, browser-style. A tab
+    /// returns to its source window (at its old strip position) when that
+    /// window still exists, else to the focused reader window. Returns nil
+    /// when the item landed in an existing window, or a staged window ID the
+    /// caller must present via `openWindow(id: "reader", value:)` — a
+    /// reopened window, or a reopened tab with no window left to land in.
+    public func reopenLastClosed() -> UUID? {
+        guard let item = recentlyClosed.popLast() else { return nil }
+        switch item {
+        case .tab(let tab, let sourceWindowID, let index):
+            let targetID = models[sourceWindowID] != nil
+                ? sourceWindowID
+                : lastFocusedWindowID.flatMap { models[$0] != nil ? $0 : nil }
+                    ?? windowOrder.last
+            if let targetID, let target = models[targetID] {
+                target.adoptTab(tab, at: targetID == sourceWindowID ? index : nil)
+                target.hostWindow?.makeKeyAndOrderFront(nil)
+                return nil
+            }
+            // No reader window at all: stage a fresh one around the tab.
+            let newID = UUID()
+            pendingRestore[newID] = WindowState(id: newID, tabs: [tab], activeTabID: tab.id)
+            pendingOrder.append(newID)
+            scheduleSave()
+            return newID
+        case .window(let state):
+            // Restage under its old ID — frame, tabs, split, and active tab
+            // all come back exactly as closed.
+            pendingRestore[state.id] = state
+            pendingOrder.append(state.id)
+            scheduleSave()
+            return state.id
+        }
     }
 
     // MARK: - Opening from the library

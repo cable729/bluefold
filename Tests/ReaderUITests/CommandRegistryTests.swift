@@ -122,9 +122,31 @@ struct CommandRegistryTests {
         #expect(CommandRegistry.command(id: "view.layout.singlePage")?.isOn?(context) == false)
     }
 
+    @Test func reopenClosedTabCommandRoundTripsThroughTheTable() {
+        let coordinator = SessionCoordinator(
+            sessionFileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("reopen-\(UUID().uuidString).json")
+        )
+        let model = coordinator.model(for: UUID())
+        let context = CommandContext(model: model, session: coordinator)
+        let command = CommandRegistry.command(id: "tabs.reopenClosed")
+
+        #expect(command?.isAvailable(context) == false)
+        model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        model.openTab(fileURL: URL(fileURLWithPath: "/tmp/b.pdf"))
+        model.closeTab(id: model.tabs[1].id)
+        #expect(command?.isAvailable(context) == true)
+
+        command?.run(context)
+        #expect(model.tabs.count == 2)
+        #expect(model.tabs[1].pathHint.hasSuffix("b.pdf"))
+        #expect(command?.isAvailable(context) == false)
+    }
+
     @Test func availabilityTracksWindowState() {
         let empty = CommandContext()
-        for id in ["file.newTab", "nav.openAnything", "bookmarks.add", "tabs.duplicate"] {
+        for id in ["file.newTab", "nav.openAnything", "bookmarks.add", "tabs.duplicate",
+                   "tabs.reopenClosed"] {
             #expect(CommandRegistry.command(id: id)?.isAvailable(empty) == false, Comment(rawValue: id))
         }
         #expect(CommandRegistry.command(id: "file.newWindow")?.isAvailable(empty) == true)

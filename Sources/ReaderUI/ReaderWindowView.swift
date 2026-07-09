@@ -28,6 +28,7 @@ public struct ReaderWindowView: View {
         CommandContext(
             model: model,
             ui: ui,
+            session: SessionCoordinator.shared,
             openReaderWindow: { openWindow(id: "reader", value: UUID()) },
             openLibraryWindow: { openWindow(id: "library") },
             presentReaderWindow: { openWindow(id: "reader", value: $0) }

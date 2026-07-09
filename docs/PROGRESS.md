@@ -312,6 +312,47 @@ the project owner's plan file; the milestone list below is self-contained.
     bookmarks), per-folder auto-tag, Calibre-side tombstoning of books
     removed from metadata.db (upsert-only today, pre-existing).
 
+- [x] **UI-13** Round 19 (2026-07-09): ⌘⇧T reopens closed tabs AND windows
+  (owner ask; browser convention).
+  - **Reopen stack**: `SessionCoordinator.recentlyClosed` (in-memory, this
+    run only, capped at 30) records every real close, most recent last.
+    Tab closes flow in via `ReaderWindowModel.onTabClosed` (fired from
+    `closeTab` with the strip index; `closeTab` now folds the live scroll
+    position into the TabState first — the view's teardown capture arrives
+    after the tab left `tabs`, too late for the stack). Window closes are
+    recorded in `windowClosed` ONLY when other windows remain — the
+    last-window close keeps its round-5 stash (Dock reopen / relaunch),
+    recording it too would restore it twice. Detach/move-between-windows
+    (`detachTab`) never records: the tab isn't closed, it moved.
+  - **Restore** (`reopenLastClosed()`): a tab returns to its source window
+    at its old strip index (activated + window brought front) when that
+    window still lives, else to the focused reader window; with no reader
+    window at all it stages a fresh window (pendingRestore) and returns the
+    ID for `openWindow(id:"reader", value:)` — same contract as the other
+    staging APIs. A window restages its full WindowState (frame, tabs,
+    split, active tab) under its old ID. Position, zoom, and history come
+    back intact either way.
+  - **Command**: `tabs.reopenClosed` (⌘⇧T, File menu next to Close
+    Tab/Close Window, palette, help overlay, rebindable). CommandContext
+    grew a `session: SessionCoordinator?` field (nil in bare test contexts)
+    so the command is testable against instance coordinators; ReaderCommands
+    / ReaderWindowView / WindowKeyEventBridge pass `.shared`.
+  - Also fixed in passing: iOS build was broken since round 18 —
+    `LibraryModel.sourceWatcher: FolderWatcher?` referenced the
+    macOS-only FolderWatcher without an `#if os(macOS)` gate (uses were
+    gated, the property declaration wasn't). scripts/verify.sh step 3
+    catches it; it now passes again.
+  - Tests (428 total, +8): SessionCoordinatorTests (reopen to source window
+    at old slot with position, fallback when source window gone, whole-window
+    restage with tabs+positions, last-window close NOT double-recorded,
+    reopen with zero windows stages fresh, moved tabs not recorded, history
+    survives), CommandRegistryTests (⌘⇧T round-trip through the table +
+    availability tracks the stack).
+  - Verified: scripts/verify.sh all green (launch smoke included). Live
+    ⌘⇧T keypress left for the owner's next session (screen-control access
+    was declined this run); the whole restore path below the keystroke is
+    unit-covered.
+
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); F-1 added library/search/theming/link-history UI (simulator BUILD-verified only — needs hand-run); CloudKit sync UI pending
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `PDFReaderUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but local XCUITest synthesis can't drive them (see quirks below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI/human hands end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test PDFREADER_BUNDLE_ID_SUFFIX=.uitest<N>`. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.

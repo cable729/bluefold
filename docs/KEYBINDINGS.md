@@ -21,6 +21,7 @@ Conventions borrowed from VS Code (palettes, quick-open), Safari/Chrome
 | ⌘⇧L | Open Library | Bound at scene level on the Library window; the File-menu item deliberately installs no second binding. |
 | ⌘W | Close Tab (falls back to window) | Browser convention |
 | ⌘⇧W | Close Window | Browser convention |
+| ⌘⇧T | Reopen Closed Tab | Browser convention. Pops the most recently closed tab OR window (up to 30 this run), with position, zoom, and history intact. A tab returns to the window it was closed in when possible. |
 
 ## Navigation
 
@@ -171,6 +172,7 @@ entries claiming the same chord, the alphabetically-first command id wins.
 | `tabs.next` / `tabs.previous` | Next / Previous tab (`shift+cmd+]`+`ctrl+tab` / `shift+cmd+[`+`ctrl+shift+tab`) |
 | `tabs.select.1` … `tabs.select.9` | Go to tab N / last (`cmd+1` … `cmd+9`) |
 | `tabs.duplicate` / `tabs.closeOthers` | Duplicate Tab / Close Other Tabs (unbound) |
+| `tabs.reopenClosed` | Reopen Closed Tab (`shift+cmd+t`) |
 | `view.toggleSidebar` | Show Sidebar (`cmd+b`) |
 | `view.layout.singlePage` / `.continuous` / `.twoUp` / `.twoUpContinuous` | Page layouts (`opt+cmd+1`…`opt+cmd+4`) |
 | `view.splitRight` | Split Right — toggle (`cmd+\`) |
