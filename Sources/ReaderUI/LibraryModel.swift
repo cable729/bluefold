@@ -94,7 +94,9 @@ public final class LibraryModel {
     @ObservationIgnored private var scanFingerprints: [String: WatchedFileFingerprint] = [:]
     /// Observes the watched folders + the Calibre root; nil while nothing
     /// is watched. Real app instances only — never tests.
+    #if os(macOS)
     @ObservationIgnored private var sourceWatcher: FolderWatcher?
+    #endif
     @ObservationIgnored private var sourceReloadTask: Task<Void, Never>?
     @ObservationIgnored private var autoRescanEnabled = false
 
