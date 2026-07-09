@@ -1,13 +1,19 @@
 name: CI
 
+# FRUGAL MODE (owner decision 2026-07-08, after zombie runs drained the
+# month's included minutes): macOS minutes bill at 10x, so CI never runs on
+# plain pushes. It runs on PRs (the review moments that matter) and on
+# demand via workflow_dispatch — e.g. before tagging a release. The routine
+# gate is local: ./scripts/verify.sh.
 on:
-  push:
-    branches: [main]
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - "LICENSE"
   workflow_dispatch:
 
-# A newer push obsoletes in-flight runs; macOS minutes bill at 10x, so never
-# let two runs of the same ref race.
+# A newer push obsoletes in-flight runs; never let two runs of one ref race.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
