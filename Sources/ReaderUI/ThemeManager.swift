@@ -14,6 +14,16 @@ import SwiftUI
 /// color scheme to its own window when that window is key, so a theme
 /// change made in one window left every other window's appearance stale
 /// until clicked. Iterating the registry updates all windows at once.
+///
+/// The forced appearance is also ENFORCED, not just applied: SwiftUI's
+/// scene machinery resets `window.appearance` to nil during its own
+/// update passes (observed on macOS 26 — every window of a sepia-themed
+/// running app had appearance nil after an overnight system dark flip,
+/// leaving dark chrome over sepia pages). Nil is indistinguishable from
+/// forced-aqua while the system is light, so the clobber only becomes
+/// visible when the system appearance changes. Each registered window
+/// gets a KVO observer that re-applies chrome whenever its appearance
+/// drifts from what the theme demands.
 @MainActor
 @Observable
 public final class ThemeManager {
@@ -43,7 +53,12 @@ public final class ThemeManager {
 
     /// Windows whose chrome this manager tints (reader + library).
     @ObservationIgnored private let windows = NSHashTable<NSWindow>.weakObjects()
-    @ObservationIgnored private nonisolated(unsafe) var appearanceObserver: NSObjectProtocol?
+    /// Per-window KVO re-applying chrome when `window.appearance` is reset
+    /// behind our back (weak keys: entries die with their windows, and the
+    /// observation auto-invalidates when its window deallocates).
+    @ObservationIgnored private let chromeEnforcers =
+        NSMapTable<NSWindow, NSKeyValueObservation>.weakToStrongObjects()
+    @ObservationIgnored private var systemAppearanceObservation: NSKeyValueObservation?
 
     public init() {
         let stored = UserDefaults.standard.string(forKey: Self.defaultsKey)
@@ -54,23 +69,19 @@ public final class ThemeManager {
         // System light/dark flip. We never force NSApp.appearance (only
         // per-window), so NSApp.effectiveAppearance keeps tracking the
         // system even while a window is forced to another appearance.
-        appearanceObserver = DistributedNotificationCenter.default().addObserver(
-            forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
-            object: nil, queue: .main
-        ) { [weak self] _ in
-            // The notification can land before NSApp.effectiveAppearance
-            // flips; read it after the current runloop turn settles.
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    self?.systemIsDark = Self.systemAppearanceIsDark()
-                }
+        // KVO, not AppleInterfaceThemeChangedNotification: the distributed
+        // notification is delivered through a daemon, so it can be dropped
+        // while the app naps through an overnight auto-switch, and even
+        // when it arrives it races the NSApp.effectiveAppearance flip. KVO
+        // is in-process and fires with the value already committed.
+        systemAppearanceObservation = NSApplication.shared.observe(
+            \.effectiveAppearance
+        ) { [weak self] _, _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let isDark = Self.systemAppearanceIsDark()
+                if self.systemIsDark != isDark { self.systemIsDark = isDark }
             }
-        }
-    }
-
-    deinit {
-        if let appearanceObserver {
-            DistributedNotificationCenter.default().removeObserver(appearanceObserver)
         }
     }
 
@@ -86,6 +97,15 @@ public final class ThemeManager {
     /// Starts tinting `window`'s chrome with the theme (weakly held).
     public func register(_ window: NSWindow) {
         windows.add(window)
+        if chromeEnforcers.object(forKey: window) == nil {
+            chromeEnforcers.setObject(
+                window.observe(\.appearance) { [weak self] window, _ in
+                    nonisolated(unsafe) let window = window
+                    MainActor.assumeIsolated { self?.enforceChrome(on: window) }
+                },
+                forKey: window
+            )
+        }
         applyChrome(to: window)
     }
 
@@ -106,14 +126,27 @@ public final class ThemeManager {
         }
     }
 
-    private func applyChrome(to window: NSWindow) {
-        // `.auto` inherits (nil) so the window follows future system flips
-        // even if our distributed-notification observer lags.
-        window.appearance = switch current {
+    /// The `window.appearance` the theme demands — nil for `.auto`, which
+    /// inherits so the window follows system flips on its own.
+    private var forcedAppearanceName: NSAppearance.Name? {
+        switch current {
         case .auto: nil
-        case .light, .sepia: NSAppearance(named: .aqua)
-        case .dark: NSAppearance(named: .darkAqua)
+        case .light, .sepia: .aqua
+        case .dark: .darkAqua
         }
+    }
+
+    /// KVO target: restores chrome when something else (SwiftUI scene
+    /// updates) rewrote `window.appearance`. The drift check is also the
+    /// re-entrancy guard — applyChrome sets appearance, which fires the
+    /// same observer, which then matches and returns.
+    private func enforceChrome(on window: NSWindow) {
+        guard window.appearance?.name != forcedAppearanceName else { return }
+        applyChrome(to: window)
+    }
+
+    private func applyChrome(to window: NSWindow) {
+        window.appearance = forcedAppearanceName.flatMap(NSAppearance.init(named:))
         switch resolvedTheme {
         case .sepia:
             window.titlebarAppearsTransparent = true

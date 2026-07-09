@@ -181,5 +181,49 @@ struct ThemeManagerTests {
             #expect(window.titlebarAppearsTransparent == false)
         }
     }
+
+    /// Regression: SwiftUI's scene machinery resets `window.appearance` to
+    /// nil during its own update passes, un-forcing the theme — invisible
+    /// while the system is light, dark chrome over sepia paper after an
+    /// overnight system dark flip. The manager must re-assert immediately.
+    @Test func reassertsForcedAppearanceAfterExternalReset() {
+        withManager { manager in
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                styleMask: [.titled], backing: .buffered, defer: true
+            )
+            manager.register(window)
+            manager.current = .sepia
+            #expect(window.appearance?.name == .aqua)
+
+            window.appearance = nil
+            #expect(window.appearance?.name == .aqua)
+            #expect(window.titlebarAppearsTransparent == true)
+
+            window.appearance = NSAppearance(named: .darkAqua)
+            #expect(window.appearance?.name == .aqua)
+
+            // `.auto` demands inherit — external appearance is not fought,
+            // and our own nil assignment doesn't recurse.
+            manager.current = .auto
+            #expect(window.appearance == nil)
+        }
+    }
+
+    /// The system flip is tracked by KVO on NSApp.effectiveAppearance (the
+    /// distributed notification can be dropped across sleep). Forcing
+    /// NSApp.appearance is how a test flips the effective appearance.
+    @Test func tracksSystemFlipViaEffectiveAppearanceKVO() {
+        withManager { manager in
+            let app = NSApplication.shared
+            defer { app.appearance = nil }
+
+            app.appearance = NSAppearance(named: .darkAqua)
+            #expect(manager.systemIsDark == true)
+
+            app.appearance = NSAppearance(named: .aqua)
+            #expect(manager.systemIsDark == false)
+        }
+    }
 }
 #endif

@@ -233,6 +233,23 @@ the project owner's plan file; the milestone list below is self-contained.
     overlays are still CREATED while disabled because PDFKit asks once
     per page display and caches a nil answer (re-enabling would
     otherwise show nothing until a page turn).
+- [x] **UI-11** Round 17 (2026-07-08): overnight dark-flip theme desync
+  fixed (owner screenshot: dark chrome + white sidebar labels over sepia
+  paper after the Mac slept through the system's auto-switch to Dark).
+  Root cause, verified by lldb-attaching the live broken instance: SwiftUI's
+  scene machinery resets `window.appearance` to nil during its own update
+  passes, silently undoing ThemeManager's forced appearance — invisible
+  while the system is light (nil ≈ aqua), exposed the moment the system
+  flips dark. Fix in ThemeManager: (1) per-window KVO on `\.appearance`
+  re-applies chrome whenever the forced appearance drifts (the drift check
+  doubles as the re-entrancy guard); (2) system flips now tracked by KVO on
+  `NSApp.effectiveAppearance` instead of the AppleInterfaceThemeChanged
+  distributed notification, which can be dropped while the app naps through
+  a sleep and races the effectiveAppearance flip even when delivered.
+  Regression tests: `reassertsForcedAppearanceAfterExternalReset`,
+  `tracksSystemFlipViaEffectiveAppearanceKVO` (flip NSApp.appearance to
+  drive the KVO in-process). Verified live: relaunched under a dark system
+  with sepia theme — window appearance forced Aqua, effective Aqua.
 
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); F-1 added library/search/theming/link-history UI (simulator BUILD-verified only — needs hand-run); CloudKit sync UI pending
