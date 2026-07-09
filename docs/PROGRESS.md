@@ -250,6 +250,67 @@ the project owner's plan file; the milestone list below is self-contained.
   `tracksSystemFlipViaEffectiveAppearanceKVO` (flip NSApp.appearance to
   drive the KVO in-process). Verified live: relaunched under a dark system
   with sepia theme — window appearance forced Aqua, effective Aqua.
+- [x] **UI-12** Round 18 (2026-07-09): watched folders + live auto-reload
+  (owner ask: import the whole iCloud reMarkable export folder, keep it in
+  sync as notes regenerate, auto-discover new PDFs there and in Calibre).
+  - **Watched folders**: `LibraryModel.watchedFolders` (UserDefaults
+    `WatchedFolderPaths`, plain paths, macOS-only), managed from Settings >
+    Watched folders and the Library ⚙ menu. Every reload() runs
+    `scanWatchedFolders()`: recursive *.pdf enumeration, off-main hashing
+    with an (mtime,size) fingerprint cache so settled folders are stat-only,
+    iCloud-evicted placeholders kick `startDownloadingUbiquitousItem` and
+    register on the scan their arrival triggers (a placeholder is never a
+    removal). Removing a watched folder soft-deletes its books (files
+    untouched; re-adding resurrects with reading state).
+  - **Identity across regeneration** (the reMarkable property: every sync
+    rewrites the file ⇒ new content hash): all scan/reload writes go through
+    `LibraryStore.syncScannedFile(path:hash:title:)` — one transaction,
+    decision order hash-match (moved/came back; resurrects tombstones,
+    refreshes file_ref) → path-match (regenerated in place: REBINDS
+    content_hash on the same book row, keeping tags/bookmarks/reading
+    state) → insert loose book. Delete+recreate across scans resurrects via
+    either branch, so no content_hash UNIQUE violations.
+  - **Source watching**: new `FolderWatcher` (FSEvents wrapper, per-file
+    events, works under ~/Library/Mobile Documents since fileproviderd
+    writes real files; stream context retains the watcher until stop()).
+    LibraryModel watches watched folders + the Calibre root → debounced
+    (2s latency + 1s task) full reload, so new Calibre books and new/changed
+    /removed watched PDFs land without touching Reload. Watchers arm only in
+    real app instances (never tests/injected models); re-armed on
+    attach/detach/add/remove. AppDelegate now materializes LibraryModel.shared
+    at launch and runs one reload — watching must not wait for the Library
+    window to first open.
+  - **Live document auto-reload**: SessionCoordinator watches the provider's
+    resident paths (re-armed via `DocumentProvider.onResidentPathsChanged`);
+    a changed open file → 700ms debounce → `provider.reloadFromDisk(path:)`
+    (validating parse; retries 0.5/1/2s while mid-write or momentarily
+    missing, stale doc stays usable; re-downloads if the change was an
+    eviction) → `documentGenerations[path] += 1`. ActivePDFView ids include
+    the generation, so every pane showing the doc tears down (capturing
+    position) and rebuilds onto the fresh document (position restored,
+    page clamped by go(to:in:)). The reload also re-runs syncScannedFile so
+    the book identity follows the new bytes even outside watched folders.
+    Settings > Reading kill switch `AutoReloadDocumentsEnabled` (default on),
+    applied live.
+  - Also fixed in passing: `appendImportedItems` now excludes Calibre rows
+    that carry a backfilled content hash — they double-listed as imports
+    once anything (resolver/indexer/scan) backfilled a hash onto them.
+  - Tests (420 total, +24): ScannedFileSyncTests (store decision table incl.
+    resurrect + calibre-hash cases), WatchedFolderScanTests (recursive
+    import, regeneration keeps id+reading state, fingerprint skip, delete →
+    tombstone → recreate → resurrect, move follows, folder removal,
+    no-calibre-duplicate), DocumentReloadTests (in-place swap, non-resident/
+    missing refusals, resident-paths hook, coordinator generation bump),
+    FolderWatcherTests (live FSEvents temp-dir test, idempotent stop).
+  - Verified live on the owner's instance: reMarkable folder (34 PDFs,
+    nested subfolders) fully imported — including adopting one previously
+    imported book by hash instead of duplicating; scratch watched folder:
+    file drop auto-imported ~10s later, rewrite kept book id 3278 while
+    rebinding the hash, delete tombstoned. Owner's watched folder seeded:
+    ~/Library/Mobile Documents/com~apple~CloudDocs/reMarkable.
+  - Parked for later rounds: iOS watched folders (needs security-scoped
+    bookmarks), per-folder auto-tag, Calibre-side tombstoning of books
+    removed from metadata.db (upsert-only today, pre-existing).
 
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); F-1 added library/search/theming/link-history UI (simulator BUILD-verified only — needs hand-run); CloudKit sync UI pending

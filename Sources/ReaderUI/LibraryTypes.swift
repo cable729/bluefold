@@ -39,6 +39,13 @@ public struct LibraryItem: Identifiable, Equatable, Sendable {
     }
 }
 
+/// The (mtime, size) of a watched-folder file at last reconciliation —
+/// rescans skip hashing files whose fingerprint hasn't moved.
+struct WatchedFileFingerprint: Equatable, Sendable {
+    var mtimeMS: Int64
+    var size: Int
+}
+
 /// One full-text search match in a library book (M13 "In Book Text").
 public struct BookSearchHit: Identifiable, Equatable, Sendable {
     /// `"<contentHash>-<page>"` — stable across searches.

@@ -302,10 +302,15 @@ public struct ReaderWindowView: View {
 
     /// The live PDF view of one pane, keyed on the RESOLVED theme too: a
     /// theme switch (or a system appearance flip in auto mode) rebuilds the
-    /// PDFView so every tile re-renders through the new page filter.
+    /// PDFView so every tile re-renders through the new page filter. Also
+    /// keyed on the document's reload generation: when the file changed on
+    /// disk and was re-read (round 18 auto-reload), the pane rebuilds onto
+    /// the fresh document — teardown captures the reading position, rebuild
+    /// restores it (page index clamped by `go(to:in:)`).
     private func pdfView(tab: TabState, document: PDFDocument, role: ReaderPane) -> some View {
-        ActivePDFView(tab: tab, document: document, model: model, isPrimary: role == .primary)
-            .id("\(role == .split ? "split-" : "")\(tab.id)-\(ThemeManager.shared.resolvedTheme.rawValue)")
+        let generation = SessionCoordinator.shared.documentGenerations[tab.pathHint] ?? 0
+        return ActivePDFView(tab: tab, document: document, model: model, isPrimary: role == .primary)
+            .id("\(role == .split ? "split-" : "")\(tab.id)-\(ThemeManager.shared.resolvedTheme.rawValue)-r\(generation)")
     }
 
     private var activeTitle: String {

@@ -49,6 +49,11 @@ struct PDFReaderApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         presentKeybindingsIssuesIfNeeded()
+        // Materialize the (lazy) library model and run one library pass:
+        // watched-folder sync and the source watchers must work from app
+        // launch, not from the first time the Library window opens.
+        let library = LibraryModel.shared
+        Task { await library.reload() }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

@@ -18,6 +18,11 @@ public final class DocumentProvider {
     /// LRU cache; most-recently-used last.
     private var cache: [(path: String, document: PDFDocument)] = []
 
+    /// Fires after the set of resident paths may have changed (loads,
+    /// evictions) — the auto-reload watcher re-arms from this. Loads happen
+    /// during view-body evaluation, so handlers must defer real work.
+    public var onResidentPathsChanged: (() -> Void)?
+
     public init(capacity: Int = 3) {
         self.capacity = max(1, capacity)
     }
@@ -42,7 +47,23 @@ public final class DocumentProvider {
         document.delegate = PageClassProvider.shared
         cache.append((path, document))
         evictIfNeeded()
+        onResidentPathsChanged?()
         return document
+    }
+
+    /// Re-reads a resident document from disk after its file changed,
+    /// swapping the fresh instance into the same cache slot (LRU position
+    /// and pin state follow the path, so both are preserved). Returns false
+    /// when the path isn't resident, or the file is missing/unparseable —
+    /// mid-regeneration states; the stale document stays usable and the
+    /// caller retries.
+    public func reloadFromDisk(path: String) -> Bool {
+        guard let index = cache.firstIndex(where: { $0.path == path }) else { return false }
+        guard let fresh = PDFDocument(url: URL(fileURLWithPath: path)) else { return false }
+        fresh.delegate = PageClassProvider.shared
+        guard fresh.pageCount > 0 else { return false }
+        cache[index] = (path, fresh)
+        return true
     }
 
     /// The live document for `url` ONLY if already resident — no load, no
@@ -61,17 +82,26 @@ public final class DocumentProvider {
     /// over capacity.
     public func evictIfNeeded() {
         var index = 0
+        var evictedAny = false
         while cache.count > capacity, index < cache.count {
             if pinnedPaths.contains(cache[index].path) {
                 index += 1
             } else {
                 cache.remove(at: index)
+                evictedAny = true
             }
+        }
+        if evictedAny {
+            onResidentPathsChanged?()
         }
     }
 
     /// Removes a document outright (e.g. after its last tab closes).
     public func evict(path: String) {
+        let countBefore = cache.count
         cache.removeAll { $0.path == path && !pinnedPaths.contains(path) }
+        if cache.count != countBefore {
+            onResidentPathsChanged?()
+        }
     }
 }

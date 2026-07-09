@@ -98,6 +98,17 @@ public struct LibraryView: View {
                             model.detachCalibreFolder()
                         }
                     }
+                    Divider()
+                    Button("Add Watched Folder…") { model.chooseWatchedFolder() }
+                    if !model.watchedFolders.isEmpty {
+                        Menu("Stop Watching") {
+                            ForEach(model.watchedFolders, id: \.path) { folder in
+                                Button(folder.lastPathComponent, role: .destructive) {
+                                    model.removeWatchedFolder(folder)
+                                }
+                            }
+                        }
+                    }
                 } label: {
                     Image(systemName: "gearshape")
                 }
@@ -415,7 +426,7 @@ public struct LibraryView: View {
                     Label("No Books Yet", systemImage: "books.vertical")
                 } description: {
                     Text(model.calibreRoot == nil
-                        ? "Import PDFs, or attach a Calibre folder in the ⚙ menu."
+                        ? "Import PDFs, or attach a Calibre folder or a watched folder in the ⚙ menu."
                         : "No PDF books found in the Calibre library.")
                 } actions: {
                     Button("Import PDFs…") { model.importPDFs() }

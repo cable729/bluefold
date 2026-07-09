@@ -26,6 +26,7 @@ public final class AppSettings {
     static let backgroundIndexingKey = "BackgroundIndexingEnabled"
     static let ocrIndexingKey = "OCRIndexingEnabled"
     static let marginAnchorsKey = "MarginAnchorsEnabled"
+    static let autoReloadDocumentsKey = "AutoReloadDocumentsEnabled"
 
     public static let defaultDocumentCapacity = 3
     /// PDFDocuments are memory-mapped so residency is cheap, but each one
@@ -85,10 +86,26 @@ public final class AppSettings {
         }
     }
 
+    /// Whether open books reload automatically when their file changes on
+    /// disk (auto-exported note folders — reMarkable & co. — regenerate
+    /// PDFs in place). Reading position survives the swap. Applied live via
+    /// `onAutoReloadDocumentsChange`.
+    public var autoReloadDocumentsEnabled: Bool {
+        didSet {
+            guard autoReloadDocumentsEnabled != oldValue else { return }
+            defaults?.set(autoReloadDocumentsEnabled, forKey: Self.autoReloadDocumentsKey)
+            onAutoReloadDocumentsChange?()
+        }
+    }
+
     /// Live-apply hook for the document LRU. Called with the new (already
     /// clamped) capacity after it persisted; never called when the value
     /// didn't actually change.
     @ObservationIgnored public var onDocumentCapacityChange: ((Int) -> Void)?
+
+    /// Live-apply hook for the auto-reload toggle (SessionCoordinator
+    /// re-arms or drops its file watcher).
+    @ObservationIgnored public var onAutoReloadDocumentsChange: (() -> Void)?
 
     // MARK: - Init
 
@@ -104,6 +121,8 @@ public final class AppSettings {
             defaults?.object(forKey: Self.ocrIndexingKey) as? Bool ?? true
         marginAnchorsEnabled =
             defaults?.object(forKey: Self.marginAnchorsKey) as? Bool ?? true
+        autoReloadDocumentsEnabled =
+            defaults?.object(forKey: Self.autoReloadDocumentsKey) as? Bool ?? true
     }
 
     static func clampedCapacity(_ value: Int) -> Int {

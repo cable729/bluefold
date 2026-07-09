@@ -20,6 +20,7 @@ public struct SettingsView: View {
             memorySection
             indexingSection
             calibreSection
+            watchedFoldersSection
             keybindingsSection
             deepLinksSection
         }
@@ -65,6 +66,13 @@ public struct SettingsView: View {
 
     private var readingSection: some View {
         Section("Reading") {
+            Toggle("Reload books changed on disk", isOn: $settings.autoReloadDocumentsEnabled)
+            Text(
+                "When an open PDF's file changes — a notes app regenerated "
+                    + "its export, or iCloud synced a newer version — the "
+                    + "book reloads in place and keeps your reading position."
+            )
+            .settingsCaption()
             Toggle("Margin heading anchors", isOn: $settings.marginAnchorsEnabled)
             Text(
                 "Shows a small link glyph in the page margin next to "
@@ -148,6 +156,34 @@ public struct SettingsView: View {
                 "The app reads your Calibre library and never writes to it. "
                     + "Detaching removes Calibre books from the app's library "
                     + "view; your Calibre folder and imported PDFs are untouched."
+            )
+            .settingsCaption()
+        }
+    }
+
+    // MARK: - Watched folders
+
+    private var watchedFoldersSection: some View {
+        Section("Watched folders") {
+            ForEach(library.watchedFolders, id: \.path) { folder in
+                HStack {
+                    Text(abbreviateHome(folder.path))
+                        .truncationMode(.middle)
+                        .lineLimit(1)
+                    Spacer()
+                    Button("Remove") { library.removeWatchedFolder(folder) }
+                }
+            }
+            Button("Add Folder…") { library.chooseWatchedFolder() }
+            Text(
+                "Every PDF in a watched folder (subfolders included) is "
+                    + "imported and kept in sync: new files appear in the "
+                    + "library, regenerated files keep their tags and "
+                    + "reading position, and deleted files drop out. Built "
+                    + "for auto-exported note folders — e.g. a reMarkable "
+                    + "or GoodNotes iCloud folder. Removing a watched folder "
+                    + "removes its books from the library; the files are "
+                    + "never touched."
             )
             .settingsCaption()
         }

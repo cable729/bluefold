@@ -146,6 +146,93 @@ public final class LibraryStore: Sendable {
         }
     }
 
+    /// Reconciles one on-disk PDF (found by a watched-folder scan, or an
+    /// open file that changed on disk) with the library. Decision order:
+    ///
+    /// 1. Some book already owns these bytes (`hash`) — the file moved or
+    ///    came back: resurrect it if tombstoned and point its file_ref at
+    ///    `path`.
+    /// 2. A book's file_ref already points at `path` — the file was
+    ///    regenerated in place (reMarkable-style): keep the book row (tags,
+    ///    bookmarks, reading state) and rebind its content hash to the new
+    ///    bytes, resurrecting it if tombstoned.
+    /// 3. Nobody knows the bytes or the path: insert a fresh loose book.
+    ///
+    /// One transaction; returns the book-row id. `title` applies only to a
+    /// freshly inserted book — existing titles (user- or Calibre-owned) are
+    /// never overwritten by a scan.
+    @discardableResult
+    public func syncScannedFile(path: String, hash: String, title: String) throws -> Int64 {
+        let ts = now()
+        return try dbQueue.write { db in
+            func refreshFileRef(bookID: Int64) throws {
+                if var existing = try FileRefRecord
+                    .filter(Column("book_id") == bookID).fetchOne(db)
+                {
+                    if existing.pathHint != path {
+                        existing.pathHint = path
+                        try existing.update(db)
+                    }
+                } else {
+                    var ref = FileRefRecord(id: nil, bookID: bookID, bookmark: nil, pathHint: path)
+                    try ref.insert(db)
+                }
+            }
+
+            if let row = try Row.fetchOne(
+                db, sql: "SELECT id, deleted_at FROM book WHERE content_hash = ?",
+                arguments: [hash]
+            ) {
+                let id: Int64 = row["id"]
+                if (row["deleted_at"] as Int64?) != nil {
+                    try db.execute(
+                        sql: "UPDATE book SET deleted_at = NULL, modified_at = ? WHERE id = ?",
+                        arguments: [ts, id]
+                    )
+                }
+                try refreshFileRef(bookID: id)
+                return id
+            }
+
+            if let id = try Int64.fetchOne(
+                db,
+                sql: "SELECT book_id FROM file_ref WHERE path_hint = ? LIMIT 1",
+                arguments: [path]
+            ) {
+                try db.execute(
+                    sql: "UPDATE book SET content_hash = ?, deleted_at = NULL, modified_at = ? WHERE id = ?",
+                    arguments: [hash, ts, id]
+                )
+                return id
+            }
+
+            var book = BookRecord(
+                id: nil, calibreUUID: nil, contentHash: hash,
+                title: title, authors: nil, modifiedAt: ts, deletedAt: nil,
+                createdAt: ts
+            )
+            try book.insert(db)
+            var ref = FileRefRecord(id: nil, bookID: book.id!, bookmark: nil, pathHint: path)
+            try ref.insert(db)
+            return book.id!
+        }
+    }
+
+    /// Every live loose (non-Calibre) book's file location — the set a
+    /// watched-folder scan reconciles deletions against.
+    public func looseBookFileRefs() throws -> [(bookID: Int64, pathHint: String)] {
+        try dbQueue.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT b.id AS book_id, f.path_hint AS path_hint
+                    FROM book b JOIN file_ref f ON f.book_id = b.id
+                    WHERE b.deleted_at IS NULL AND b.calibre_uuid IS NULL
+                    """
+            ).map { (bookID: $0["book_id"], pathHint: $0["path_hint"]) }
+        }
+    }
+
     public func book(id: Int64) throws -> BookRecord? {
         try dbQueue.read { db in
             try BookRecord.fetchOne(db, key: id)

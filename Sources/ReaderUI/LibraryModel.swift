@@ -79,6 +79,24 @@ public final class LibraryModel {
     /// a sandboxed app can reopen the user's iCloud Drive folder on relaunch.
     private static let calibreBookmarkKey = "CalibreFolderBookmark"
     private static let setupDoneKey = "CalibreSetupDone"
+    /// macOS: plain path strings of the watched folders (round 18).
+    private static let watchedFoldersKey = "WatchedFolderPaths"
+
+    /// Folders whose PDFs are imported wholesale and kept in sync — new
+    /// files appear, regenerated files keep their book identity, removed
+    /// files leave (built for auto-exported note folders, e.g. reMarkable's
+    /// iCloud mirror). macOS-only for now: the paths are plain strings.
+    public private(set) var watchedFolders: [URL] = []
+
+    /// Per-path (mtime, size) of files already reconciled this session —
+    /// rescans skip hashing anything unchanged, so a scan of a settled
+    /// folder is stat-only.
+    @ObservationIgnored private var scanFingerprints: [String: WatchedFileFingerprint] = [:]
+    /// Observes the watched folders + the Calibre root; nil while nothing
+    /// is watched. Real app instances only — never tests.
+    @ObservationIgnored private var sourceWatcher: FolderWatcher?
+    @ObservationIgnored private var sourceReloadTask: Task<Void, Never>?
+    @ObservationIgnored private var autoRescanEnabled = false
 
     public private(set) var calibreRoot: URL?
     /// True until the user has made an explicit Calibre choice (use a
@@ -162,9 +180,15 @@ public final class LibraryModel {
         if !needsSetup {
             calibreRoot = Self.restoreCalibreRoot()
         }
+        #if os(macOS)
+        watchedFolders = (UserDefaults.standard.stringArray(forKey: Self.watchedFoldersKey) ?? [])
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+        #endif
         if !AppStores.isTestProcess {
             loadViewPreferences()
             persistsViewPreferences = true
+            autoRescanEnabled = true
+            startWatchingSources()
         }
     }
 
@@ -221,6 +245,7 @@ public final class LibraryModel {
             UserDefaults.standard.removeObject(forKey: Self.calibrePathKey)
             UserDefaults.standard.removeObject(forKey: Self.calibreBookmarkKey)
             calibreRoot = nil
+            startWatchingSources()
             Task { await reload() }
         }
     }
@@ -232,6 +257,7 @@ public final class LibraryModel {
         UserDefaults.standard.removeObject(forKey: Self.calibreBookmarkKey)
         calibreRoot = nil
         items.removeAll { $0.source != .imported }
+        startWatchingSources()
         Task { await reload() }
     }
 
@@ -360,6 +386,7 @@ public final class LibraryModel {
             UserDefaults.standard.set(bookmark, forKey: Self.calibreBookmarkKey)
         }
         #endif
+        startWatchingSources()
         Task { await reload() }
     }
 
@@ -382,7 +409,9 @@ public final class LibraryModel {
 
     public func reload() async {
         guard let calibreRoot else {
-            // No Calibre attached: the library is just the app's imports.
+            // No Calibre attached: the library is the app's imports plus
+            // the watched folders' contents.
+            await scanWatchedFolders()
             items = []
             appendImportedItems()
             reloadOverlay()
@@ -449,6 +478,7 @@ public final class LibraryModel {
                     try store.upsertFileRefs(refs)
                 }.value
             }
+            await scanWatchedFolders()
             appendImportedItems()
             reloadOverlay()
             startBackgroundIndexing()
@@ -609,11 +639,14 @@ public final class LibraryModel {
         }
     }
 
-    /// Adds the app's own imported PDFs (overlay books with a content hash)
-    /// to the item list.
+    /// Adds the app's own imported PDFs (loose overlay books) to the item
+    /// list. Calibre-sourced rows are excluded even when they carry a
+    /// content hash — the resolver/indexer backfill hashes onto them, and
+    /// they already entered `items` from the Calibre scan.
     private func appendImportedItems() {
         guard let store else { return }
-        let imported = ((try? store.allBooks()) ?? []).filter { $0.contentHash != nil }
+        let imported = ((try? store.allBooks()) ?? [])
+            .filter { $0.contentHash != nil && $0.calibreUUID == nil }
         for book in imported {
             guard
                 let rowID = book.id,
@@ -685,6 +718,184 @@ public final class LibraryModel {
         items.removeAll { $0.source == .imported }
         appendImportedItems()
         reloadOverlay()
+    }
+
+    // MARK: - Watched folders (round 18)
+
+    #if os(macOS)
+    /// Folder picker for new watched folders (multi-select allowed).
+    public func chooseWatchedFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose folders of PDFs to import and keep in sync."
+        guard panel.runModal() == .OK else { return }
+        addWatchedFolders(panel.urls)
+    }
+    #endif
+
+    /// Adds folders to the watched set (deduplicated by canonical path) and
+    /// imports their contents.
+    public func addWatchedFolders(_ urls: [URL]) {
+        var added = false
+        for url in urls {
+            let canonical = URL(
+                fileURLWithPath: DocumentProvider.canonicalPath(for: url), isDirectory: true
+            )
+            guard !watchedFolders.contains(where: { $0.path == canonical.path }) else { continue }
+            watchedFolders.append(canonical)
+            added = true
+        }
+        guard added else { return }
+        persistWatchedFolders()
+        startWatchingSources()
+        Task { await reload() }
+    }
+
+    /// Stops watching a folder and removes its books from the library
+    /// (soft-delete, like Remove from Library — the files are untouched, and
+    /// re-adding the folder resurrects the books with their reading state).
+    public func removeWatchedFolder(_ url: URL) {
+        watchedFolders.removeAll { $0.path == url.path }
+        if let store {
+            let prefix = url.path.hasSuffix("/") ? url.path : url.path + "/"
+            for ref in (try? store.looseBookFileRefs()) ?? [] where ref.pathHint.hasPrefix(prefix) {
+                try? store.softDeleteBook(id: ref.bookID)
+                scanFingerprints.removeValue(forKey: ref.pathHint)
+            }
+        }
+        persistWatchedFolders()
+        startWatchingSources()
+        Task { await reload() }
+    }
+
+    private func persistWatchedFolders() {
+        guard !AppStores.isTestProcess else { return }
+        UserDefaults.standard.set(watchedFolders.map(\.path), forKey: Self.watchedFoldersKey)
+    }
+
+    /// Test hook, mirroring `setCalibreRootForTesting`: no persistence, no
+    /// filesystem watchers.
+    func setWatchedFoldersForTesting(_ urls: [URL]) {
+        watchedFolders = urls
+    }
+
+    /// One reconciliation pass over every watched folder, off the main
+    /// actor: new PDFs register, moved ones follow, regenerated ones keep
+    /// their book identity, vanished ones tombstone. Evicted iCloud
+    /// placeholders start downloading and are picked up by the scan their
+    /// arrival triggers.
+    func scanWatchedFolders() async {
+        guard let store, !watchedFolders.isEmpty else { return }
+        let folders = watchedFolders.map(\.path)
+        let previous = scanFingerprints
+        scanFingerprints = await Task.detached(priority: .userInitiated) {
+            Self.scanFolders(at: folders, store: store, previous: previous)
+        }.value
+    }
+
+    /// The isolation-free scan core. Returns the new fingerprint cache
+    /// (paths that disappeared fall out of it automatically).
+    private nonisolated static func scanFolders(
+        at folderPaths: [String],
+        store: LibraryStore,
+        previous: [String: WatchedFileFingerprint]
+    ) -> [String: WatchedFileFingerprint] {
+        var fingerprints: [String: WatchedFileFingerprint] = [:]
+        var present: Set<String> = []
+        let fileManager = FileManager.default
+
+        for folder in folderPaths {
+            let folderURL = URL(fileURLWithPath: folder, isDirectory: true)
+            guard let enumerator = fileManager.enumerator(
+                at: folderURL,
+                includingPropertiesForKeys: [
+                    .contentModificationDateKey, .fileSizeKey, .isRegularFileKey,
+                ],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+
+            for case let url as URL in enumerator {
+                guard url.pathExtension.lowercased() == "pdf" else { continue }
+                let values = try? url.resourceValues(forKeys: [
+                    .contentModificationDateKey, .fileSizeKey, .isRegularFileKey,
+                ])
+                guard values?.isRegularFile == true else { continue }
+                let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+                // Present even when evicted: a placeholder is not a removal.
+                present.insert(path)
+                guard FileAvailability.isLocal(url) else {
+                    // Start pulling the bytes down; their arrival is a file
+                    // change, which triggers the scan that registers them.
+                    try? fileManager.startDownloadingUbiquitousItem(at: url)
+                    continue
+                }
+                let fingerprint = WatchedFileFingerprint(
+                    mtimeMS: Int64(
+                        (values?.contentModificationDate?.timeIntervalSince1970 ?? 0) * 1000
+                    ),
+                    size: values?.fileSize ?? 0
+                )
+                if previous[path] == fingerprint {
+                    fingerprints[path] = fingerprint  // already reconciled
+                    continue
+                }
+                guard let hash = try? ContentHash.compute(for: url) else { continue }
+                let title = url.deletingPathExtension().lastPathComponent
+                if (try? store.syncScannedFile(path: path, hash: hash, title: title)) != nil {
+                    fingerprints[path] = fingerprint
+                }
+            }
+        }
+
+        // Books whose file vanished from a watched folder: tombstone. Moves
+        // were already handled — the hash match repointed their file_ref.
+        // `fileExists` keeps evicted-but-listed placeholders safe, and skips
+        // nothing extra: a file the enumerator missed but that exists on
+        // disk is not a removal.
+        let prefixes = folderPaths.map { $0.hasSuffix("/") ? $0 : $0 + "/" }
+        for ref in (try? store.looseBookFileRefs()) ?? [] {
+            guard
+                prefixes.contains(where: { ref.pathHint.hasPrefix($0) }),
+                !present.contains(ref.pathHint),
+                !fileManager.fileExists(atPath: ref.pathHint)
+            else { continue }
+            try? store.softDeleteBook(id: ref.bookID)
+        }
+        return fingerprints
+    }
+
+    // MARK: - Source watching (round 18)
+
+    /// (Re)arms filesystem observation of the watched folders and the
+    /// Calibre root. Any change funnels into one debounced `reload()`:
+    /// FSEvents' own latency coalesces bursts, the task debounce coalesces
+    /// the rest (reMarkable regenerates whole folders at once).
+    private func startWatchingSources() {
+        #if os(macOS)
+        sourceWatcher?.stop()
+        sourceWatcher = nil
+        guard autoRescanEnabled else { return }
+        var paths = watchedFolders.map(\.path)
+        if let calibreRoot {
+            paths.append(calibreRoot.path)
+        }
+        guard !paths.isEmpty else { return }
+        sourceWatcher = FolderWatcher(paths: paths, latency: 2.0) { [weak self] _ in
+            // FolderWatcher delivers on the main queue.
+            MainActor.assumeIsolated { self?.scheduleSourceReload() }
+        }
+        #endif
+    }
+
+    private func scheduleSourceReload() {
+        sourceReloadTask?.cancel()
+        sourceReloadTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            await self?.reload()
+        }
     }
 
     // MARK: - Tags
@@ -891,6 +1102,10 @@ public final class LibraryModel {
         for item in targets where item.source == .imported {
             guard let rowID = bookRowIDs[item.id] else { continue }
             try? store.softDeleteBook(id: rowID)
+            // Forget the scan fingerprint too: with it, a watched file would
+            // stay "already reconciled" and the removal would silently undo
+            // itself only after a relaunch instead of on the next scan.
+            scanFingerprints.removeValue(forKey: DocumentProvider.canonicalPath(for: item.fileURL))
             removedIDs.insert(item.id)
             bookRowIDs[item.id] = nil
         }
