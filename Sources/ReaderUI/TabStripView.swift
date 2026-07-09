@@ -350,10 +350,10 @@ final class TabStripNSView: NSView {
         }
     }
 
-    /// Temporary drag diagnostics (PDFREADER_SESSION_DIR/dragdebug.log);
+    /// Temporary drag diagnostics (BLUEFOLD_SESSION_DIR/dragdebug.log);
     /// active only when the session-dir override is present, i.e. tests.
     static func dragLog(_ message: String) {
-        guard let dir = ProcessInfo.processInfo.environment["PDFREADER_SESSION_DIR"] else { return }
+        guard let dir = ProcessInfo.processInfo.environment["BLUEFOLD_SESSION_DIR"] else { return }
         let url = URL(fileURLWithPath: dir).appendingPathComponent("dragdebug.log")
         let line = "\(Date().timeIntervalSince1970) \(message)\n"
         if let handle = try? FileHandle(forWritingTo: url) {

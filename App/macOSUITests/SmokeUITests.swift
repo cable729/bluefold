@@ -5,7 +5,7 @@ import XCTest
 /// M17 smoke suite: drives the real app through the flows unit tests cannot
 /// see (window management, tab dragging, relaunch restore). Fixtures are
 /// generated on the fly; every launch gets a private session directory via
-/// the PDFREADER_SESSION_DIR hook so runs never touch a real session.
+/// the BLUEFOLD_SESSION_DIR hook so runs never touch a real session.
 @MainActor
 final class SmokeUITests: XCTestCase {
 
@@ -23,7 +23,7 @@ final class SmokeUITests: XCTestCase {
         for running in NSWorkspace.shared.runningApplications {
             guard
                 let url = running.bundleURL,
-                url.lastPathComponent == "PDFReader.app",
+                url.lastPathComponent == "Bluefold.app",
                 url.path.hasPrefix(productsDir.path)
             else { continue }
             running.forceTerminate()
@@ -36,7 +36,7 @@ final class SmokeUITests: XCTestCase {
         continueAfterFailure = false
         Self.terminateStrayInstances()
         let base = FileManager.default.temporaryDirectory
-            .appendingPathComponent("pdfreader-uitests-\(UUID().uuidString)")
+            .appendingPathComponent("bluefold-uitests-\(UUID().uuidString)")
         sessionDir = base.appendingPathComponent("session")
         fixtureDir = base.appendingPathComponent("fixtures")
         try FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
@@ -80,7 +80,7 @@ final class SmokeUITests: XCTestCase {
             try? FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
         }
         let app = XCUIApplication()
-        app.launchEnvironment["PDFREADER_SESSION_DIR"] = sessionDir.path
+        app.launchEnvironment["BLUEFOLD_SESSION_DIR"] = sessionDir.path
         app.launchArguments = files.flatMap { ["--open", $0.path] }
         app.launch()
         return app

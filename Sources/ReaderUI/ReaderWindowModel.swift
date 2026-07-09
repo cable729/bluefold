@@ -710,14 +710,14 @@ public final class ReaderWindowModel {
 
     // MARK: - Deep links (Copy Link…)
 
-    /// Copies a pdfreader:// link to the active tab's current position (the
+    /// Copies a bluefold:// link to the active tab's current position (the
     /// live scroll anchor when available — same precision as ⇤ ⇥).
     public func copyDeepLinkToCurrentPosition() {
         guard let activeTab else { return }
         copyDeepLink(entry: activeController?.liveNavEntry ?? activeTab.currentNavEntry)
     }
 
-    /// Copies a pdfreader:// link to the current text selection.
+    /// Copies a bluefold:// link to the current text selection.
     public func copyDeepLinkToSelection() {
         guard let entry = activeController?.selectionNavEntry else { return }
         copyDeepLink(entry: entry)

@@ -29,7 +29,7 @@ import SwiftUI
 public final class ThemeManager {
     public static let shared = ThemeManager()
 
-    private static let defaultsKey = "PDFReaderTheme"
+    private static let defaultsKey = "BluefoldTheme"
 
     public var current: AppTheme {
         didSet {

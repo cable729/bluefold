@@ -56,14 +56,14 @@ struct DeepLinkRoutingTests {
         )
         #expect(book.id != nil)
 
-        let link = try #require(DeepLink(url: URL(string: "pdfreader://open?hash=hash-1&page=3")!))
+        let link = try #require(DeepLink(url: URL(string: "bluefold://open?hash=hash-1&page=3")!))
         let url = DeepLinkRouter.fileURL(for: link, store: store)
         #expect(url?.path == "/books/axler.pdf")
     }
 
     @Test func unknownHashResolvesNil() throws {
         let store = try LibraryStore.inMemory()
-        let link = try #require(DeepLink(url: URL(string: "pdfreader://open?hash=nope")!))
+        let link = try #require(DeepLink(url: URL(string: "bluefold://open?hash=nope")!))
         #expect(DeepLinkRouter.fileURL(for: link, store: store) == nil)
     }
 
@@ -74,7 +74,7 @@ struct DeepLinkRoutingTests {
         )
         let document = try #require(PDFDocument(url: url))
         let link = try #require(DeepLink(
-            url: URL(string: "pdfreader://open?hash=h&dest=section.4&page=2&x=1&y=2")!
+            url: URL(string: "bluefold://open?hash=h&dest=section.4&page=2&x=1&y=2")!
         ))
         let entry = DeepLinkRouter.entry(for: link, in: document)
         #expect(entry?.pageIndex == 4)
@@ -84,7 +84,7 @@ struct DeepLinkRoutingTests {
         let url = try makePDFWithDestinations(pageCount: 3, destinations: [])
         let document = try #require(PDFDocument(url: url))
         let link = try #require(DeepLink(
-            url: URL(string: "pdfreader://open?hash=h&dest=gone&page=2&x=10.0&y=20.0")!
+            url: URL(string: "bluefold://open?hash=h&dest=gone&page=2&x=10.0&y=20.0")!
         ))
         let entry = DeepLinkRouter.entry(for: link, in: document)
         #expect(entry == NavEntry(pageIndex: 1, point: CGPoint(x: 10, y: 20)))
@@ -92,7 +92,7 @@ struct DeepLinkRoutingTests {
 
     @Test func entryWithoutDocumentUsesPageForm() throws {
         let link = try #require(DeepLink(
-            url: URL(string: "pdfreader://open?hash=h&page=7")!
+            url: URL(string: "bluefold://open?hash=h&page=7")!
         ))
         #expect(DeepLinkRouter.entry(for: link, in: nil) == NavEntry(pageIndex: 6))
     }

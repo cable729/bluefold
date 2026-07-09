@@ -4,7 +4,7 @@ import PDFKit
 import ReaderCore
 import ReaderPersistence
 
-/// Opens `pdfreader://` URLs: the AppDelegate hands them here, the router
+/// Opens `bluefold://` URLs: the AppDelegate hands them here, the router
 /// resolves the content hash through the library and lands the reader on
 /// the linked position.
 ///

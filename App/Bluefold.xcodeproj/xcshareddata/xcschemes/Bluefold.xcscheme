@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "AA0000000000000000000006"
-               BuildableName = "PDFReader.app"
-               BlueprintName = "PDFReader"
-               ReferencedContainer = "container:PDFReader.xcodeproj">
+               BuildableName = "Bluefold.app"
+               BlueprintName = "Bluefold"
+               ReferencedContainer = "container:Bluefold.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -33,9 +33,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "AA0000000000000000000031"
-               BuildableName = "PDFReaderUITests.xctest"
-               BlueprintName = "PDFReaderUITests"
-               ReferencedContainer = "container:PDFReader.xcodeproj">
+               BuildableName = "BluefoldUITests.xctest"
+               BlueprintName = "BluefoldUITests"
+               ReferencedContainer = "container:Bluefold.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -55,9 +55,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AA0000000000000000000006"
-            BuildableName = "PDFReader.app"
-            BlueprintName = "PDFReader"
-            ReferencedContainer = "container:PDFReader.xcodeproj">
+            BuildableName = "Bluefold.app"
+            BlueprintName = "Bluefold"
+            ReferencedContainer = "container:Bluefold.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -72,9 +72,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AA0000000000000000000006"
-            BuildableName = "PDFReader.app"
-            BlueprintName = "PDFReader"
-            ReferencedContainer = "container:PDFReader.xcodeproj">
+            BuildableName = "Bluefold.app"
+            BlueprintName = "Bluefold"
+            ReferencedContainer = "container:Bluefold.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

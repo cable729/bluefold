@@ -11,9 +11,9 @@ test`); the app targets in `App/` are thin shells over it.
 
 ```mermaid
 graph TD
-    subgraph "App targets (App/PDFReader.xcodeproj)"
-        MAC["PDFReader (macOS)\nApp/macOS — scene + delegate only"]
-        IOS["PDFReader-iOS\nApp/iOS — own SwiftUI views (part 1)"]
+    subgraph "App targets (App/Bluefold.xcodeproj)"
+        MAC["Bluefold (macOS)\nApp/macOS — scene + delegate only"]
+        IOS["Bluefold-iOS\nApp/iOS — own SwiftUI views (part 1)"]
     end
     subgraph "SwiftPM package (Sources/)"
         RUI[ReaderUI\nmacOS SwiftUI views, view models,\nPDFKit wrappers — all #if os(macOS)]
@@ -96,7 +96,7 @@ remote-file links = new tab on the other PDF.
   `openWindow` for the rest — no bootstrap-window hack.
 - Tabs drag between windows: payload `"windowID|tabID"` →
   `SessionCoordinator.moveTab` (state + history travel).
-- `PDFREADER_SESSION_DIR` env var isolates all app data (session.json,
+- `BLUEFOLD_SESSION_DIR` env var isolates all app data (session.json,
   library.db, index.db) for tests/XCUITest.
 
 ## Data stores
@@ -149,5 +149,5 @@ tests use a fake. Team ID A448YLFLYC is set on the project.
 - Theming tests render through `PDFPage.draw(with:to:)` and assert pixels
   (thumbnail APIs bypass the subclass override — don't use them for this).
 - App-level verification: build with xcodebuild, launch the binary with
-  `--open <pdf>` (repeatable) + `PDFREADER_SESSION_DIR`, check
+  `--open <pdf>` (repeatable) + `BLUEFOLD_SESSION_DIR`, check
   `footprint`/pgrep, quit via AppleScript. iOS: simulator + simctl screenshot.

@@ -481,7 +481,7 @@ public enum CommandRegistry {
             isAvailable: { $0.ui != nil },
             run: { $0.ui?.showHelp = true }
         ))
-        // Creates ~/Library/Application Support/PDFReader/keybindings.json
+        // Creates ~/Library/Application Support/Bluefold/keybindings.json
         // (with template docs) if needed and opens it. Chordless — palette
         // and Help menu only.
         commands.append(ReaderCommand(

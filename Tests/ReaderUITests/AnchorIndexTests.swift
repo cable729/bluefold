@@ -204,7 +204,7 @@ struct AnchorClickTests {
 
         model.anchorClicked(anchor, tabID: tabID)
         let copied = try #require(pasteboard.string(forType: .string))
-        #expect(copied.hasPrefix("pdfreader://open?"))
+        #expect(copied.hasPrefix("bluefold://open?"))
         #expect(copied.contains("dest=theorem.1.5.2"))
         #expect(copied.contains("page=153"))  // 1-based in URLs
         // Round-trips through the codec.
@@ -221,7 +221,7 @@ struct AnchorClickTests {
         // ⌥: markdown form for notes.
         model.anchorClicked(anchor, tabID: tabID, asMarkdown: true)
         #expect(pasteboard.string(forType: .string)?
-            .hasPrefix("[Theorem 5.2](pdfreader://open?") == true)
+            .hasPrefix("[Theorem 5.2](bluefold://open?") == true)
     }
 }
 #endif

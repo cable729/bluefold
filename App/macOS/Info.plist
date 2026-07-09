@@ -9,12 +9,12 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.cable729.pdfreader.deeplink</string>
+			<string>com.cable729.bluefold.deeplink</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>pdfreader</string>
+				<string>bluefold</string>
 			</array>
 		</dict>
 	</array>

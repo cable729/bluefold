@@ -289,7 +289,7 @@ struct KeybindingsTests {
         // The env override wins; without it a unit-test process gets nil —
         // the registry must never read the user's real Application Support.
         #expect(
-            Keybindings.fileURL(environment: ["PDFREADER_KEYBINDINGS_FILE": "/tmp/kb.json"])
+            Keybindings.fileURL(environment: ["BLUEFOLD_KEYBINDINGS_FILE": "/tmp/kb.json"])
                 == URL(fileURLWithPath: "/tmp/kb.json")
         )
         #expect(Keybindings.fileURL(environment: [:]) == nil)

@@ -10,7 +10,7 @@ end-of-session feedback after using the app.
   A448YLFLYC is set on the project; the owner's Apple ID is in Xcode. First
   signed build mints the dev certificate. Add iCloud/CloudKit + push
   entitlements to both targets, create container
-  `iCloud.com.cable729.pdfreader`, implement SyncKit with CKSyncEngine
+  `iCloud.com.cable729.bluefold`, implement SyncKit with CKSyncEngine
   behind `SyncTransport` (fake transport for tests), deploy schema to
   production in CloudKit Console before any release build.
 - ✅ CODE-DONE 2026-07-08 (F-1; simulator build only — needs hand-run) —
@@ -21,7 +21,7 @@ end-of-session feedback after using the app.
   bookmarks / reading state on iOS.
 - **M17 — XCUITest smoke suite + CI job B** (xcodebuild macOS app tests +
   iOS simulator build). Launch-arg fixtures already exist (`--open`,
-  `PDFREADER_SESSION_DIR`).
+  `BLUEFOLD_SESSION_DIR`).
 - **M18 — v0.1 release.** Settings window (LRU size, theme, index toggle,
   Calibre folder), app icon, README screenshots (use Axler — NOT Dummit &
   Foote), notarized DMG pipeline, make repo public, CONTRIBUTING.md.
@@ -89,7 +89,7 @@ end-of-session feedback after using the app.
   tag shows; zero-count tags show no badge (`LibraryModel.tagCounts`).
 
 ### Deep linking / anchors (owner question, answered) — ✅ SHIPPED 2026-07-08
-Implemented as designed below (F-1): `pdfreader://open?hash=…&dest=…&page=…`,
+Implemented as designed below (F-1): `bluefold://open?hash=…&dest=…&page=…`,
 Copy Link to Here / to Selection, `NamedDestinations` CGPDF resolver.
 Original plan:
 PDFs expose anchors we can link to: **named destinations** (hyperref's
@@ -97,7 +97,7 @@ PDFs expose anchors we can link to: **named destinations** (hyperref's
 **outline entries**, and page+point. Theorem/exercise granularity exists in
 well-made LaTeX books because every `\ref` target is a named destination.
 Plan: a custom URL scheme, e.g.
-`pdfreader://open?hash=<contentHash>&dest=<name>` (fallback `&page=N&x=&y=`),
+`bluefold://open?hash=<contentHash>&dest=<name>` (fallback `&page=N&x=&y=`),
 registered by the app; "Copy Link to Here / to Selection" in the reader;
 links resolve through the library's content-hash lookup so they survive file
 moves. These URLs then work from Obsidian/anywhere. (Cross-book theorem
@@ -145,7 +145,7 @@ references inside PDFs already work via PDFActionRemoteGoTo.)
 Correct — unit tests can't catch what the owner keeps finding (layout
 collapse, broken DnD, tooltip delay). The industry-standard answer for
 macOS apps (Docker is impossible — macOS doesn't containerize):
-1. **XCUITest** driving the real app (launch args + PDFREADER_SESSION_DIR
+1. **XCUITest** driving the real app (launch args + BLUEFOLD_SESSION_DIR
    already exist as hooks) on **GitHub Actions macOS runners** — M17. Smoke
    flows: open → tab → ⌘-click link → back → quit → relaunch → restored;
    library open → search → hit → correct page; tab drag (XCUITest can drag).
@@ -157,7 +157,7 @@ macOS apps (Docker is impossible — macOS doesn't containerize):
    (pointfree swift-snapshot-testing) for view regressions.
 
 ### Product / business (brainstorm sessions wanted — do NOT decide alone)
-- **Rename the app** (working title "PDFReader" / pdf-app). Brainstorm with
+- **Rename the app** (working title "Bluefold" / pdf-app). Brainstorm with
   owner.
 - **Bundle id / team identity**: owner wants to move off com.cable729.* and
   is considering an LLC — brainstorm naming + legal setup with him. NOTE:
@@ -271,7 +271,7 @@ design session on this before building. Sketch of the idea:
   the CGPDF name tree, see NamedDestinations), outline entries (works for
   scans too), possibly heading-detection heuristics later.
 - Interaction ideas to explore with the owner: hover to reveal, click a
-  marker = Copy Link to that anchor (pairs with pdfreader:// deep links),
+  marker = Copy Link to that anchor (pairs with bluefold:// deep links),
   maybe jump/peek. Rendering probably a PDFView overlay layer or page
   annotations drawn at anchor points (mind the destination pathologies:
   validate points, offset crop boxes).
@@ -286,7 +286,7 @@ design session on this before building. Sketch of the idea:
 - Selection lag (above).
 - OCR'd scanned books: hits are page-granular (no in-page highlight boxes) —
   store Vision word geometry to fix (extractor_version bump).
-- macOS 26 "footprint" tool reports two PDFReader lines occasionally
+- macOS 26 "footprint" tool reports two Bluefold lines occasionally
   (stale process match) — cosmetic in verification scripts.
 
 ## Feedback round 4 (2026-07-08, morning after overnight round 3)
@@ -309,7 +309,7 @@ design session on this before building. Sketch of the idea:
 - **Tear-off drag by hand FAILED and wedged the strip**: ghost panel stayed
   floating (see owner screenshot), dragged tab stayed hidden. ⌘Q+relaunch
   recovers (session intact). Implication: `endPress` never ran — the ghost
-  is only closed there. Debug live with `PDFREADER_SESSION_DIR` set so the
+  is only closed there. Debug live with `BLUEFOLD_SESSION_DIR` set so the
   strip's dragdebug.log records begin/continue/end; suspects: mouseUp not
   delivered to the item view when the pointer is outside the window over
   another app, or the item view being replaced mid-drag. Also add a

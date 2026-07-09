@@ -2,7 +2,7 @@ import ReaderUI
 import SwiftUI
 
 @main
-struct PDFReaderApp: App {
+struct BluefoldApp: App {
     @State private var model = ReaderSessionModel()
     @State private var theme = ThemeStore()
     @State private var library = LibraryModel()

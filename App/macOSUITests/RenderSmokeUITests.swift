@@ -17,7 +17,7 @@ final class RenderSmokeUITests: XCTestCase {
         for running in NSWorkspace.shared.runningApplications {
             guard
                 let url = running.bundleURL,
-                url.lastPathComponent == "PDFReader.app",
+                url.lastPathComponent == "Bluefold.app",
                 url.path.hasPrefix(productsDir.path)
             else { continue }
             running.forceTerminate()
@@ -29,7 +29,7 @@ final class RenderSmokeUITests: XCTestCase {
         continueAfterFailure = false
         Self.terminateStrayInstances()
         let base = FileManager.default.temporaryDirectory
-            .appendingPathComponent("pdfreader-rendersmoke-\(UUID().uuidString)")
+            .appendingPathComponent("bluefold-rendersmoke-\(UUID().uuidString)")
         sessionDir = base.appendingPathComponent("session")
         fixtureDir = base.appendingPathComponent("fixtures")
         try FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
@@ -58,7 +58,7 @@ final class RenderSmokeUITests: XCTestCase {
 
     private func launch(arguments: [String]) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchEnvironment["PDFREADER_SESSION_DIR"] = sessionDir.path
+        app.launchEnvironment["BLUEFOLD_SESSION_DIR"] = sessionDir.path
         app.launchArguments = arguments
         app.launch()
         return app

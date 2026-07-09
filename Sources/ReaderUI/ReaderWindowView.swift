@@ -325,7 +325,7 @@ public struct ReaderWindowView: View {
         model.openTabViaPanel()
     }
 
-    /// Test/automation hook: `PDFReader --open <path> [--open <path> …]`
+    /// Test/automation hook: `Bluefold --open <path> [--open <path> …]`
     /// opens each file in its own tab (in the launch window, once).
     private func openFromLaunchArguments() {
         guard !SessionCoordinator.shared.launchArgumentsConsumed else { return }

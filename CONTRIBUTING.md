@@ -16,11 +16,11 @@ broken pbxproj or a clobbered database.
 
   ```sh
   # macOS app
-  xcodebuild -project App/PDFReader.xcodeproj -scheme PDFReader \
+  xcodebuild -project App/Bluefold.xcodeproj -scheme Bluefold \
       -configuration Debug -derivedDataPath .build/DerivedData build
 
   # iOS app (simulator)
-  xcodebuild -project App/PDFReader.xcodeproj -scheme PDFReader-iOS \
+  xcodebuild -project App/Bluefold.xcodeproj -scheme Bluefold-iOS \
       -destination 'generic/platform=iOS Simulator' \
       -derivedDataPath .build/DerivedData-iOS build CODE_SIGNING_ALLOWED=NO
   ```

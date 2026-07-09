@@ -9,7 +9,7 @@ public enum AppStores {
     /// True when running inside a unit-test process (XCTest or
     /// swift-testing). UI-test-LAUNCHED app processes are not test
     /// processes — they must behave like the real app (they isolate via
-    /// PDFREADER_SESSION_DIR instead).
+    /// BLUEFOLD_SESSION_DIR instead).
     static var isTestProcess: Bool {
         // `swift test` executes suites inside swiftpm-testing-helper;
         // Xcode-hosted runs use an .xctest bundle / config-path env / a
@@ -34,7 +34,7 @@ public enum AppStores {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             return try LibraryStore(path: dir.appendingPathComponent("library.db").path)
         } catch {
-            NSLog("PDFReader: library store unavailable: \(error)")
+            NSLog("Bluefold: library store unavailable: \(error)")
             return nil
         }
     }()

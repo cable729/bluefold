@@ -79,14 +79,14 @@ jobs:
       - name: Build release DMG
         env:
           HAVE_CERT: ${{ steps.cert.outputs.have_cert }}
-          PDFREADER_NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
-          PDFREADER_NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
-          PDFREADER_NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          BLUEFOLD_NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          BLUEFOLD_NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          BLUEFOLD_NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
         run: |
           FLAGS=""
           if [ "$HAVE_CERT" != "true" ]; then
             FLAGS="--skip-sign --skip-notarize"
-          elif [ -z "$PDFREADER_NOTARY_APPLE_ID" ]; then
+          elif [ -z "$BLUEFOLD_NOTARY_APPLE_ID" ]; then
             echo "Signing cert present but no notary secrets — signed, unnotarized dmg."
             FLAGS="--skip-notarize"
           fi
@@ -95,7 +95,7 @@ jobs:
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PDFReader-dmg
+          name: Bluefold-dmg
           path: dist/*.dmg
           if-no-files-found: error
 
@@ -107,5 +107,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" dist/*.dmg \
-            --draft --title "PDFReader ${GITHUB_REF_NAME}" \
+            --draft --title "Bluefold ${GITHUB_REF_NAME}" \
             --generate-notes

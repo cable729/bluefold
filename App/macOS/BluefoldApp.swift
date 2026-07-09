@@ -3,7 +3,7 @@ import ReaderUI
 import SwiftUI
 
 @main
-struct PDFReaderApp: App {
+struct BluefoldApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
@@ -63,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateNow
     }
 
-    /// pdfreader:// deep links (Info.plist registers the scheme). At launch
+    /// bluefold:// deep links (Info.plist registers the scheme). At launch
     /// these can arrive before any scene exists; the router queues them.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {

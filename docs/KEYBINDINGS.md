@@ -74,7 +74,7 @@ Conventions borrowed from VS Code (palettes, quick-open), Safari/Chrome
 
 | Shortcut | Action | Notes |
 | --- | --- | --- |
-| — | Copy Link to Here / Copy Link to Selection | Edit menu or command palette. Copies a `pdfreader://` URL (content-hash based, survives file moves) that works from Obsidian or anywhere. Deliberately chordless — bind via keybindings.json if wanted. |
+| — | Copy Link to Here / Copy Link to Selection | Edit menu or command palette. Copies a `bluefold://` URL (content-hash based, survives file moves) that works from Obsidian or anywhere. Deliberately chordless — bind via keybindings.json if wanted. |
 
 ## Help & Palettes
 
@@ -102,9 +102,9 @@ table at launch (relaunch to apply changes). The palette, help overlay,
 and menus all reflect overrides automatically because they render from
 the one table.
 
-**File**: `~/Library/Application Support/PDFReader/keybindings.json`
-(strictly: `<AppDataDirectory>/keybindings.json`, so `PDFREADER_SESSION_DIR`
-relocates it; `PDFREADER_KEYBINDINGS_FILE` overrides the exact path — both
+**File**: `~/Library/Application Support/Bluefold/keybindings.json`
+(strictly: `<AppDataDirectory>/keybindings.json`, so `BLUEFOLD_SESSION_DIR`
+relocates it; `BLUEFOLD_KEYBINDINGS_FILE` overrides the exact path — both
 for tests/automation). Run **"Preferences: Open Keybindings File"** from the
 command palette (or the Help menu) to create it with a documented template
 and open it.

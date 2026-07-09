@@ -12,21 +12,21 @@
 #
 # Options (each also settable via the environment variable in parens):
 #   --identity "Developer ID Application: Name (TEAMID)"
-#                          (PDFREADER_SIGN_IDENTITY) Signing identity. If
+#                          (BLUEFOLD_SIGN_IDENTITY) Signing identity. If
 #                          unset, the newest "Developer ID Application"
 #                          identity in the keychain is used.
-#   --notary-profile NAME  (PDFREADER_NOTARY_PROFILE) notarytool keychain
+#   --notary-profile NAME  (BLUEFOLD_NOTARY_PROFILE) notarytool keychain
 #                          profile, created once with:
 #                          xcrun notarytool store-credentials NAME \
 #                            --apple-id you@example.com --team-id A448YLFLYC \
 #                            --password <app-specific password>
-#   --apple-id ID          (PDFREADER_NOTARY_APPLE_ID)   Alternative to the
-#   --team-id ID           (PDFREADER_NOTARY_TEAM_ID)    profile: pass the
-#   --password PW          (PDFREADER_NOTARY_PASSWORD)   three raw values
+#   --apple-id ID          (BLUEFOLD_NOTARY_APPLE_ID)   Alternative to the
+#   --team-id ID           (BLUEFOLD_NOTARY_TEAM_ID)    profile: pass the
+#   --password PW          (BLUEFOLD_NOTARY_PASSWORD)   three raw values
 #                          (password = app-specific password, not the real
 #                          Apple ID password). Used by CI, where secrets
 #                          arrive as env vars.
-#   --output DIR           (PDFREADER_RELEASE_DIR, default dist) Where the
+#   --output DIR           (BLUEFOLD_RELEASE_DIR, default dist) Where the
 #                          .app/.dmg land.
 #   --version X.Y          Override the version in the DMG filename
 #                          (default: MARKETING_VERSION from the project).
@@ -41,12 +41,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # ---------------------------------------------------------------- parameters
-IDENTITY="${PDFREADER_SIGN_IDENTITY:-}"
-NOTARY_PROFILE="${PDFREADER_NOTARY_PROFILE:-}"
-NOTARY_APPLE_ID="${PDFREADER_NOTARY_APPLE_ID:-}"
-NOTARY_TEAM_ID="${PDFREADER_NOTARY_TEAM_ID:-}"
-NOTARY_PASSWORD="${PDFREADER_NOTARY_PASSWORD:-}"
-OUT_DIR="${PDFREADER_RELEASE_DIR:-dist}"
+IDENTITY="${BLUEFOLD_SIGN_IDENTITY:-}"
+NOTARY_PROFILE="${BLUEFOLD_NOTARY_PROFILE:-}"
+NOTARY_APPLE_ID="${BLUEFOLD_NOTARY_APPLE_ID:-}"
+NOTARY_TEAM_ID="${BLUEFOLD_NOTARY_TEAM_ID:-}"
+NOTARY_PASSWORD="${BLUEFOLD_NOTARY_PASSWORD:-}"
+OUT_DIR="${BLUEFOLD_RELEASE_DIR:-dist}"
 VERSION=""
 SKIP_BUILD=0
 SKIP_SIGN=0
@@ -72,7 +72,7 @@ done
 fail() { echo ""; echo "FAIL: $1"; echo "$2"; exit 1; }
 
 DERIVED="$OUT_DIR/build"
-APP="$DERIVED/Build/Products/Release/PDFReader.app"
+APP="$DERIVED/Build/Products/Release/Bluefold.app"
 mkdir -p "$OUT_DIR"
 
 # ------------------------------------------------------------- 1/5 build
@@ -82,7 +82,7 @@ if [ "$SKIP_BUILD" = 1 ]; then
         "Run once without --skip-build first."
 else
     echo "== 1/5 Release build =="
-    xcodebuild -project App/PDFReader.xcodeproj -scheme PDFReader \
+    xcodebuild -project App/Bluefold.xcodeproj -scheme Bluefold \
         -configuration Release -derivedDataPath "$DERIVED" \
         -quiet build
     [ -d "$APP" ] || fail "build finished but $APP is missing" \
@@ -97,7 +97,7 @@ if [ -z "$VERSION" ]; then
     esac
     VERSION=$(defaults read "$INFO" CFBundleShortVersionString 2>/dev/null || echo "0.0")
 fi
-DMG="$OUT_DIR/PDFReader-$VERSION.dmg"
+DMG="$OUT_DIR/Bluefold-$VERSION.dmg"
 echo "   app: $APP"
 echo "   version: $VERSION"
 
@@ -126,7 +126,7 @@ Until then: --skip-sign builds an unsigned DMG for local testing."
     # and future-proof if a framework/helper ever gets embedded).
     find "$APP/Contents" \
         \( -name "*.framework" -o -name "*.dylib" -o -path "*/MacOS/*" -type f \) \
-        -not -path "*/MacOS/PDFReader" 2>/dev/null \
+        -not -path "*/MacOS/Bluefold" 2>/dev/null \
         | while read -r nested; do
             codesign --force --options runtime --timestamp --sign "$IDENTITY" "$nested"
         done
@@ -143,7 +143,7 @@ trap 'rm -rf "$STAGING"' EXIT
 cp -R "$APP" "$STAGING/"
 ln -s /Applications "$STAGING/Applications"
 rm -f "$DMG"
-hdiutil create -volname "PDFReader $VERSION" -srcfolder "$STAGING" \
+hdiutil create -volname "Bluefold $VERSION" -srcfolder "$STAGING" \
     -fs HFS+ -format UDZO -quiet "$DMG" \
     || fail "hdiutil create failed" "Is there free disk space? Is $OUT_DIR writable?"
 echo "   dmg: $DMG"
@@ -166,10 +166,10 @@ elif [ -n "$NOTARY_APPLE_ID" ] && [ -n "$NOTARY_TEAM_ID" ] && [ -n "$NOTARY_PASS
 else
     fail "no notarization credentials" \
 "Either store a keychain profile once:
-    xcrun notarytool store-credentials pdfreader \\
+    xcrun notarytool store-credentials bluefold \\
         --apple-id you@example.com --team-id A448YLFLYC \\
         --password <app-specific password from appleid.apple.com>
-and re-run with --notary-profile pdfreader, or pass
+and re-run with --notary-profile bluefold, or pass
 --apple-id/--team-id/--password directly (CI does this from secrets).
 Or re-run with --skip-notarize for an unnotarized DMG."
 fi

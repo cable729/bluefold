@@ -4,7 +4,7 @@ import ReaderUI
 import SwiftUI
 import UIKit
 
-/// iOS theme state: persists the same `PDFReaderTheme` UserDefaults key as
+/// iOS theme state: persists the same `BluefoldTheme` UserDefaults key as
 /// macOS and writes the shared `PageFilterStore` so `ThemedPDFPage` filters
 /// page content (dark = difference-invert, sepia = multiply Claude tan).
 ///
@@ -16,7 +16,7 @@ import UIKit
 @MainActor
 @Observable
 final class ThemeStore {
-    private static let defaultsKey = "PDFReaderTheme"  // shared with macOS
+    private static let defaultsKey = "BluefoldTheme"  // shared with macOS
 
     var current: AppTheme {
         didSet {

@@ -18,7 +18,7 @@ the project owner's plan file; the milestone list below is self-contained.
 - [x] **M6** Tabs + memory model: tab bar, DocumentProvider LRU (~3, pinned active), destroy PDFView on tab switch. Verified: 10 textbooks open = 66 MB footprint
 - [x] **M7** Links + history: ReaderPDFView mouseDown interception (GoTo/RemoteGoTo/bare destination), NavigationHistory wiring, ⌘-click → new tab at destination, ⌘[/⌘] toolbar back/forward
 - [x] **M8** Outline sidebar (PDFOutline tree, jumps push history), lazy page thumbnails, ⌘F find bar (beginFindString + highlightedSelections, ⌘G/⇧⌘G cycling)
-- [x] **M9** Multi-window: WindowGroup(id:for:UUID), WindowAccessor (.moveToActiveSpace, tabbingMode=.disallowed, isRestorable=false, frame persistence), SessionCoordinator with debounced session.json (PDFREADER_SESSION_DIR env override for tests), full relaunch restore, ⌘N/⌘T/⌘W/⇧⌘W commands. Verified: 2-book session survives quit+bare relaunch
+- [x] **M9** Multi-window: WindowGroup(id:for:UUID), WindowAccessor (.moveToActiveSpace, tabbingMode=.disallowed, isRestorable=false, frame persistence), SessionCoordinator with debounced session.json (BLUEFOLD_SESSION_DIR env override for tests), full relaunch restore, ⌘N/⌘T/⌘W/⇧⌘W commands. Verified: 2-book session survives quit+bare relaunch
 - [x] **M10** Theming: light/dark/sepia (Claude tan #F5EDE1) — ThemedPDFPage draw-override page filtering (difference-invert / multiply-tan, iOS-compatible), pdfView background, preferredColorScheme, View > Theme menu, UserDefaults persistence
 - [x] **M11** Library browser: Library window (⇧⌘L), Calibre auto-detect + folder picker, cover grid with authors/tags, searchable, double-click opens in last-focused reader window (or stages a new one), iCloud dataless download-on-open with progress overlay; Calibre books mirrored into overlay DB (upsertCalibreBook)
 - [x] **M12** Own imports + overlay tags/collections UI: library sidebar (All Books / hierarchical Tags / Collections) with scope filtering (descendant tags included), Import PDFs… (contentHash identity), per-book Tags/Collections context menus with toggles, New Tag nests under selected tag, overlay tags shown in accent + searchable
@@ -89,7 +89,7 @@ the project owner's plan file; the milestone list below is self-contained.
 
 - [x] **F-1** Feature wave (2026-07-08 afternoon, owner's priority list; 4 parallel
   worktree agents + deep linking inline, all merged, 330 tests):
-  - **Deep linking** (`pdfreader://open?hash=…&dest=…&page=…&x=&y=`): content-hash
+  - **Deep linking** (`bluefold://open?hash=…&dest=…&page=…&x=&y=`): content-hash
     resolution (survives moves), named destinations resolved via the CGPDF
     Names/Dests tree (`NamedDestinations`), `DeepLinkRouter` queues launch URLs +
     downloads evicted books, Copy Link to Here / to Selection (Edit menu +
@@ -166,7 +166,7 @@ the project owner's plan file; the milestone list below is self-contained.
     (text-detection tier), and named-destination anchors. ~50% ink at
     rest; hover brightens it, shows a dashed extent outline around the
     heading line (text tier), tooltip carries the label. Click = copy a
-    `pdfreader://` link (`dest=` + page/point fallback both encoded) AND
+    `bluefold://` link (`dest=` + page/point fallback both encoded) AND
     push the anchor onto the tab's back stack (⌘[ returns there — a
     lightweight "mark this spot"); ⌥-click copies a markdown link
     `[label](url)` for notes. A bottom toast confirms what was copied
@@ -355,7 +355,7 @@ the project owner's plan file; the milestone list below is self-contained.
 
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE (simulator-verified); F-1 added library/search/theming/link-history UI (simulator BUILD-verified only — needs hand-run); CloudKit sync UI pending
-- [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `PDFReaderUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but local XCUITest synthesis can't drive them (see quirks below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI/human hands end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test PDFREADER_BUNDLE_ID_SUFFIX=.uitest<N>`. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
+- [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `BluefoldUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but local XCUITest synthesis can't drive them (see quirks below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI/human hands end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest<N>`. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
 - [~] **M18** code side DONE (2026-07-08): Settings window ⌘, (AppSettings:
   LRU capacity live-applied via SessionCoordinator, indexing + OCR toggles
   with per-pass IndexingService recreation, theme picker, Calibre folder
@@ -393,7 +393,7 @@ Chronology of findings, most important first:
 
 ## Environment notes
 - Xcode 26.6 installed, license accepted — plain `git`/`swift`/`xcodebuild` all work. (`scripts/test-clt.sh` remains for CLT-only environments but is no longer required.)
-- App builds: `xcodebuild -project App/PDFReader.xcodeproj -scheme PDFReader -configuration Debug -derivedDataPath .build/DerivedData build`. The pbxproj is hand-authored (objectVersion 77, synchronized folder groups) — adding files under App/macOS/ requires no pbxproj edits.
+- App builds: `xcodebuild -project App/Bluefold.xcodeproj -scheme Bluefold -configuration Debug -derivedDataPath .build/DerivedData build`. The pbxproj is hand-authored (objectVersion 77, synchronized folder groups) — adding files under App/macOS/ requires no pbxproj edits.
 - Owner's Calibre library: `~/Library/Mobile Documents/com~apple~CloudDocs/Documents/Calibre` (read-only source; files may be iCloud-evicted).
 - Apple Developer account: enrolled (cable729@gmail.com, 2026-07-07). Before M15/signing: the owner must add the account in Xcode > Settings > Accounts (GUI step).
 - Test corpus guidance from owner: Axler "Linear Algebra Done Right" (in the Calibre library) is the reference for internal-link behavior; also test scanned/ugly PDFs (search there needs M13b OCR); math notation extracts messily — search and snippets must tolerate it. Don't feature Dummit & Foote in demos/screenshots.
@@ -411,11 +411,11 @@ Chronology of findings, most important first:
 These bit hard during UI-test debugging; they are MACHINE/OS behaviors, not
 app bugs:
 - **Second instance of a bundle ID never opens its window.** After one
-  unclean kill of a PDFReader instance, every later direct-exec launch of
+  unclean kill of a Bluefold instance, every later direct-exec launch of
   the same bundle ID runs windowless (menu bar only). LaunchServices
   launches (`open`, Finder, Dock) are unaffected — normal usage is fine.
   Consequences: UI tests kill stray instances per-test AND take a
-  `PDFREADER_BUNDLE_ID_SUFFIX` build override (app target only) so each run
+  `BLUEFOLD_BUNDLE_ID_SUFFIX` build override (app target only) so each run
   can use a fresh ID; `scripts/verify.sh`'s direct-exec launch smoke may
   false-fail on a machine in this state (launch via `open` instead).
 - **XCUITest synthesized input is partially broken locally**: plain
@@ -482,7 +482,7 @@ destinations/crops before theorizing.
    - **App + LLC rename** (owner confirmed he wants both): brainstorm
      session needed. Gates M15 (CloudKit container is bundle-id-scoped)
      and the deep-link scheme (DeepLink.schemes — new scheme first, keep
-     `pdfreader` as alias).
+     `bluefold` as alias).
    - Still parked: first-launch shortcuts HUD; sub-tag context menu
      (right-click tag → New Sub-Tag / Rename).
 2. **Owner hand-verification debt**: F-1 wave UI (tag colors, list/

@@ -35,14 +35,14 @@ public enum Keybindings {
 
     // MARK: - File location
 
-    /// Where the overlay lives. `PDFREADER_KEYBINDINGS_FILE` overrides it
+    /// Where the overlay lives. `BLUEFOLD_KEYBINDINGS_FILE` overrides it
     /// (tests, automation); unit-test processes otherwise get nil so they
     /// can never read the user's real Application Support file.
     @MainActor
     public static func fileURL(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL? {
-        if let explicit = environment["PDFREADER_KEYBINDINGS_FILE"], !explicit.isEmpty {
+        if let explicit = environment["BLUEFOLD_KEYBINDINGS_FILE"], !explicit.isEmpty {
             return URL(fileURLWithPath: explicit)
         }
         if AppStores.isTestProcess { return nil }
@@ -197,7 +197,7 @@ public enum Keybindings {
                     .write(to: url)
             }
         } catch {
-            NSLog("PDFReader: could not create keybindings.json: \(error)")
+            NSLog("Bluefold: could not create keybindings.json: \(error)")
         }
         if !NSWorkspace.shared.open(url) {
             NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -208,7 +208,7 @@ public enum Keybindings {
     /// no active bindings.
     public static func template(commands: [ReaderCommand]) -> String {
         var docs: [String] = [
-            "PDFReader keybindings — this file overlays the defaults at launch (relaunch to apply).",
+            "Bluefold keybindings — this file overlays the defaults at launch (relaunch to apply).",
             "Add entries at the top level: \"command.id\": \"chord\", e.g. \"view.toggleSidebar\": \"cmd+shift+b\".",
             "A chord is modifiers + one key joined with '+': cmd, ctrl, opt (or alt), shift.",
             "Keys: letters, digits, punctuation ([ ] \\ / ; ' , . = - `), and return, tab, escape, space, up, down, left, right.",
@@ -216,7 +216,7 @@ public enum Keybindings {
             "Unbind a command with null or \"\". Keys starting with '_' (like this one) are ignored.",
             "Problems (unknown id, bad chord, chord already taken) are reported at launch; valid entries still apply.",
             "nav.goToPage stays on cmd+g by design and cannot be changed here.",
-            "Full documentation: docs/KEYBINDINGS.md in the PDFReader repository.",
+            "Full documentation: docs/KEYBINDINGS.md in the Bluefold repository.",
             "",
             "Command ids and their defaults:",
         ]

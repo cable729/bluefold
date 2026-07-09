@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "AA0000000000000000000025"
-               BuildableName = "PDFReader-iOS.app"
-               BlueprintName = "PDFReader-iOS"
-               ReferencedContainer = "container:PDFReader.xcodeproj">
+               BuildableName = "Bluefold-iOS.app"
+               BlueprintName = "Bluefold-iOS"
+               ReferencedContainer = "container:Bluefold.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -45,9 +45,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AA0000000000000000000025"
-            BuildableName = "PDFReader-iOS.app"
-            BlueprintName = "PDFReader-iOS"
-            ReferencedContainer = "container:PDFReader.xcodeproj">
+            BuildableName = "Bluefold-iOS.app"
+            BlueprintName = "Bluefold-iOS"
+            ReferencedContainer = "container:Bluefold.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -62,9 +62,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AA0000000000000000000025"
-            BuildableName = "PDFReader-iOS.app"
-            BlueprintName = "PDFReader-iOS"
-            ReferencedContainer = "container:PDFReader.xcodeproj">
+            BuildableName = "Bluefold-iOS.app"
+            BlueprintName = "Bluefold-iOS"
+            ReferencedContainer = "container:Bluefold.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

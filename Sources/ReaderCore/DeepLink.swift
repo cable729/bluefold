@@ -3,7 +3,7 @@ import Foundation
 
 /// A shareable link to a position inside a library book:
 ///
-///     pdfreader://open?hash=<contentHash>&dest=<name>&page=<1-based>&x=<pt>&y=<pt>
+///     bluefold://open?hash=<contentHash>&dest=<name>&page=<1-based>&x=<pt>&y=<pt>
 ///
 /// Links resolve through the library's content-hash lookup, so they survive
 /// file moves and renames. `dest` is a PDF named destination (hyperref
@@ -15,7 +15,7 @@ public struct DeepLink: Equatable, Sendable {
     /// new scheme FIRST and keep old ones listed so links already pasted
     /// into the owner's notes never break (Info.plist must register every
     /// scheme here).
-    public static let schemes = ["pdfreader"]
+    public static let schemes = ["bluefold"]
     public static var primaryScheme: String { schemes[0] }
     public static let host = "open"
 

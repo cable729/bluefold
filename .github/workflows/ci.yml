@@ -82,9 +82,9 @@ jobs:
       - name: Run UI tests
         run: |
           set -o pipefail
-          xcodebuild -project App/PDFReader.xcodeproj -scheme PDFReader \
+          xcodebuild -project App/Bluefold.xcodeproj -scheme Bluefold \
             -configuration Debug -derivedDataPath DerivedData \
-            test PDFREADER_BUNDLE_ID_SUFFIX=.ci 2>&1 | tail -200
+            test BLUEFOLD_BUNDLE_ID_SUFFIX=.ci 2>&1 | tail -200
 
   # iOS still has to compile (shared ReaderCore changes routinely touch it).
   ios-build:
@@ -99,7 +99,7 @@ jobs:
       - name: Build
         run: |
           set -o pipefail
-          xcodebuild -project App/PDFReader.xcodeproj -scheme PDFReader-iOS \
+          xcodebuild -project App/Bluefold.xcodeproj -scheme Bluefold-iOS \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath DerivedData-iOS \
             build CODE_SIGNING_ALLOWED=NO 2>&1 | tail -50

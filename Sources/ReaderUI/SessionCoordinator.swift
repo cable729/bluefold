@@ -500,7 +500,7 @@ public final class SessionCoordinator {
             )
             try data.write(to: sessionFileURL, options: .atomic)
         } catch {
-            NSLog("PDFReader: session save failed: \(error)")
+            NSLog("Bluefold: session save failed: \(error)")
         }
     }
 

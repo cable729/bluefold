@@ -14,12 +14,12 @@ echo "== 1/4 swift test (unit + integration) =="
 swift test
 
 echo "== 2/4 macOS app build =="
-xcodebuild -project App/PDFReader.xcodeproj -scheme PDFReader \
+xcodebuild -project App/Bluefold.xcodeproj -scheme Bluefold \
     -configuration Debug -derivedDataPath .build/DerivedData \
     -quiet build
 
 echo "== 3/4 iOS app build (simulator) =="
-xcodebuild -project App/PDFReader.xcodeproj -scheme PDFReader-iOS \
+xcodebuild -project App/Bluefold.xcodeproj -scheme Bluefold-iOS \
     -destination 'generic/platform=iOS Simulator' \
     -derivedDataPath .build/DerivedData-iOS \
     -quiet build CODE_SIGNING_ALLOWED=NO
@@ -32,12 +32,12 @@ if [ -z "${CI:-}" ]; then
     # while the app was effectively broken. Asserting a real window catches
     # that class of failure too. (Quirk notes: docs/PROGRESS.md.)
     SDIR=$(mktemp -d)
-    APP_BUNDLE=.build/DerivedData/Build/Products/Debug/PDFReader.app
-    launchctl setenv PDFREADER_SESSION_DIR "$SDIR"
+    APP_BUNDLE=.build/DerivedData/Build/Products/Debug/Bluefold.app
+    launchctl setenv BLUEFOLD_SESSION_DIR "$SDIR"
     open -n "$APP_BUNDLE"
     sleep 6
-    launchctl unsetenv PDFREADER_SESSION_DIR
-    APP_PID=$(pgrep -n -f "$APP_BUNDLE/Contents/MacOS/PDFReader" || true)
+    launchctl unsetenv BLUEFOLD_SESSION_DIR
+    APP_PID=$(pgrep -n -f "$APP_BUNDLE/Contents/MacOS/Bluefold" || true)
     [ -n "$APP_PID" ] || { echo "FAIL: app not running after launch"; exit 1; }
     WINDOWS=$(APP_PID="$APP_PID" swift - <<'SWIFT'
 import CoreGraphics
@@ -57,7 +57,7 @@ SWIFT
     fi
     # Quit gracefully: an unclean kill poisons later direct-exec launches
     # of this bundle ID (macOS 26 quirk).
-    osascript -e 'tell application "PDFReader" to quit' >/dev/null 2>&1 || kill "$APP_PID"
+    osascript -e 'tell application "Bluefold" to quit' >/dev/null 2>&1 || kill "$APP_PID"
     rm -rf "$SDIR"
 else
     echo "== 4/4 launch smoke skipped on CI (XCUITest will cover this — M17) =="

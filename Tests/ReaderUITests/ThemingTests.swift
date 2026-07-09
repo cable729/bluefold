@@ -117,10 +117,10 @@ struct ThemeManagerTests {
     /// Fresh manager with the persisted key and page filter cleared afterwards.
     private func withManager(_ body: (ThemeManager) throws -> Void) rethrows {
         defer {
-            UserDefaults.standard.removeObject(forKey: "PDFReaderTheme")
+            UserDefaults.standard.removeObject(forKey: "BluefoldTheme")
             PageFilterStore.current = .none
         }
-        UserDefaults.standard.removeObject(forKey: "PDFReaderTheme")
+        UserDefaults.standard.removeObject(forKey: "BluefoldTheme")
         try body(ThemeManager())
     }
 
@@ -148,12 +148,12 @@ struct ThemeManagerTests {
 
     @Test func autoPersistsAndRestores() {
         defer {
-            UserDefaults.standard.removeObject(forKey: "PDFReaderTheme")
+            UserDefaults.standard.removeObject(forKey: "BluefoldTheme")
             PageFilterStore.current = .none
         }
-        UserDefaults.standard.removeObject(forKey: "PDFReaderTheme")
+        UserDefaults.standard.removeObject(forKey: "BluefoldTheme")
         ThemeManager().current = .auto
-        #expect(UserDefaults.standard.string(forKey: "PDFReaderTheme") == "auto")
+        #expect(UserDefaults.standard.string(forKey: "BluefoldTheme") == "auto")
         #expect(ThemeManager().current == .auto)
     }
 
