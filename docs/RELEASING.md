@@ -47,8 +47,7 @@ automatically. Bump `MARKETING_VERSION` in `App/Bluefold.xcodeproj` first
 in place (`--clobber`).
 
 `.github/workflows/release.yml` can do the same from a macOS runner on a
-`v*` tag push once the signing secrets are configured — see the comments at
-the top of that file. Actions minutes are free on public repos.
+`v*` tag push — see "Automated releases from GitHub" below.
 
 ## Editing the website
 
@@ -59,53 +58,44 @@ minute. Keep the download button pointing at the stable
 
 ## Automated releases from GitHub (optional)
 
-`.github/workflows/release.yml` runs the exact same `scripts/release.sh` on a
-macOS runner whenever a `v*` tag is pushed (or it is dispatched from the
-Actions tab), and publishes the release on the public site repo. Once set
-up, a release is just:
+`.github/workflows/release.yml` runs the exact same `scripts/release.sh` on
+a macOS runner whenever a `v*` tag is pushed (or it is dispatched from the
+Actions tab) and publishes the release on this repo. Runner minutes are
+free on public repos. Once the secrets are set up, a release is just:
 
 ```sh
 git tag v0.2 && git push origin v0.2
 ```
 
-Prerequisites, in order:
+**Signing secrets** (Settings → Secrets and variables → Actions). The
+certificate's private key exists *only* in the login keychain of the Mac
+where it was minted (Apple never has it; that's why there's no
+"re-download" for a lost key — export a backup regardless). Letting GitHub
+sign means handing it a copy as a secret:
 
-1. **CI billing must be fixed first** — Actions on this repo is currently
-   dead (GitHub Settings → Billing & plans; see docs/PROGRESS.md ⚠️ CI).
-   Note macOS runners bill at **10×** minutes on private repos; a release
-   build is ~10–15 runner-minutes, so ~100–150 billed minutes per release.
-   Releasing locally costs nothing — CI is a convenience, not a requirement.
-2. **Store the signing secrets** (Settings → Secrets and variables → Actions
-   on `cable729/bluefold`). The certificate's private key exists *only* in
-   the login keychain of the Mac where it was minted (Apple never has it;
-   that's why there's no "re-download" for a lost key — export a backup
-   regardless). Letting GitHub sign means handing it a copy as a secret:
-   - Keychain Access → My Certificates → right-click *Developer ID
-     Application: … (A448YLFLYC)* → Export… → `.p12` with a password, then:
+- Keychain Access → My Certificates → right-click *Developer ID
+  Application: … (A448YLFLYC)* → Export… → `.p12` with a password, then:
 
-     ```sh
-     gh secret set DEVELOPER_ID_P12 --repo cable729/bluefold \
-       --body "$(base64 -i DeveloperID.p12)"
-     gh secret set DEVELOPER_ID_P12_PASSWORD --repo cable729/bluefold
-     gh secret set NOTARY_APPLE_ID --repo cable729/bluefold --body cable729@gmail.com
-     gh secret set NOTARY_TEAM_ID  --repo cable729/bluefold --body A448YLFLYC
-     gh secret set NOTARY_PASSWORD --repo cable729/bluefold   # app-specific password
-     ```
-3. **`SITE_RELEASE_TOKEN`** — the workflow's built-in token can't touch
-   other repos, so publishing to `bluefold-site` needs a fine-grained PAT:
-   github.com → Settings → Developer settings → Fine-grained tokens →
-   generate one scoped to **only `cable729/bluefold-site`** with
-   **Contents: Read and write**, then
-   `gh secret set SITE_RELEASE_TOKEN --repo cable729/bluefold`.
-   Without this secret the workflow degrades to a draft release on the
-   private repo (artifact preserved, but not publicly downloadable).
+  ```sh
+  gh secret set DEVELOPER_ID_P12 --repo cable729/bluefold \
+    --body "$(base64 -i DeveloperID.p12)"
+  gh secret set DEVELOPER_ID_P12_PASSWORD --repo cable729/bluefold
+  gh secret set NOTARY_APPLE_ID --repo cable729/bluefold   # developer apple id
+  gh secret set NOTARY_TEAM_ID  --repo cable729/bluefold --body A448YLFLYC
+  gh secret set NOTARY_PASSWORD --repo cable729/bluefold   # app-specific password
+  ```
 
-Security notes: repo secrets are write-only through the UI/API and encrypted
-at rest, but anyone who can push a workflow to this repo can exfiltrate
-them — acceptable for a single-maintainer repo; revisit before adding
-collaborators or making the repo public (move release signing to an
-`environment` with required reviewers at that point). The workflow refuses
-to publish unnotarized DMGs publicly, same as `scripts/publish-release.sh`.
+Without the secrets, tag builds still run but produce only a DRAFT release
+marked UNSIGNED — the workflow never publishes an unnotarized DMG, same as
+`scripts/publish-release.sh`. If a release for the tag already exists
+(published locally first), the workflow just replaces its assets, so the
+local and CI paths don't conflict.
+
+Security note: repo secrets are write-only through the UI/API and encrypted
+at rest, and workflows from forks never receive them; but anyone with push
+access can exfiltrate them via a workflow edit — fine for a
+single-maintainer repo, move release signing to a protected `environment`
+with required reviewers before adding collaborators.
 
 ## Notes / future
 
