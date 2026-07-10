@@ -60,9 +60,9 @@ minute. Keep the download button pointing at the stable
 ## Automated releases from GitHub (optional)
 
 `.github/workflows/release.yml` runs the exact same `scripts/release.sh` on a
-macOS runner whenever you push a `v*` tag (or dispatch it from the Actions
-tab), and publishes the release on the public site repo. Once set up, a
-release is just:
+macOS runner whenever a `v*` tag is pushed (or it is dispatched from the
+Actions tab), and publishes the release on the public site repo. Once set
+up, a release is just:
 
 ```sh
 git tag v0.2 && git push origin v0.2
@@ -76,10 +76,10 @@ Prerequisites, in order:
    build is ~10–15 runner-minutes, so ~100–150 billed minutes per release.
    Releasing locally costs nothing — CI is a convenience, not a requirement.
 2. **Store the signing secrets** (Settings → Secrets and variables → Actions
-   on `cable729/bluefold`). Yes — the certificate's private key currently
-   exists *only* in your Mac's login keychain (Apple never has it; that's
-   why there's no "re-download" for a lost key — export a backup regardless).
-   To let GitHub sign, you hand it a copy as a secret:
+   on `cable729/bluefold`). The certificate's private key exists *only* in
+   the login keychain of the Mac where it was minted (Apple never has it;
+   that's why there's no "re-download" for a lost key — export a backup
+   regardless). Letting GitHub sign means handing it a copy as a secret:
    - Keychain Access → My Certificates → right-click *Developer ID
      Application: … (A448YLFLYC)* → Export… → `.p12` with a password, then:
 
@@ -102,7 +102,7 @@ Prerequisites, in order:
 
 Security notes: repo secrets are write-only through the UI/API and encrypted
 at rest, but anyone who can push a workflow to this repo can exfiltrate
-them — fine while the repo is yours alone; revisit before adding
+them — acceptable for a single-maintainer repo; revisit before adding
 collaborators or making the repo public (move release signing to an
 `environment` with required reviewers at that point). The workflow refuses
 to publish unnotarized DMGs publicly, same as `scripts/publish-release.sh`.
