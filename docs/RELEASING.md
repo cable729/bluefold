@@ -5,86 +5,71 @@ Applications" experience.
 
 ## The moving parts
 
-| Piece | Where | Status |
-|---|---|---|
-| Release pipeline | `scripts/release.sh` (build → sign → DMG → notarize → staple) | ✅ working (build+DMG verified 2026-07-09; sign/notarize pending credentials) |
-| Publish script | `scripts/publish-release.sh` (pipeline + GitHub release) | ✅ written |
-| Website | `bluefold-site` (separate repo hosting the site + downloads) | ⏳ **not yet pushed** |
-| Download URL | `https://github.com/cable729/bluefold-site/releases/latest/download/Bluefold.dmg` (stable across versions; the site's button points here) | ⏳ after first publish |
-| Site URL | `https://cable729.github.io/bluefold-site/` | ⏳ after Pages enabled |
+| Piece | Where |
+|---|---|
+| Release pipeline | `scripts/release.sh` (build → Developer ID sign → DMG → notarize → staple) |
+| Publish script | `scripts/publish-release.sh` (pipeline + GitHub release on this repo) |
+| Website | `gh-pages` branch of this repo → <https://cable729.github.io/bluefold/> |
+| Download URL | `https://github.com/cable729/bluefold/releases/latest/download/Bluefold.dmg` — stable across versions; the site's button points here, and the site reads the releases API to show the current version |
 
-## One-time setup (account holder, ~10 minutes)
+First release (v0.1, signed + notarized, universal arm64+x86_64) shipped
+2026-07-10.
 
-These three steps must be done by the Apple-developer / GitHub account
-holder.
+## One-time setup (already done; for a new machine or account holder)
 
-### 1. Create the public site repo and enable Pages
+1. **Developer ID certificate** — Xcode → Settings → Accounts → add the
+   developer Apple ID (team A448YLFLYC) → Manage Certificates… → **+** →
+   **Developer ID Application** (account holder only; "Apple Development"
+   certs won't pass Gatekeeper for direct downloads). Verify with
+   `security find-identity -v -p codesigning`. Export a `.p12` backup —
+   Apple keeps no copy of the private key.
+2. **Notarization credentials** — mint an app-specific password at
+   <https://account.apple.com> → Sign-In and Security, then:
 
-From the `bluefold-site` checkout:
+   ```sh
+   xcrun notarytool store-credentials bluefold \
+     --apple-id <developer apple id> --team-id A448YLFLYC \
+     --password <app-specific password>
+   ```
 
-```sh
-gh repo create cable729/bluefold-site --public \
-  --description "Website and downloads for Bluefold, a macOS PDF reader for people who live in textbooks" \
-  --source . --push
-gh api -X POST repos/cable729/bluefold-site/pages \
-  -f 'source[branch]=main' -f 'source[path]=/'
-```
-
-The site is live at <https://cable729.github.io/bluefold-site/> a minute or
-two later.
-
-### 2. Mint the Developer ID certificate
-
-Xcode → **Settings → Accounts** → add Apple ID `cable729@gmail.com` (team
-A448YLFLYC) if it isn't there → select the team → **Manage Certificates…** →
-**+** → **Developer ID Application**. (Account holder only.)
-
-Verify: `security find-identity -v -p codesigning` should list
-`Developer ID Application: … (A448YLFLYC)`.
-
-> Do NOT pick "Apple Development" — that certificate only works on your own
-> machines. "Developer ID Application" is the one Gatekeeper trusts for
-> direct-download apps.
-
-### 3. Store notarization credentials
-
-Create an **app-specific password** at <https://account.apple.com> →
-Sign-In and Security → App-Specific Passwords, then:
-
-```sh
-xcrun notarytool store-credentials bluefold \
-  --apple-id cable729@gmail.com --team-id A448YLFLYC \
-  --password <the app-specific password>
-```
-
-## Every release after that
+## Cutting a release
 
 ```sh
 scripts/publish-release.sh              # build → sign → notarize → publish
 scripts/publish-release.sh --draft      # …or inspect before it goes live
 ```
 
-That's it. The script refuses to publish an unnotarized DMG, uploads both
+The script refuses to publish an unnotarized DMG, uploads both
 `Bluefold-<version>.dmg` and the stable-named `Bluefold.dmg` (the site's
-button URL), and prints the URLs. The site shows the new version number
-automatically (it reads the GitHub releases API client-side).
+button URL), and prints the URLs. The site shows the new version
+automatically. Bump `MARKETING_VERSION` in `App/Bluefold.xcodeproj` first
+(currently 0.1). If the version's tag already exists, assets are replaced
+in place (`--clobber`).
 
-Bump `MARKETING_VERSION` in `App/Bluefold.xcodeproj` when cutting a new
-version (currently 0.1).
+`.github/workflows/release.yml` can do the same from a macOS runner on a
+`v*` tag push once the signing secrets are configured — see the comments at
+the top of that file. Actions minutes are free on public repos.
+
+## Editing the website
+
+The site is plain static files on the `gh-pages` branch (`index.html`,
+icon assets). Commit and push to that branch; Pages redeploys in about a
+minute. Keep the download button pointing at the stable
+`/releases/latest/download/Bluefold.dmg` URL.
 
 ## Notes / future
 
-- **Verify on another Mac (or account)** after the first publish: download
-  from the site, open the DMG, drag to Applications, launch — Gatekeeper
-  should show the normal "downloaded from the internet" prompt, not a block.
-- The Release build is a universal binary (arm64 + x86_64), 8 MB DMG.
+- **Verify on another Mac (or a different user account)** after publishing:
+  download from the site, open the DMG, drag to Applications, launch —
+  Gatekeeper should show the normal "downloaded from the internet" prompt,
+  not a block.
 - Hardened runtime is applied at sign time (`codesign --options runtime` in
   release.sh); `ENABLE_HARDENED_RUNTIME` stays off in the project so Debug
   builds keep `get-task-allow` (the lldb-attach debugging workflow).
 - CloudKit sync entitlements are intentionally NOT in the Developer ID build
   yet (docs/SYNC.md); the Settings toggle stays hidden via the SecTask gate.
 - Custom domain: `bluefold.app` was unregistered as of 2026-07-09. If
-  registered, point it at Pages (CNAME file + A/AAAA records) and update the
-  `og:image` URL in the site repo's `index.html`.
+  registered, point it at Pages (CNAME file on gh-pages + A/AAAA records)
+  and update the `og:image` URL in `index.html`.
 - Sparkle (in-app updates) is the natural next step once there are real
   users; until then the site + releases/latest URL is the update channel.

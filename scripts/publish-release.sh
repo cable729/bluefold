@@ -3,13 +3,12 @@
 #
 # Runs the full release pipeline (scripts/release.sh: Release build →
 # Developer ID sign → DMG → notarize → staple), then publishes the DMG as a
-# GitHub release on the PUBLIC site repo (cable729/bluefold-site), which is
-# what the website's download button points at.
+# GitHub release on this repo — which is what the website's download button
+# (gh-pages branch → https://cable729.github.io/bluefold/) points at.
 #
 # One-time prerequisites (see docs/RELEASING.md):
 #   1. A "Developer ID Application" certificate in the keychain
 #   2. notarytool credentials:  xcrun notarytool store-credentials bluefold …
-#   3. The public site repo exists:  gh repo create cable729/bluefold-site …
 #
 # Usage:
 #   scripts/publish-release.sh [--version X.Y] [--draft] [--skip-pipeline]
@@ -22,7 +21,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-SITE_REPO="cable729/bluefold-site"
+SITE_REPO="cable729/bluefold"
 NOTARY_PROFILE="${BLUEFOLD_NOTARY_PROFILE:-bluefold}"
 VERSION=""
 DRAFT=()
@@ -79,7 +78,7 @@ fi
 echo ""
 echo "Published: https://github.com/$SITE_REPO/releases/tag/$TAG"
 echo "Download:  https://github.com/$SITE_REPO/releases/latest/download/Bluefold.dmg"
-echo "Site:      https://cable729.github.io/bluefold-site/"
+echo "Site:      https://cable729.github.io/bluefold/"
 echo ""
 echo "Check the site — the version line under the download button updates"
 echo "automatically from the GitHub API (hard-refresh if cached)."

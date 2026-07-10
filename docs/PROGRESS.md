@@ -384,19 +384,15 @@ below is self-contained.
   step skippable; DMG path exercised locally), .github/workflows/release.yml
   (v* tags + workflow_dispatch only — inert while CI billing is dead;
   secrets documented inline), CONTRIBUTING.md.
-  **2026-07-09 distribution wave: website + publish path
-  DONE** — see docs/RELEASING.md for the full runbook. Landing page repo
-  `bluefold-site` prepared locally (not yet pushed), scripts/publish-release.sh
-  (release.sh + gh release on the public site repo; refuses unnotarized
-  DMGs via `stapler validate`; uploads stable-named Bluefold.dmg for the
-  site's /releases/latest/download URL). Release build verified: universal
-  arm64+x86_64, 8 MB DMG at dist/Bluefold-0.1.dmg (ad-hoc signed).
-  REMAINING (~10 min, exact commands in docs/RELEASING.md):
-  (1) create the public bluefold-site repo + enable Pages, (2) mint a
-  Developer ID Application cert in Xcode,
-  (3) `notarytool store-credentials bluefold`, then run
-  scripts/publish-release.sh. Also still open: README screenshots (Axler),
-  main repo public, tag v0.1.
+  **v0.1 SHIPPED 2026-07-10**: repo public, website live at
+  https://cable729.github.io/bluefold/ (static site on the `gh-pages`
+  branch), signed + notarized universal DMG published as release v0.1 on
+  this repo — the site's download button reads
+  /releases/latest/download/Bluefold.dmg and shows the version via the
+  releases API. scripts/publish-release.sh cuts subsequent releases
+  (refuses unnotarized DMGs via `stapler validate`); docs/RELEASING.md is
+  the runbook. Still open: README/site screenshots, Gatekeeper spot-check
+  on a second Mac, release workflow secrets for CI releases (optional).
 
 ## ⚠️ CI: BLOCKED ON BILLING; underlying deadlock diagnosed but not yet pinpointed (2026-07-08)
 Chronology of findings, most important first:
