@@ -26,6 +26,13 @@
 #                             account.apple.com > Sign-In and Security >
 #                             App-Specific Passwords (NOT the account
 #                             password).
+#   SITE_RELEASE_TOKEN        Fine-grained PAT with contents:read-write on
+#                             cable729/bluefold-site only. With it, tag
+#                             builds publish the release on the PUBLIC site
+#                             repo (what the website's download button
+#                             reads). Without it, tag builds fall back to a
+#                             draft release on THIS repo (not publicly
+#                             downloadable).
 name: Release
 
 on:
@@ -99,10 +106,35 @@ jobs:
           path: dist/*.dmg
           if-no-files-found: error
 
-      # Tag builds also publish a draft GitHub release with the dmg attached
-      # (draft so the owner writes notes and presses publish deliberately).
-      - name: Draft GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+      # Tag builds publish the release where the website's download button
+      # can see it: the PUBLIC site repo (needs SITE_RELEASE_TOKEN). Mirrors
+      # scripts/publish-release.sh: refuse unnotarized DMGs, upload both the
+      # versioned name and the stable-named Bluefold.dmg that
+      # /releases/latest/download/Bluefold.dmg resolves to.
+      - name: Publish release to download site
+        if: startsWith(github.ref, 'refs/tags/v') && secrets.SITE_RELEASE_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ secrets.SITE_RELEASE_TOKEN }}
+          SITE_REPO: cable729/bluefold-site
+        run: |
+          DMG=$(ls dist/Bluefold-*.dmg)
+          xcrun stapler validate "$DMG" || {
+            echo "::error::$DMG is not notarized — refusing to publish publicly."
+            exit 1
+          }
+          cp "$DMG" dist/Bluefold.dmg
+          SHA=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
+          VERSION="${GITHUB_REF_NAME#v}"
+          printf 'Bluefold %s — signed and notarized for macOS 15+ (Apple silicon & Intel).\n\nSHA-256: `%s`\n' \
+            "$VERSION" "$SHA" > notes.md
+          gh release create "${GITHUB_REF_NAME}" "$DMG" dist/Bluefold.dmg \
+            --repo "$SITE_REPO" --title "Bluefold $VERSION" \
+            --notes-file notes.md
+
+      # Fallback when SITE_RELEASE_TOKEN isn't configured: draft release on
+      # this (private) repo so the artifact is at least tag-attached.
+      - name: Draft GitHub release (private fallback)
+        if: startsWith(github.ref, 'refs/tags/v') && secrets.SITE_RELEASE_TOKEN == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
