@@ -1,8 +1,11 @@
-# pdf-app (working title)
+# Bluefold
 
 A native macOS (and soon iOS) PDF reader built for people who live in large
 textbooks — designed around memory efficiency, browser-style navigation, and a
 taggable library.
+
+**Download:** <https://cable729.github.io/bluefold-site/> (signed & notarized,
+macOS 15+)
 
 ## Why another PDF reader?
 
