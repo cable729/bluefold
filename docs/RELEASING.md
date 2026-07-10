@@ -9,19 +9,20 @@ Applications" experience.
 |---|---|---|
 | Release pipeline | `scripts/release.sh` (build → sign → DMG → notarize → staple) | ✅ working (build+DMG verified 2026-07-09; sign/notarize pending credentials) |
 | Publish script | `scripts/publish-release.sh` (pipeline + GitHub release) | ✅ written |
-| Website | `~/git/bluefold-site` (separate repo — this repo is private, so the site + downloads live in a public one) | ✅ committed locally, **not yet pushed** |
+| Website | `bluefold-site` (separate repo hosting the site + downloads) | ⏳ **not yet pushed** |
 | Download URL | `https://github.com/cable729/bluefold-site/releases/latest/download/Bluefold.dmg` (stable across versions; the site's button points here) | ⏳ after first publish |
 | Site URL | `https://cable729.github.io/bluefold-site/` | ⏳ after Pages enabled |
 
-## One-time setup (owner-only, ~10 minutes)
+## One-time setup (account holder, ~10 minutes)
 
-These three steps need Caleb's Apple ID / GitHub account and cannot be done by
-an agent.
+These three steps must be done by the Apple-developer / GitHub account
+holder.
 
 ### 1. Create the public site repo and enable Pages
 
+From the `bluefold-site` checkout:
+
 ```sh
-cd ~/git/bluefold-site
 gh repo create cable729/bluefold-site --public \
   --description "Website and downloads for Bluefold, a macOS PDF reader for people who live in textbooks" \
   --source . --push
@@ -30,14 +31,13 @@ gh api -X POST repos/cable729/bluefold-site/pages \
 ```
 
 The site is live at <https://cable729.github.io/bluefold-site/> a minute or
-two later. (An agent can do everything here EXCEPT `repo create --public` —
-the auto-mode classifier requires a human to create public repos.)
+two later.
 
 ### 2. Mint the Developer ID certificate
 
 Xcode → **Settings → Accounts** → add Apple ID `cable729@gmail.com` (team
 A448YLFLYC) if it isn't there → select the team → **Manage Certificates…** →
-**+** → **Developer ID Application**. (Account-holder only; that's you.)
+**+** → **Developer ID Application**. (Account holder only.)
 
 Verify: `security find-identity -v -p codesigning` should list
 `Developer ID Application: … (A448YLFLYC)`.
@@ -85,6 +85,6 @@ version (currently 0.1).
   yet (docs/SYNC.md); the Settings toggle stays hidden via the SecTask gate.
 - Custom domain: `bluefold.app` was unregistered as of 2026-07-09. If
   registered, point it at Pages (CNAME file + A/AAAA records) and update the
-  `og:image` URL in `~/git/bluefold-site/index.html`.
+  `og:image` URL in the site repo's `index.html`.
 - Sparkle (in-app updates) is the natural next step once there are real
   users; until then the site + releases/latest URL is the update channel.

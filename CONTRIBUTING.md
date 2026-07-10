@@ -75,5 +75,5 @@ If it passes, you're good. (Releases use `scripts/release.sh` — see its
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module map, memory model, data stores
 - [docs/DECISIONS.md](docs/DECISIONS.md) — why things are the way they are
 - [docs/PROGRESS.md](docs/PROGRESS.md) — milestone status + hard-won quirk notes
-- [docs/BACKLOG.md](docs/BACKLOG.md) — planned work and owner feature requests
+- [docs/BACKLOG.md](docs/BACKLOG.md) — planned work and feature requests
 - [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md) — command table + keybindings.json format

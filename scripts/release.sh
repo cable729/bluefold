@@ -3,8 +3,8 @@
 # → DMG (plain hdiutil, no dependencies) → notarize (notarytool) → staple.
 #
 # Every step is parameterized and individually skippable, because the full
-# chain needs credentials the repo does not have (and the owner may not have
-# minted yet). With no arguments the script goes as far as it can and fails
+# chain needs signing and notarization credentials that the repository does
+# not include. With no arguments the script goes as far as it can and fails
 # with an actionable message at the first missing prerequisite.
 #
 # Usage:

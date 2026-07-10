@@ -152,10 +152,10 @@ private final class TestClock: @unchecked Sendable {
         let bookmark = Data([1, 2, 3])
         let book = try store.insertLooseBook(
             contentHash: "abc123", title: "Homework 4",
-            pathHint: "/Users/caleb/hw4.pdf", bookmark: bookmark
+            pathHint: "/Users/someone/hw4.pdf", bookmark: bookmark
         )
         let ref = try store.fileRef(forBook: book.id!)
-        #expect(ref?.pathHint == "/Users/caleb/hw4.pdf")
+        #expect(ref?.pathHint == "/Users/someone/hw4.pdf")
         #expect(ref?.bookmark == bookmark)
     }
 

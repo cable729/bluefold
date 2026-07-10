@@ -26,11 +26,9 @@ xcodebuild -project App/Bluefold.xcodeproj -scheme Bluefold-iOS \
 
 if [ -z "${CI:-}" ]; then
     echo "== 4/4 macOS launch smoke =="
-    # Launch through LaunchServices (`open`), not direct exec: on macOS 26,
-    # direct-exec instances of a bundle ID that ever died uncleanly come up
-    # WINDOWLESS (menu bar only), which made the old pid-alive check pass
-    # while the app was effectively broken. Asserting a real window catches
-    # that class of failure too. (Quirk notes: docs/PROGRESS.md.)
+    # Launch through LaunchServices (`open`), not direct exec, and assert a
+    # real window: a pid-alive check alone can pass while the app comes up
+    # windowless (seen on macOS 26 with direct-exec launches).
     SDIR=$(mktemp -d)
     APP_BUNDLE=.build/DerivedData/Build/Products/Debug/Bluefold.app
     launchctl setenv BLUEFOLD_SESSION_DIR "$SDIR"
@@ -55,8 +53,8 @@ SWIFT
         kill "$APP_PID" 2>/dev/null || true
         exit 1
     fi
-    # Quit gracefully: an unclean kill poisons later direct-exec launches
-    # of this bundle ID (macOS 26 quirk).
+    # Quit gracefully: an unclean kill can make later launches of the same
+    # bundle ID flaky (macOS 26 quirk).
     osascript -e 'tell application "Bluefold" to quit' >/dev/null 2>&1 || kill "$APP_PID"
     rm -rf "$SDIR"
 else
@@ -66,11 +64,10 @@ fi
 if [ -n "${VERIFY_UITESTS:-}" ]; then
     echo "== 5/5 macOS XCUITest smoke (VERIFY_UITESTS set) =="
     # The same suite CI job B runs. Opt-in because it drives real windows
-    # for several minutes — don't run it while using the Mac for something
-    # else, and never from parallel agents (docs/PROGRESS.md quirks).
-    # Timestamp suffix: a bundle ID that EVER died uncleanly on this machine
-    # launches windowless forever after (macOS 26 quirk), so every run gets
-    # a virgin ID.
+    # for several minutes; full-suite local runs can be flaky — spot-check
+    # single tests locally and leave full passes to CI. The timestamp gives
+    # every run a fresh BLUEFOLD_BUNDLE_ID_SUFFIX, avoiding stale-bundle-ID
+    # launch issues (macOS 26 quirk).
     xcodebuild -project App/Bluefold.xcodeproj -scheme Bluefold \
         -configuration Debug -derivedDataPath .build/DerivedData-UITest \
         test "BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest$(date +%s)" 2>&1 | tail -30

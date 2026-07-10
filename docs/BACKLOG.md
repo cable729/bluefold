@@ -1,16 +1,15 @@
 # Backlog
 
-Owner feature requests and remaining roadmap. Mirror into GitHub issues once
-the repo goes public. Items marked (2026-07-07) came from the owner's
-end-of-session feedback after using the app.
+Feature requests and remaining roadmap. Mirror into GitHub issues once
+the repo goes public.
 
 ## Remaining roadmap milestones
 
-- ✅ CODE-DONE 2026-07-09 (live CloudKit pending the owner's 15-minute
+- ✅ CODE-DONE 2026-07-09 (live CloudKit pending the
   signing runbook in docs/SYNC.md) — **M15 — CloudKit sync.** SyncKit
   engine + FakeTransport convergence tests, CloudKitTransport
   (entitlement-gated), Settings toggle + status + Sync Now. Remaining
-  owner steps: add Apple ID in Xcode, add iCloud capability/container
+  steps: add Apple ID in Xcode, add iCloud capability/container
   `iCloud.com.cable729.bluefold` to both targets, verify a live round
   trip, deploy schema to Production before any release build.
 - ✅ CODE-DONE 2026-07-08 (F-1; simulator build only — needs hand-run) —
@@ -23,8 +22,8 @@ end-of-session feedback after using the app.
   iOS simulator build). Launch-arg fixtures already exist (`--open`,
   `BLUEFOLD_SESSION_DIR`).
 - **M18 — v0.1 release.** Settings window (LRU size, theme, index toggle,
-  Calibre folder), app icon, README screenshots (use Axler — NOT Dummit &
-  Foote), notarized DMG pipeline, make repo public, CONTRIBUTING.md.
+  Calibre folder), app icon, README screenshots, notarized DMG pipeline,
+  make repo public, CONTRIBUTING.md.
 
 ## Feature requests (2026-07-07)
 
@@ -35,17 +34,16 @@ end-of-session feedback after using the app.
 - ✅ DONE 2026-07-08 (status bar; adopt `.instantHint` elsewhere as wanted) — **Faster tooltips** on bottom-bar controls (default help-tag delay feels
   like seconds). Likely custom hover popover instead of .help(), or
   NSToolTipManager delay tweak.
-- 🔄 IN FLIGHT 2026-07-08 (palette agent) — **Left/right arrows page-turn** in addition to up/down (PDFView handles
+- 🔄 IN FLIGHT 2026-07-08 — **Left/right arrows page-turn** in addition to up/down (PDFView handles
   some of this in single-page mode; ensure it works in continuous modes —
   likely keyDown in ReaderPDFView → goToNextPage/goToPreviousPage).
-- 🔄 IN FLIGHT 2026-07-08 (palette agent) — **"/" or "?" opens a keybinding help overlay** — a sheet/HUD listing all
+- 🔄 IN FLIGHT 2026-07-08 — **"/" or "?" opens a keybinding help overlay** — a sheet/HUD listing all
   shortcuts (data-drive it from one table so the overlay never drifts from
   reality).
-- 🔄 IN FLIGHT 2026-07-08 (palette agent) — **⌘⇧[ / ⌘⇧] (and ctrl-tab/ctrl-shift-tab) cycle tabs** — owner wrote
-  "shift+tab and cmd+shift+tab should cycle between" (tabs). Standard mac
+- 🔄 IN FLIGHT 2026-07-08 — **⌘⇧[ / ⌘⇧] (and ctrl-tab/ctrl-shift-tab) cycle tabs** — standard mac
   browser bindings: ⌘⇧[ / ⌘⇧] and ⌃Tab / ⌃⇧Tab. Add to ReaderCommands +
   model.selectNext/PreviousTab (wrap around).
-- 🔄 IN FLIGHT 2026-07-08 (palette agent) — **VS Code-style command palette.** Two entry points like Obsidian/VS Code:
+- 🔄 IN FLIGHT 2026-07-08 — **VS Code-style command palette.** Two entry points like Obsidian/VS Code:
   a "navigate" palette (⌘O or ⌘P: fuzzy-search outline entries of the
   current book → jump; also bookmarks and open tabs) and a "run command"
   palette (⌘⇧P: every menu action). Also "go to page" (⌥⌘G or via palette).
@@ -75,8 +73,7 @@ end-of-session feedback after using the app.
   Remove). Consider multi-select (⌘-click, ⇧-click) at the same time.
 - ✅ DONE 2026-07-08 — **"Untagged" and "Not in any collection" smart filters** in the sidebar
   (simple NOT EXISTS queries over book_tag / collection_item).
-- ✅ DONE 2026-07-08 — **Explain tags vs collections in the UI** — general affordance, not
-  owner-specific examples. E.g. section-header help popovers: tags =
+- ✅ DONE 2026-07-08 — **Explain tags vs collections in the UI** — general affordance. E.g. section-header help popovers: tags =
   attributes a book IS (topic; hierarchical; a book has many), collections =
   curated sets a book is IN (courses/projects; ordered; mix any sources).
 - ✅ DONE 2026-07-08 — **Covers don't load while scrolling** — investigate: `.task` on cells
@@ -88,7 +85,7 @@ end-of-session feedback after using the app.
   sidebar, descendant tags included so each badge equals what clicking the
   tag shows; zero-count tags show no badge (`LibraryModel.tagCounts`).
 
-### Deep linking / anchors (owner question, answered) — ✅ SHIPPED 2026-07-08
+### Deep linking / anchors — ✅ SHIPPED 2026-07-08
 Implemented as designed below (F-1): `bluefold://open?hash=…&dest=…&page=…`,
 Copy Link to Here / to Selection, `NamedDestinations` CGPDF resolver.
 Original plan:
@@ -105,7 +102,7 @@ references inside PDFs already work via PDFActionRemoteGoTo.)
 
 ### Infra / distribution
 - **CI hardening + "docker"** — macOS apps can't build in Docker
-  (owner asked; documented in DECISIONS/plan): the equivalent is GitHub
+  (documented in DECISIONS/plan): the equivalent is GitHub
   Actions macOS runners. Expand CI: xcodebuild macOS app build + unit tests
   per push (job B), iOS simulator build, XCUITest smoke (M17), release
   workflow producing a notarized DMG on tag.
@@ -113,7 +110,7 @@ references inside PDFs already work via PDFActionRemoteGoTo.)
   download link to notarized DMG releases, feature tour). Do after M18 when
   there's something to download.
 
-## Feature requests (2026-07-07, round 2 — session close)
+## Feature requests (2026-07-07, round 2)
 
 ### Theming
 - ✅ DONE 2026-07-08 — **Theme must sync to ALL windows immediately** and tint the window chrome
@@ -126,7 +123,7 @@ references inside PDFs already work via PDFActionRemoteGoTo.)
   preferredColorScheme may not re-evaluate; windows created before a change
   may capture stale state).
 
-### Tabs (drag & drop is BROKEN in practice — owner tested)
+### Tabs (drag & drop was BROKEN in practice)
 - ✅ DONE 2026-07-08 (AppKit strip rewrite) — **Reorder tabs within a window by dragging** (not implemented at all).
 - ✅ DONE 2026-07-08 — **Drag a tab out to create a new window** (drop on empty desktop area).
 - ✅ DONE 2026-07-08 (AppKit rewrite as predicted) — **Drag tabs between windows** — implemented via .draggable/.dropDestination
@@ -141,9 +138,10 @@ references inside PDFs already work via PDFActionRemoteGoTo.)
 - ✅ DONE 2026-07-08 — **Commands: "Open Collection" and "Open Collection in New Window"** — open
   every book in a collection as tabs (pairs well with the command palette).
 
-### Testing / CI (owner: "the test suite does NOT guarantee everything works")
-Correct — unit tests can't catch what the owner keeps finding (layout
-collapse, broken DnD, tooltip delay). The industry-standard answer for
+### Testing / CI
+The test suite does NOT guarantee everything works — unit tests can't
+catch what manual testing keeps finding (layout collapse, broken DnD,
+tooltip delay). The industry-standard answer for
 macOS apps (Docker is impossible — macOS doesn't containerize):
 1. **XCUITest** driving the real app (launch args + BLUEFOLD_SESSION_DIR
    already exist as hooks) on **GitHub Actions macOS runners** — M17. Smoke
@@ -156,11 +154,9 @@ macOS apps (Docker is impossible — macOS doesn't containerize):
 3. Optional deeper end-to-end: accessibility-driven runner or snapshot tests
    (pointfree swift-snapshot-testing) for view regressions.
 
-### Product / business (brainstorm sessions wanted — do NOT decide alone)
-- **Rename the app** (working title "Bluefold" / pdf-app). Brainstorm with
-  owner.
-- **Bundle id / team identity**: owner wants to move off com.cable729.* and
-  is considering an LLC — brainstorm naming + legal setup with him. NOTE:
+### Product / business (open decisions)
+- **Rename the app** (working title "Bluefold" / pdf-app).
+- **Bundle id / team identity**: move off com.cable729.* eventually. NOTE:
   changing bundle id after CloudKit ships is painful (container is
   id-scoped) — settle this BEFORE M15 if possible, or create the container
   under a neutral id now.
@@ -170,7 +166,7 @@ macOS apps (Docker is impossible — macOS doesn't containerize):
   Long-horizon; don't let new code deepen PDFKit coupling outside
   ReaderUI/SearchIndexKit extraction paths.
 
-## Feedback round 7 (2026-07-08, owner) — feature requests to schedule
+## Feedback round 7 (2026-07-08) — feature requests to schedule
 
 ### Library / tags
 - **Right-click a tag → create a sub-tag** ("add more" from the tag's own
@@ -195,8 +191,8 @@ macOS apps (Docker is impossible — macOS doesn't containerize):
   accumulating forever. Corollary: a deliberately emptied session no
   longer falls back to the .bak (only a corrupt/missing file does).
 
-## Feedback round 8 (2026-07-08, owner) — ✅ all done same day
-- **Prev/next CHAPTER buttons** in the status bar (owner mockup: ⇤ ⇥
+## Feedback round 8 (2026-07-08) — ✅ all done same day
+- **Prev/next CHAPTER buttons** in the status bar (⇤ ⇥
   flanking the page arrows). Top-level outline entries are the stops;
   jumps push history; also Go menu + palette (`nav.previousChapter/
   nextChapter`, chordless).
@@ -207,10 +203,10 @@ macOS apps (Docker is impossible — macOS doesn't containerize):
   default at launch) makes EVERY `.help` tooltip near-instant, matching
   the custom `.instantHint` bubbles.
 
-## Feedback round 10 (2026-07-08, owner) — ✅ all done same day
-- **"Open the Probability tag did NOTHING"**: palette batch-opens awaited
+## Feedback round 10 (2026-07-08) — ✅ all done same day
+- **Batch-opening a tag appeared to do NOTHING**: palette batch-opens awaited
   every iCloud download SEQUENTIALLY before opening anything — one
-  evicted book (Durrett, of 5) stalled the lot for up to 120s silently.
+  evicted book stalled the lot for up to 120s silently.
   Now: already-local books open instantly; evicted ones download
   concurrently and each opens on arrival (new-window variant opens the
   window immediately and stragglers append to it).
@@ -228,7 +224,7 @@ macOS apps (Docker is impossible — macOS doesn't containerize):
   reading/section-skipping progresses. Expansion state is app-owned now
   (custom recursive DisclosureGroups).
 
-## Feedback rounds 11–13.7 (2026-07-08 afternoon) — ✅ the broken-scan saga, all fixed
+## Feedback rounds 11–13.7 (2026-07-08) — ✅ the broken-scan saga, all fixed
 One connected arc, kicked off by "clicking sections in Munkres does
 nothing". Every fix is unit-test-pinned; the durable lessons live in
 PROGRESS.md § "PDFKit destination pathologies". Summary:
@@ -258,11 +254,9 @@ PROGRESS.md § "PDFKit destination pathologies". Summary:
   (always in scans) — same-spot stops dedupe (2pt) so ⇤ crosses chapter
   boundaries instead of stepping to an invisible twin.
 
-## Round 15 (2026-07-08, owner) — margin heading anchors ("#") — TO FLESH OUT WITH OWNER
-Owner request, parked deliberately: "for deep linking and viewing I'd like
-to see if we can add a '#' to the left of paragraphs and definitions and
-stuff. Like '#' is a title and the smaller ones get more ###." He wants a
-design session on this before building. Sketch of the idea:
+## Round 15 (2026-07-08) — margin heading anchors ("#") — NEEDS A DESIGN SESSION
+Parked deliberately: hold a design session before building. Sketch of the
+idea:
 - Render markdown-style depth markers in the page MARGIN next to structural
   anchors: `#` for a chapter/title, `##` for a section, `###` deeper — and
   possibly for sub-section anchors like definitions/theorems/paragraphs.
@@ -270,7 +264,7 @@ design session on this before building. Sketch of the idea:
   theorem/definition granularity in well-made LaTeX books — enumerate via
   the CGPDF name tree, see NamedDestinations), outline entries (works for
   scans too), possibly heading-detection heuristics later.
-- Interaction ideas to explore with the owner: hover to reveal, click a
+- Interaction ideas to explore: hover to reveal, click a
   marker = Copy Link to that anchor (pairs with bluefold:// deep links),
   maybe jump/peek. Rendering probably a PDFView overlay layer or page
   annotations drawn at anchor points (mind the destination pathologies:
@@ -289,16 +283,15 @@ design session on this before building. Sketch of the idea:
 - macOS 26 "footprint" tool reports two Bluefold lines occasionally
   (stale process match) — cosmetic in verification scripts.
 
-## Feedback round 4 (2026-07-08, morning after overnight round 3)
+## Feedback round 4 (2026-07-08)
 
-### Tab strip (owner tested with two Axler tabs + Dummit & Foote)
+### Tab strip (tested with two tabs of one book plus a second book)
 - **Group header is too skinny / hard to read** (17pt row). Also the header
   title RENDERS OUTSIDE the strip, overlapping the window titlebar area —
   NSViews don't clip subviews by default; the strip (or its header/item
   frames during layout) needs explicit clipping (`layer?.masksToBounds`) and
   the header likely deserves ~20-22pt with a background that reads as a
-  group. Consider a full design pass on the two-row look with the owner
-  live: he called the current group rendering "a little funny".
+  group. Consider a full design pass on the two-row look.
 - **Title text animates from OUTSIDE the tab box on selection — "looks
   awful".** Hypotheses: (a) newly created header/item views get
   `animator().frame` animations starting from frame .zero (top-left), so
@@ -307,7 +300,7 @@ design session on this before building. Sketch of the idea:
   directly when the view was just added), and suppress implicit text
   animations.
 - **Tear-off drag by hand FAILED and wedged the strip**: ghost panel stayed
-  floating (see owner screenshot), dragged tab stayed hidden. ⌘Q+relaunch
+  floating, dragged tab stayed hidden. ⌘Q+relaunch
   recovers (session intact). Implication: `endPress` never ran — the ghost
   is only closed there. Debug live with `BLUEFOLD_SESSION_DIR` set so the
   strip's dragdebug.log records begin/continue/end; suspects: mouseUp not
@@ -321,25 +314,24 @@ design session on this before building. Sketch of the idea:
 - ✅ DONE 2026-07-08 — hide the PDF display controls entirely in empty
   windows (only the theme switcher remains).
 
-### Verified good by owner
+### Verified in manual testing
 - Theme sync/tinting, live search + breadcrumbs, status-bar page arrows.
 
-### Round 4 additions (same morning)
+### Round 4 additions
 - ✅ DONE 2026-07-08 — **Compact drag preview**: dragging a book now shows a
   small capsule ("3 books" for multi-drags) instead of the full-size cell.
 - ✅ DONE 2026-07-08 — **Drag tags onto tags to build the tree** (drop on
   the Tags header or use "Move to Top Level" to un-nest; store refuses
   cycles). Collections already reorder via their own mechanism; add the
   same drag-reparenting there if wanted.
-- **CI policy (owner: no billing)**: PR #2 = frugal mode (runs only on PRs
-  and manual dispatch, never plain pushes; docs changes skip CI). MERGE IT.
-  Nothing can run until the monthly included-minutes reset regardless; the
-  routine gate is ./scripts/verify.sh locally.
+- **CI policy (Actions billing disabled)**: PR #2 = frugal mode (runs only
+  on PRs and manual dispatch, never plain pushes; docs changes skip CI).
+  MERGE IT. The routine gate is ./scripts/verify.sh locally.
 
-## Feedback round 5 (2026-07-08, pre-session-handoff) — TOP PRIORITY FIRST
+## Feedback round 5 (2026-07-08) — TOP PRIORITY FIRST
 
 ### ✅ DONE 2026-07-08 — P0: tab strip glitch persists across relaunch + SESSION LOSS
-All three fixed the same day; owner verification pending:
+All three fixed the same day; manual re-verification still TODO:
 1. **Session loss — root cause found, different from the hypothesis.** The
    staged-detach path was fine (now pinned by
    `stagedDetachSurvivesQuitWithoutPresentation`). The real chain: closing
@@ -374,15 +366,15 @@ All three fixed the same day; owner verification pending:
 Toolbar now has a ⌘-icon "Commands" button (opens the command palette;
 hover hint lists ⌘⇧P / ⌘P / "/"), and the empty-window state shows
 "⌘⇧P all commands · ⌘P go to anything · / shortcuts". The Help menu
-already listed the palette + shortcuts overlay (kept). Not done (design
-with owner if wanted): one-time first-launch HUD.
+already listed the palette + shortcuts overlay (kept). Not done: one-time
+first-launch HUD.
 
 ### ✅ DONE 2026-07-08 — Unify the "+" tab button with the library
 "+" is now a menu: "From Library…" (opens the Library window) /
 "Open File…" (the old panel).
 
-### ✅ DONE 2026-07-08 — Keybindings round 6 (designed live with the owner)
-Owner decisions: split palettes; ⌘1–9 = tabs; collections/tags in the open
+### ✅ DONE 2026-07-08 — Keybindings round 6
+Decisions: split palettes; ⌘1–9 = tabs; collections/tags in the open
 palette; ⌘⇧F = library search. Shipped:
 - **⌘P/⌘O = OPEN palette**: open tabs, library books, collections, tags.
   Return opens/switches; ⌘Return = background tab(s), palette stays up
@@ -398,15 +390,14 @@ palette; ⌘⇧F = library search. Shipped:
 - Also this round: ⌘O palette focus bug fixed (AppKit first responder
   released before presenting), and unit tests are permanently fenced off
   the real library.db (AppStores.isTestProcess + isolation tests) after
-  test fixtures polluted it with junk rows (cleaned; a backup of the
-  pre-cleanup DB is in the fix session's scratchpad).
+  test fixtures polluted it with junk rows (cleaned).
 - NOT done (parked): user-editable keybindings.json overlay
   (✅ DONE 2026-07-08, F-1); one-time first-launch shortcuts HUD;
-  merging the 4 duplicate book rows (Calibre + pre-mirror
-  auto-registered twins) — needs owner sign-off, currently harmless
+  merging duplicate book rows (Calibre + pre-mirror
+  auto-registered twins) — needs a decision, currently harmless
   (palette dedupes by path).
 
-### ✅ DONE 2026-07-08 — Quick-open a book from the keyboard (owner request)
+### ✅ DONE 2026-07-08 — Quick-open a book from the keyboard
 "⌘P, type part of the book name, Return" opens any library book as a tab
 — no library window. Done by seeding the navigate palette with library
 books: library reload now mirrors every Calibre book's PDF path into
@@ -425,9 +416,8 @@ sidebar-find rewrite (Enter/⇧Enter cycle in the field). `nav.goToPage`
 chord changed ⌥⌘G → ⌘G; KEYBINDINGS.md documents that ⌘G must not be
 rebound to find-next.
 
-### CI cost estimate if billing were re-enabled (answered for the owner)
+### CI cost estimate if billing were re-enabled
 macOS runners bill $0.08/min on private repos. With frugal mode (PR #2):
 a full 3-job run ≈ 35–60 macOS-min ≈ **$3–5 per PR run**; worst case with
 all timeouts maxed (35+40+30 min) ≈ $8.40. A handful of PRs a month ≈
-$10–30/mo. Runaways are capped by the per-job timeouts now — the overnight
-disaster mode (6h × N concurrent) is no longer possible.
+$10–30/mo. Runaways are capped by the per-job timeouts.

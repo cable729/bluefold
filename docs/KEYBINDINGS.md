@@ -31,10 +31,10 @@ Conventions borrowed from VS Code (palettes, quick-open), Safari/Chrome
 | ← / → | Previous / Next page | Handled in `ReaderPDFView.keyDown` so it works in continuous display modes too (PDFView only paged in single-page mode). Bare arrows only — ⇧/⌘-modified arrows and text fields keep their normal behavior. |
 | ↑ / ↓ | Scroll (PDFView native; pages in single-page mode) | |
 | Space / ⇧Space | Scroll down / up a screen (PDFView native) | |
-| ⌘G | Go to Page… | Owner request (was ⌥⌘G). ⌘G was free: find next/previous cycles with Enter/⇧Enter inside the search field. Also available in the bottom-bar page field. |
+| ⌘G | Go to Page… | Was ⌥⌘G. ⌘G was free: find next/previous cycles with Enter/⇧Enter inside the search field. Also available in the bottom-bar page field. |
 | — | Previous / Next Section | Status-bar ⇤ ⇥ buttons flanking the page arrows; also in the Go menu and command palette. Every outline entry (any depth) is a stop; pushes history (⌘[ returns). |
 | ⌘O | Open Anything… — the OPEN palette | Fuzzy search over every open tab (all windows), every library book, and every collection and tag. Return opens/switches; **⌘Return opens in a background tab (palette stays up for queueing several); ⌥Return opens in a new window**. Collections/tags open every book inside as tabs. Obsidian quick-open. |
-| ⌘P (or ⌘⇧O) | Go to Section… — the IN-BOOK palette | Sections (with breadcrumb paths) and bookmarks of the current book. ⌘Return opens the section as an adjacent background tab. Owner's final mapping (round 9): ⌘O = other books, ⌘P = within this book. ⌘⇧O alias keeps VS Code go-to-symbol muscle memory (key monitor). |
+| ⌘P (or ⌘⇧O) | Go to Section… — the IN-BOOK palette | Sections (with breadcrumb paths) and bookmarks of the current book. ⌘Return opens the section as an adjacent background tab. ⌘O = other books, ⌘P = within this book. ⌘⇧O alias keeps VS Code go-to-symbol muscle memory (key monitor). |
 
 ## Tabs
 
@@ -49,7 +49,7 @@ Conventions borrowed from VS Code (palettes, quick-open), Safari/Chrome
 
 | Shortcut | Action | Notes |
 | --- | --- | --- |
-| ⌘B | Show/hide sidebar | VS Code/Obsidian convention (owner request; was ⌃⌘S — do not rebind ⌘B to bold, the app has no text editing). |
+| ⌘B | Show/hide sidebar | VS Code/Obsidian convention (was ⌃⌘S — do not rebind ⌘B to bold, the app has no text editing). |
 | ⌥⌘1 / ⌥⌘2 / ⌥⌘3 / ⌥⌘4 | Single Page / Continuous Scroll / Two Pages / Two Pages Continuous | Moved from plain ⌘digits, which now switch tabs (browser convention won). |
 | ⌘\ | Split Right (toggle) | VS Code convention. No split → duplicates the active tab into a right split; any split open → closes it. |
 | — | Split Left / Close Split | Menu (checkmarked by side), tab context menu, or command palette. Dragging a tab over a window's PDF area also drops into a left/right split. |
@@ -141,7 +141,7 @@ entries claiming the same chord, the alphabetically-first command id wins.
 **Limits** (by design):
 
 - `nav.goToPage` is not rebindable and ⌘G cannot be given to anything else
-  (owner ruling — see the ⌘G audit note below).
+  (see the ⌘G audit note below).
 - Bare ←/→ paging is hardwired in `ReaderPDFView.keyDown`; an override on
   `nav.previousPage`/`nav.nextPage` adds a working chord but arrows keep
   paging too. Arrow keys can never be *assigned* via the overlay's monitor
@@ -212,13 +212,13 @@ Implementation: `KeyChord.parse`/`chordString` (round-tripping string form),
 - **Arrows**: deliberately NOT menu shortcuts — a menu binding would steal
   arrow keys from every text field in the window. Table entries carry the
   chords for documentation; `ReaderPDFView.keyDown` owns the behavior.
-- **⌘G**: reassigned to Go to Page (owner request, 2026-07-08). Preview's
+- **⌘G**: reassigned to Go to Page (2026-07-08). Preview's
   ⌘G = find-next convention is intentionally dropped — find next/previous
   live on Enter/⇧Enter in the search field. Don't rebind ⌘G to find.
-- **Palette split (owner request, 2026-07-08; chords finalized round 9)**:
+- **Palette split (2026-07-08)**:
   ⌘O = OPEN palette (tabs, books, collections, tags), ⌘P (alias ⌘⇧O) =
   IN-BOOK palette (sections, bookmarks). Open File… moved to ⌥⌘O.
-- **⌘1–9 → tab switching** (owner chose tabs over layouts, 2026-07-08);
+- **⌘1–9 → tab switching** (tabs won over layouts, 2026-07-08);
   layouts moved to ⌥⌘1–4. ⌘1–9 bound by the key monitor, not menus (nine
   menu items would be clutter); listed in the command table with
   `installsMenuShortcut: false` so the help overlay and palette show them.

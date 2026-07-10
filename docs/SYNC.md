@@ -10,11 +10,11 @@ Calibre's own metadata is never written.
 - **Code: DONE and unit-tested** (SyncKit engine + fake-transport
   convergence tests; `swift test --filter SyncKitTests`).
 - **Live CloudKit: NOT yet verified** — it needs a build signed with iCloud
-  entitlements, which needs the one-time owner steps below. Until then the
+  entitlements, which needs the one-time setup below. Until then the
   app runs exactly as before; the Settings toggle reports why sync can't
   engage ("This build isn't signed with iCloud entitlements").
 
-## Owner activation runbook (one-time, ~15 minutes)
+## Activation runbook (one-time, ~15 minutes; requires the developer-account holder)
 
 1. **Add the Apple ID to Xcode** (GUI-only step): Xcode → Settings →
    Accounts → "+" → sign in with the developer account
@@ -71,7 +71,7 @@ Calibre's own metadata is never written.
 - **Calibre-twin guard**: an incoming record whose secondary identity
   (e.g. content hash on a Calibre-keyed book) collides with a DIFFERENT
   local row applies without that field — sync never merges the known
-  duplicate rows (that's a pending owner decision).
+  duplicate rows (whether to merge them is a pending decision).
 - **CloudKit specifics**: private DB, one zone, `.allKeys` save policy
   (record-level LWW is safe because the engine field-merges by timestamp
   and fetches before every push; a racing overwrite converges next cycle).
