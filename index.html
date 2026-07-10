@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bluefold — a PDF reader for your whole library</title>
+<meta name="description" content="A native macOS PDF reader built for people who live in large textbooks: open everything at once, navigate like a browser, and find anything again.">
+<meta property="og:title" content="Bluefold">
+<meta property="og:description" content="A PDF reader for people who live in textbooks. Open your whole library at once, navigate like a browser, find anything again.">
+<meta property="og:image" content="https://cable729.github.io/bluefold/icon-512.png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-512.png">
+<style>
+  :root {
+    --blue: #2E7FE5;
+    --blue-deep: #1B5FBF;
+    --navy: #0E2849;
+    --paper: #FBF9F6;
+    --paper-2: #F1ECE4;
+    --tan: #D2B090;
+    --ink: #1C2733;
+    --ink-2: #52606E;
+    --card: #FFFFFF;
+    --border: rgba(14, 40, 73, 0.10);
+    --shadow: 0 1px 2px rgba(14,40,73,.06), 0 8px 24px rgba(14,40,73,.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #101820;
+      --paper-2: #0C121A;
+      --ink: #E8EDF2;
+      --ink-2: #9AA8B5;
+      --card: #182430;
+      --border: rgba(255,255,255,0.09);
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+      --blue: #4E95EE;
+      --blue-deep: #2E7FE5;
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+
+  header { padding: 88px 0 56px; text-align: center; }
+  .app-icon { width: 148px; height: 148px; filter: drop-shadow(0 10px 24px rgba(14,40,73,.18)); }
+  h1 { font-size: 56px; letter-spacing: -0.02em; margin-top: 20px; font-weight: 700; }
+  .tagline { font-size: 24px; color: var(--ink-2); margin-top: 8px; font-weight: 400; letter-spacing: -0.01em; }
+  .sub { font-size: 17px; color: var(--ink-2); margin-top: 14px; max-width: 560px; margin-left: auto; margin-right: auto; }
+
+  .cta { margin-top: 36px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: var(--blue); color: #fff; text-decoration: none;
+    font-size: 18px; font-weight: 600; padding: 14px 30px; border-radius: 14px;
+    box-shadow: 0 2px 6px rgba(46,127,229,.35), 0 8px 22px rgba(46,127,229,.25);
+    transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+  }
+  .btn:hover { background: var(--blue-deep); transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn svg { width: 18px; height: 18px; }
+  .btn.disabled { background: var(--ink-2); pointer-events: none; box-shadow: none; opacity: .75; }
+  .fine { font-size: 13.5px; color: var(--ink-2); }
+  .fine code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
+
+  section.features { padding: 24px 0 40px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr 1fr; } h1 { font-size: 42px; } }
+  @media (max-width: 540px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 22px 20px 20px; box-shadow: var(--shadow);
+    position: relative; overflow: hidden;
+  }
+  .card::after {  /* folded page corner */
+    content: ""; position: absolute; top: 0; right: 0; width: 26px; height: 26px;
+    background: linear-gradient(225deg, var(--paper) 0 50%, var(--tan) 50% 100%);
+    border-bottom-left-radius: 8px;
+    opacity: .85;
+  }
+  .card h3 { font-size: 16.5px; margin-bottom: 6px; letter-spacing: -0.01em; }
+  .card p { font-size: 14.5px; color: var(--ink-2); }
+  kbd {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px;
+    background: var(--paper-2); border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 5px; padding: 1px 5px; color: var(--ink);
+  }
+
+  section.more { padding: 8px 0 48px; }
+  .more-inner {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    box-shadow: var(--shadow); padding: 26px 28px;
+  }
+  .more h2 { font-size: 20px; margin-bottom: 12px; letter-spacing: -0.01em; }
+  .more ul { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 28px; }
+  @media (max-width: 640px) { .more ul { grid-template-columns: 1fr; } }
+  .more li { font-size: 14.5px; color: var(--ink-2); padding-left: 20px; position: relative; }
+  .more li::before { content: "▸"; position: absolute; left: 0; color: var(--blue); }
+
+  footer { border-top: 1px solid var(--border); padding: 28px 0 44px; text-align: center; }
+  footer p { font-size: 13.5px; color: var(--ink-2); }
+  footer a { color: var(--blue); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <img class="app-icon" src="icon.svg" alt="Bluefold app icon — a blue book with a folded page corner" width="148" height="148">
+  <h1>Bluefold</h1>
+  <p class="tagline">A PDF reader for people who live in textbooks.</p>
+  <p class="sub">Open your whole library at once. Navigate like a browser. Find anything again — even in scanned pages.</p>
+  <div class="cta">
+    <a class="btn" id="download" href="https://github.com/cable729/bluefold/releases/latest/download/Bluefold.dmg">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/></svg>
+      Download for Mac
+    </a>
+    <p class="fine" id="download-meta">macOS 15 or later&ensp;·&ensp;Apple silicon &amp; Intel</p>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="features">
+    <div class="grid">
+      <div class="card">
+        <h3>Open everything</h3>
+        <p>Only the tab you're reading holds a live document — background tabs keep their place and reload lazily. 10&nbsp;GB of textbooks open at once is the point, not a stress test.</p>
+      </div>
+      <div class="card">
+        <h3>Navigate like a browser</h3>
+        <p>Tabs, windows, and per-tab back/forward history. <kbd>⌘</kbd>-click an internal link to open it in a new tab; <kbd>⌘⇧T</kbd> reopens what you just closed.</p>
+      </div>
+      <div class="card">
+        <h3>Pick up where you left off</h3>
+        <p>Quit and relaunch to exactly the windows, tabs, and positions you had. New windows open in the macOS Space you're actually in.</p>
+      </div>
+      <div class="card">
+        <h3>A library with real tags</h3>
+        <p>Hierarchical tags and collections across textbooks, papers, and homework. Attach an existing <a href="https://calibre-ebook.com" style="color:var(--blue);text-decoration:none">Calibre</a> library as a read-only source — Bluefold never touches it.</p>
+      </div>
+      <div class="card">
+        <h3>Search books you've never opened</h3>
+        <p>A background full-text index covers your whole library, with OCR for scanned PDFs. Live results as you type — no Enter key required.</p>
+      </div>
+      <div class="card">
+        <h3>Easy on the eyes</h3>
+        <p>Light, dark, and sepia themes applied to the PDF page itself — smart-inverted or warm-paper rendering, not just the window chrome.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="more">
+    <div class="more-inner">
+      <h2>Built keyboard-first</h2>
+      <ul>
+        <li>Command palette: <kbd>⌘O</kbd> open anything, <kbd>⌘P</kbd> jump within the book, <kbd>⌘⇧P</kbd> run commands</li>
+        <li>Split view — two books or two places in one book, side by side (<kbd>⌘\</kbd>)</li>
+        <li>Margin anchors — copyable deep links to any theorem, section, or definition</li>
+        <li><code style="font-family:ui-monospace,Menlo,monospace;font-size:13px">bluefold://</code> links that open the right book to the right page from your notes</li>
+        <li>Watched folders — exports (e.g. from a reMarkable) appear and refresh automatically</li>
+        <li>Customizable keybindings via a simple JSON file</li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>© 2026 Bluefold&ensp;·&ensp;<a href="https://github.com/cable729/bluefold/issues">Report an issue</a></p>
+  </div>
+</footer>
+
+<script>
+  // Show the real version + size once a release exists; soften the button if none yet.
+  fetch("https://api.github.com/repos/cable729/bluefold/releases/latest")
+    .then(r => r.ok ? r.json() : Promise.reject())
+    .then(rel => {
+      const dmg = (rel.assets || []).find(a => a.name.endsWith(".dmg"));
+      if (!dmg) return;
+      const mb = (dmg.size / 1048576).toFixed(0);
+      document.getElementById("download-meta").textContent =
+        `Version ${rel.tag_name.replace(/^v/, "")} · ${mb} MB · macOS 15 or later · Apple silicon & Intel`;
+    })
+    .catch(() => {
+      const btn = document.getElementById("download");
+      btn.classList.add("disabled");
+      btn.removeAttribute("href");
+      btn.lastChild.textContent = " First release coming soon";
+    });
+</script>
+
+</body>
+</html>
