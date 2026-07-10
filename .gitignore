@@ -6,3 +6,9 @@ DerivedData/
 .swiftpm/
 *.xcodeproj/project.xcworkspace/xcuserdata/
 .netrc
+
+# Release artifacts
+dist/
+
+# Local Claude Code launch config
+.claude/launch.json

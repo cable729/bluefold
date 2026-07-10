@@ -391,9 +391,21 @@ the project owner's plan file; the milestone list below is self-contained.
   scripts/release.sh (build→Developer-ID sign→DMG→notarize→staple, each
   step skippable; DMG path exercised locally), .github/workflows/release.yml
   (v* tags + workflow_dispatch only — inert while CI billing is dead;
-  secrets documented inline), CONTRIBUTING.md. REMAINING (owner): app icon,
-  README screenshots (Axler), mint Developer ID cert + notary credentials
-  (steps in scripts/release.sh output), repo public, tag v0.1.
+  secrets documented inline), CONTRIBUTING.md.
+  **2026-07-09 distribution wave (this session): website + publish path
+  DONE** — see docs/RELEASING.md for the full runbook. Landing page repo at
+  `~/git/bluefold-site` (committed locally, NOT pushed — creating the public
+  GitHub repo is classifier-gated to the owner), scripts/publish-release.sh
+  (release.sh + gh release on the public site repo; refuses unnotarized
+  DMGs via `stapler validate`; uploads stable-named Bluefold.dmg for the
+  site's /releases/latest/download URL). Release build verified: universal
+  arm64+x86_64, 8 MB DMG at dist/Bluefold-0.1.dmg (ad-hoc signed).
+  REMAINING (owner, ~10 min, exact commands in docs/RELEASING.md):
+  (1) `gh repo create cable729/bluefold-site --public --source . --push`
+  + enable Pages, (2) mint Developer ID Application cert in Xcode,
+  (3) `notarytool store-credentials bluefold`, then run
+  scripts/publish-release.sh. Also still open: README screenshots (Axler),
+  main repo public, tag v0.1.
 
 ## ⚠️ CI: BLOCKED ON BILLING; underlying deadlock diagnosed but not yet pinpointed (2026-07-08)
 Chronology of findings, most important first:
