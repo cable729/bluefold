@@ -26,6 +26,10 @@
 #                             account.apple.com > Sign-In and Security >
 #                             App-Specific Passwords (NOT the account
 #                             password).
+#
+# Releases publish to THIS repo (the website's download button reads
+# /releases/latest/download/Bluefold.dmg here), so the built-in
+# github.token suffices — no extra token secret needed.
 name: Release
 
 on:
@@ -99,13 +103,37 @@ jobs:
           path: dist/*.dmg
           if-no-files-found: error
 
-      # Tag builds also publish a draft GitHub release with the dmg attached
-      # (draft so the owner writes notes and presses publish deliberately).
-      - name: Draft GitHub release
+      # Tag builds publish the release on this repo — where the website's
+      # download button reads /releases/latest/download/Bluefold.dmg.
+      # Mirrors scripts/publish-release.sh: notarized DMGs publish for real
+      # (idempotently — if the release already exists, e.g. published
+      # locally first, assets are clobbered onto it); unnotarized builds
+      # only ever become a DRAFT so nothing Gatekeeper-broken goes public.
+      - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" dist/*.dmg \
-            --draft --title "Bluefold ${GITHUB_REF_NAME}" \
-            --generate-notes
+          DMG=$(ls dist/Bluefold-*.dmg)
+          if ! xcrun stapler validate "$DMG"; then
+            echo "::warning::$DMG is not notarized — drafting instead of publishing."
+            if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+              echo "Release ${GITHUB_REF_NAME} already exists — leaving it alone."
+            else
+              gh release create "${GITHUB_REF_NAME}" "$DMG" \
+                --draft --title "Bluefold ${GITHUB_REF_NAME} (UNSIGNED)" \
+                --notes "Unsigned CI build — configure the signing secrets (see release.yml) before publishing."
+            fi
+            exit 0
+          fi
+          cp "$DMG" dist/Bluefold.dmg
+          SHA=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
+          VERSION="${GITHUB_REF_NAME#v}"
+          printf 'Bluefold %s — signed and notarized for macOS 15+ (Apple silicon & Intel).\n\nSHA-256: `%s`\n' \
+            "$VERSION" "$SHA" > notes.md
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "$DMG" dist/Bluefold.dmg --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" "$DMG" dist/Bluefold.dmg \
+              --title "Bluefold $VERSION" --notes-file notes.md
+          fi
