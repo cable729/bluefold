@@ -43,7 +43,7 @@ The script refuses to publish an unnotarized DMG, uploads both
 `Bluefold-<version>.dmg` and the stable-named `Bluefold.dmg` (the site's
 button URL), and prints the URLs. The site shows the new version
 automatically. Bump `MARKETING_VERSION` in `App/Bluefold.xcodeproj` first
-(currently 0.1). If the version's tag already exists, assets are replaced
+(currently 0.2). If the version's tag already exists, assets are replaced
 in place (`--clobber`).
 
 `.github/workflows/release.yml` can do the same from a macOS runner on a
