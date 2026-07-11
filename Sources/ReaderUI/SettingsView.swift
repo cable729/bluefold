@@ -10,6 +10,9 @@ public struct SettingsView: View {
     @Bindable private var settings = AppSettings.shared
     @Bindable private var theme = ThemeManager.shared
     private let library = LibraryModel.shared
+    /// NSWorkspace state, not observable — captured on section appear and
+    /// after the Set as Default button runs.
+    @State private var isDefaultViewer = false
 
     public init() {}
 
@@ -22,6 +25,7 @@ public struct SettingsView: View {
             calibreSection
             watchedFoldersSection
             syncSection
+            defaultViewerSection
             keybindingsSection
             deepLinksSection
         }
@@ -242,6 +246,34 @@ public struct SettingsView: View {
             guard let lastSync else { return "Ready" }
             return "Last synced \(lastSync.formatted(date: .omitted, time: .shortened))"
         }
+    }
+
+    // MARK: - Default PDF viewer
+
+    private var defaultViewerSection: some View {
+        Section("Default PDF viewer") {
+            if isDefaultViewer {
+                LabeledContent("Status") {
+                    Text("Bluefold opens PDFs by default")
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Button("Set Bluefold as Default…") {
+                    Task {
+                        await DefaultPDFViewer.makeDefault()
+                        isDefaultViewer = DefaultPDFViewer.isDefault
+                    }
+                }
+            }
+            Text(
+                "When Bluefold is the default, PDFs opened from Finder and "
+                    + "other apps open here. Undo it anytime from Finder: "
+                    + "Get Info on any PDF, pick an app under “Open with”, "
+                    + "and click Change All."
+            )
+            .settingsCaption()
+        }
+        .onAppear { isDefaultViewer = DefaultPDFViewer.isDefault }
     }
 
     // MARK: - Keybindings

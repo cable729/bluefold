@@ -519,7 +519,11 @@ destinations/crops before theorizing.
    simulator/device, plus the older items: ⇤ ⇥ full backward trip through
    a scan, sidebar follow-mode feel, ⇧⏎/⌘⏎ palette variants. VERIFIED
    2026-07-08: tab tear-off + cross-window drags; deep links land
-   exactly.
+   exactly. VERIFIED 2026-07-10: default-PDF-viewer prompt (Info.plist
+   claims com.adobe.pdf; launch alert + Settings section; Finder file
+   opens route through DeepLinkRouter; prompt suppressed under
+   BLUEFOLD_SESSION_DIR so harnessed launches stay quiet) — shipped in
+   v0.2.
 3. After billing: CI job B (XCUITest + iOS sim build) and wire UI tests
    into scripts/verify.sh (M17's CI side).
 4. Then M18 v0.1 remainder: mint Developer ID cert + notary

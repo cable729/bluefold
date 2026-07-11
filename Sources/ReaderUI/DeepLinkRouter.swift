@@ -4,9 +4,10 @@ import PDFKit
 import ReaderCore
 import ReaderPersistence
 
-/// Opens `bluefold://` URLs: the AppDelegate hands them here, the router
-/// resolves the content hash through the library and lands the reader on
-/// the linked position.
+/// Opens URLs handed over by the AppDelegate: `bluefold://` deep links
+/// (resolved through the library by content hash) and plain file URLs —
+/// Finder "Open With"/default-handler opens, dock drops — which go straight
+/// into a reader tab.
 ///
 /// URLs can arrive at launch, before any SwiftUI scene exists to present a
 /// staged window — they queue until the first scene view registers its
@@ -60,6 +61,10 @@ public final class DeepLinkRouter {
     }
 
     private func open(_ url: URL) async {
+        if url.isFileURL {
+            await openFile(url)
+            return
+        }
         guard let link = DeepLink(url: url) else {
             fail("“\(url.absoluteString)” is not a valid \(DeepLink.primaryScheme):// link.")
             return
@@ -89,10 +94,30 @@ public final class DeepLinkRouter {
         NSApp.activate()
     }
 
-    private func fail(_ message: String) {
+    /// A PDF opened from outside the app (Finder, dock drop). No library
+    /// lookup — the file is the target; the library import, if the user
+    /// wants one, is the watched-folder pipeline's job.
+    private func openFile(_ fileURL: URL) async {
+        do {
+            try await FileAvailability.ensureLocal(fileURL)
+        } catch {
+            fail(
+                "Couldn't download “\(fileURL.lastPathComponent)” from iCloud: "
+                    + error.localizedDescription,
+                title: "Couldn't Open File"
+            )
+            return
+        }
+        if let staged = SessionCoordinator.shared.openInReader(fileURL: fileURL) {
+            presentReaderWindow?(staged)
+        }
+        NSApp.activate()
+    }
+
+    private func fail(_ message: String, title: String = "Couldn't Open Link") {
         NSSound.beep()
         let alert = NSAlert()
-        alert.messageText = "Couldn't Open Link"
+        alert.messageText = title
         alert.informativeText = message
         alert.runModal()
     }

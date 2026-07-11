@@ -49,6 +49,7 @@ struct BluefoldApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         presentKeybindingsIssuesIfNeeded()
+        promptForDefaultPDFViewerIfNeeded()
         // Materialize the (lazy) library model and run one library pass:
         // watched-folder sync and the source watchers must work from app
         // launch, not from the first time the Library window opens.
@@ -66,11 +67,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateNow
     }
 
-    /// bluefold:// deep links (Info.plist registers the scheme). At launch
-    /// these can arrive before any scene exists; the router queues them.
+    /// bluefold:// deep links (Info.plist registers the scheme) and PDF file
+    /// opens (Info.plist claims com.adobe.pdf). At launch these can arrive
+    /// before any scene exists; the router queues them.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             DeepLinkRouter.shared.handle(url)
+        }
+    }
+
+    /// Offers to make Bluefold the system default PDF viewer. Deferred a
+    /// runloop turn (like the keybindings alert — modals serialize) so
+    /// session-restored windows appear first.
+    private func promptForDefaultPDFViewerIfNeeded() {
+        DispatchQueue.main.async {
+            DefaultPDFViewer.promptIfNeeded()
         }
     }
 
