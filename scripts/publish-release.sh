@@ -70,8 +70,11 @@ if gh release view "$TAG" --repo "$SITE_REPO" >/dev/null 2>&1; then
     echo "Release $TAG exists — uploading assets (clobber)."
     gh release upload "$TAG" "$DMG" "dist/Bluefold.dmg" --clobber --repo "$SITE_REPO"
 else
+    # ${DRAFT[@]+…}: macOS bash 3.2 + set -u errors on expanding an empty
+    # array — guard the expansion so a non-draft release doesn't die here.
     gh release create "$TAG" "$DMG" "dist/Bluefold.dmg" \
-        --repo "$SITE_REPO" --title "Bluefold $VERSION" --notes "$NOTES" "${DRAFT[@]}"
+        --repo "$SITE_REPO" --title "Bluefold $VERSION" --notes "$NOTES" \
+        ${DRAFT[@]+"${DRAFT[@]}"}
 fi
 
 # ------------------------------------------------- 3/3 sanity
