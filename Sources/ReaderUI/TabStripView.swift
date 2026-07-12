@@ -318,20 +318,29 @@ final class TabStripNSView: NSView {
             // Shrink labels and cells together, proportionally to how far
             // each sits above its READABLE floor; whatever still overflows
             // scrolls. (Never crush to the bare minimum — round-20 owner
-            // feedback: names and chapters must stay legible.)
-            func cellFloor(_ width: CGFloat) -> CGFloat { min(width, Self.readableCellWidth) }
+            // feedback: names and chapters must stay legible.) The ACTIVE
+            // cell never shrinks at all — its full section title is the
+            // one most worth reading (round 22).
+            func cellFloor(_ width: CGFloat, isActive: Bool) -> CGFloat {
+                isActive ? width : min(width, Self.readableCellWidth)
+            }
             func labelFloor(_ width: CGFloat) -> CGFloat { min(width, Self.readableLabelWidth) }
             let slack = runs.reduce(0) { total, run in
                 total + (run.labelWidth - labelFloor(run.labelWidth))
-                    + run.cellWidths.reduce(0) { $0 + ($1 - cellFloor($1)) }
+                    + zip(run.range, run.cellWidths).reduce(0) {
+                        $0 + ($1.1 - cellFloor($1.1, isActive: ordered[$1.0].isActive))
+                    }
             }
             if slack > 0 {
                 let factor = min(1, (natural - available) / slack)
                 for runIndex in runs.indices {
                     let label = runs[runIndex].labelWidth
                     runs[runIndex].labelWidth = label - (label - labelFloor(label)) * factor
-                    runs[runIndex].cellWidths = runs[runIndex].cellWidths.map {
-                        $0 - ($0 - cellFloor($0)) * factor
+                    runs[runIndex].cellWidths = zip(
+                        runs[runIndex].range, runs[runIndex].cellWidths
+                    ).map { index, width in
+                        let floor = cellFloor(width, isActive: ordered[index].isActive)
+                        return width - (width - floor) * factor
                     }
                 }
             }
@@ -434,18 +443,63 @@ final class TabStripNSView: NSView {
         for (index, lozenge) in lozengeViews.enumerated() {
             let run = runs[index]
             let first = ordered[run.range.lowerBound]
-            let runIsActive = run.range.contains { ordered[$0].isActive }
+            let active = run.range.first { ordered[$0].isActive }.map { ordered[$0] }
             lozenge.apply(
-                title: first.title,
+                capItem: active ?? first,
                 labelWidth: labelWidths[index],
-                tint: first.tint,
-                isActive: runIsActive,
+                isActive: active != nil,
                 firstTabID: first.id,
-                path: first.groupKey,
                 palette: palette
             )
             setFrame(frames[index], of: lozenge, animated: animated)
         }
+    }
+
+    // MARK: - Cover hover preview hub
+
+    private var previewTask: Task<Void, Never>?
+
+    /// Cells and lozenge caps route hovers here: ANY spot on a tab
+    /// previews its book — cover, title, and that tab's current chapter
+    /// (owner round 22).
+    func noteHover(tabID: UUID, entered: Bool) {
+        guard let item = items.first(where: { $0.id == tabID }) else { return }
+        noteHover(item: item, entered: entered)
+    }
+
+    func noteHover(item: TabDisplayItem, entered: Bool) {
+        previewTask?.cancel()
+        previewTask = nil
+        guard entered, drag == nil else {
+            if !entered { TabCoverPreviewPanel.shared.hide() }
+            return
+        }
+        previewTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(280))
+            guard !Task.isCancelled, let self, self.drag == nil else { return }
+            self.presentPreview(for: item)
+        }
+    }
+
+    private func presentPreview(for item: TabDisplayItem) {
+        guard let window else { return }
+        // Anchor: the tab bar's bottom edge at the item's LOZENGE left
+        // edge — the panel reads as the tab unfolding downward.
+        let anchorView: NSView = itemViews.first(where: { $0.tabID == item.id })
+            .flatMap { cell in
+                lozengeViews.first {
+                    $0.frame.contains(CGPoint(x: cell.frame.midX, y: cell.frame.midY))
+                }
+            } ?? self
+        let screenRect = window.convertToScreen(anchorView.convert(anchorView.bounds, to: nil))
+        TabCoverPreviewPanel.shared.show(
+            path: item.groupKey, title: item.title, chapter: item.breadcrumb,
+            tint: item.tint, palette: palette,
+            belowTopLeft: CGPoint(
+                x: screenRect.minX,
+                y: screenRect.minY - Self.lozengeInsetY
+            )
+        )
     }
 
     /// Animated frame changes, EXCEPT a view's very first placement: a view
@@ -627,6 +681,11 @@ final class TabStripNSView: NSView {
         if !drag.didMove, abs(dx) < 4, abs(dy) < 4 {
             self.drag = drag
             return // below the drag threshold: still a click
+        }
+        if !drag.didMove {
+            // A real drag began: no preview may appear under it.
+            previewTask?.cancel()
+            TabCoverPreviewPanel.shared.hide()
         }
         drag.didMove = true
 
@@ -966,8 +1025,15 @@ final class TabItemNSView: NSView {
         trackingArea = area
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        owner.noteHover(tabID: tabID, entered: true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        owner.noteHover(tabID: tabID, entered: false)
+    }
 
     /// Tabs handle their own drags; never let a press move the window.
     override var mouseDownCanMoveWindow: Bool { false }
@@ -1002,20 +1068,28 @@ final class TabItemNSView: NSView {
 final class TabLozengeView: NSView {
     private unowned let owner: TabStripNSView
     private let coverCap = NSImageView()
+    /// Horizontal wash of the cover's extracted colors (1–3 stops) — the
+    /// lozenge blends into its book (owner round 22). Hash tint fallback.
+    private let fillGradient = CAGradientLayer()
     private var firstTabID: UUID?
     private var labelWidth: CGFloat = 0
-    private var title = ""
+    /// The item cap hovers preview: the run's active tab, else its first.
+    private var capItem: TabDisplayItem?
+    private var isActive = false
+    private var art: BookCoverArt?
     private var path = ""
-    private var tint: NSColor = .clear
     private var palette: DesignPalette = .light
     private var trackingArea: NSTrackingArea?
-    private var hoverTask: Task<Void, Never>?
 
     init(owner: TabStripNSView) {
         self.owner = owner
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = TabStripNSView.cornerRadius
+        layer?.masksToBounds = true
+        fillGradient.startPoint = CGPoint(x: 0, y: 0.5)
+        fillGradient.endPoint = CGPoint(x: 1, y: 0.5)
+        layer?.insertSublayer(fillGradient, at: 0)
 
         coverCap.wantsLayer = true
         coverCap.layer?.cornerRadius = TabStripNSView.cornerRadius
@@ -1035,36 +1109,58 @@ final class TabLozengeView: NSView {
     required init?(coder: NSCoder) { fatalError("unused") }
 
     func apply(
-        title: String, labelWidth: CGFloat, tint: NSColor,
-        isActive: Bool, firstTabID: UUID?, path: String, palette: DesignPalette
+        capItem: TabDisplayItem, labelWidth: CGFloat,
+        isActive: Bool, firstTabID: UUID?, palette: DesignPalette
     ) {
+        self.capItem = capItem
         self.firstTabID = firstTabID
         self.labelWidth = labelWidth
-        self.title = title
-        self.tint = tint
+        self.isActive = isActive
         self.palette = palette
+        let path = capItem.groupKey
         if path != self.path {
             self.path = path
             coverCap.layer?.contents = nil
+            art = nil
         }
         // Tint placeholder until (and behind) the rendered first page.
-        coverCap.layer?.backgroundColor = tint.cgColor
-        if let image = TabCoverThumbnails.image(forPath: path, onLoad: { [weak self] image in
+        coverCap.layer?.backgroundColor = capItem.tint.cgColor
+        if let art = TabCoverThumbnails.art(forPath: path, onLoad: { [weak self] art in
             guard let self, self.path == path else { return }
-            self.coverCap.layer?.contents = image
+            self.art = art
+            self.coverCap.layer?.contents = art.image
+            self.refreshFill()
         }) {
-            coverCap.layer?.contents = image
+            self.art = art
+            coverCap.layer?.contents = art.image
         }
-        // The book tint carries the lozenge; the active book's lozenge sits
-        // a notch stronger, mockup-style.
-        layer?.backgroundColor = tint
-            .withAlphaComponent(isActive ? 0.30 : 0.18).cgColor
-        setAccessibilityTitle(title)
+        refreshFill()
+        setAccessibilityTitle(capItem.title)
         needsLayout = true
+    }
+
+    /// The lozenge fill: the cover's own colors washing left→right from
+    /// the cap; the active book's lozenge sits a notch stronger.
+    private func refreshFill() {
+        guard let capItem else { return }
+        let alpha: CGFloat = isActive ? 0.32 : 0.2
+        var colors = (art?.colors.isEmpty == false ? art!.colors : [capItem.tint])
+            .map { $0.withAlphaComponent(alpha).cgColor }
+        if colors.count == 1 {
+            colors.append(colors[0])  // gradients need two stops
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        fillGradient.colors = colors
+        CATransaction.commit()
     }
 
     override func layout() {
         super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        fillGradient.frame = bounds
+        CATransaction.commit()
         coverCap.frame = NSRect(
             x: 0, y: 0, width: TabStripNSView.coverCapWidth, height: bounds.height
         )
@@ -1072,7 +1168,8 @@ final class TabLozengeView: NSView {
         updateTrackingAreas()
     }
 
-    // MARK: - Cover hover preview
+    // MARK: - Cover hover preview (the CAP's slice; cells route their own
+    // hovers through the strip so the whole tab previews)
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -1088,40 +1185,20 @@ final class TabLozengeView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        hoverTask?.cancel()
-        hoverTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(280))
-            guard !Task.isCancelled, let self else { return }
-            self.presentPreview()
+        if let capItem {
+            owner.noteHover(item: capItem, entered: true)
         }
     }
 
     override func mouseExited(with event: NSEvent) {
-        hoverTask?.cancel()
-        hoverTask = nil
-        TabCoverPreviewPanel.shared.hide()
-    }
-
-    private func presentPreview() {
-        guard let window, let strip = superview as? TabStripNSView else { return }
-        // Anchor: the tab bar's bottom edge, at the lozenge's left edge —
-        // the panel reads as the tab unfolding downward.
-        let inWindow = convert(bounds, to: nil)
-        let screenRect = window.convertToScreen(inWindow)
-        let anchor = CGPoint(
-            x: screenRect.minX,
-            y: screenRect.minY - TabStripNSView.lozengeInsetY
-        )
-        TabCoverPreviewPanel.shared.show(
-            path: path, title: title, tint: tint, palette: palette,
-            belowTopLeft: anchor
-        )
+        if let capItem {
+            owner.noteHover(item: capItem, entered: false)
+        }
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
-            hoverTask?.cancel()
             TabCoverPreviewPanel.shared.hide(ifOwnedByPath: path)
         }
     }
@@ -1144,37 +1221,48 @@ final class TabLozengeView: NSView {
     }
 }
 
-/// First-page thumbnails for the strip's cover caps and hover previews,
-/// cached per canonical path for the app's lifetime. Rendering opens its
-/// OWN PDFDocument off the main thread — never the shared provider's (the
-/// LRU must not churn for a 21-point sliver).
+/// One book's strip art: the first-page render plus its dominant colors
+/// (empty when the page is essentially white/text — callers fall back to
+/// the hash tint).
+struct BookCoverArt {
+    let image: NSImage
+    let colors: [NSColor]
+}
+
+/// First-page art for the strip's cover caps and hover previews, cached
+/// per canonical path for the app's lifetime. Rendering opens its OWN
+/// PDFDocument off the main thread — never the shared provider's (the LRU
+/// must not churn for a 21-point sliver).
 @MainActor
 enum TabCoverThumbnails {
-    private static var images: [String: NSImage] = [:]
+    private static var artCache: [String: BookCoverArt] = [:]
     private static var inFlight: Set<String> = []
 
-    /// The cached thumbnail, or nil while one renders — `onLoad` fires on
-    /// the main actor when a freshly rendered image lands.
-    static func image(
+    /// The cached art, or nil while it renders — `onLoad` fires on the
+    /// main actor when freshly rendered art lands.
+    static func art(
         forPath path: String,
-        onLoad: @escaping @MainActor (NSImage) -> Void
-    ) -> NSImage? {
-        if let cached = images[path] { return cached }
+        onLoad: @escaping @MainActor (BookCoverArt) -> Void
+    ) -> BookCoverArt? {
+        if let cached = artCache[path] { return cached }
         guard !inFlight.contains(path) else { return nil }
         inFlight.insert(path)
         Task.detached(priority: .utility) {
-            let rendered = autoreleasepool { () -> NSImage? in
+            let rendered = autoreleasepool { () -> BookCoverArt? in
                 guard
                     let document = PDFDocument(url: URL(fileURLWithPath: path)),
                     let page = document.page(at: 0)
                 else { return nil }
                 // One render serves both the cap and the hover preview.
-                return page.thumbnail(of: CGSize(width: 320, height: 440), for: .cropBox)
+                let image = page.thumbnail(of: CGSize(width: 320, height: 440), for: .cropBox)
+                let colors = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+                    .map { CoverPalette.dominantColors(in: $0) } ?? []
+                return BookCoverArt(image: image, colors: colors)
             }
             await MainActor.run {
                 inFlight.remove(path)
                 guard let rendered else { return }
-                images[path] = rendered
+                artCache[path] = rendered
                 onLoad(rendered)
             }
         }
@@ -1182,16 +1270,93 @@ enum TabCoverThumbnails {
     }
 }
 
-/// The flat cover preview under a hovered cap: enlarged first page + book
-/// title, drawn as a downward extension of the tab (square top corners
-/// against the strip, rounded bottom, no shadow). One shared instance —
-/// one preview at a time. Mouse-transparent and non-activating.
+/// Dominant-color extraction for cover renders (owner round 22: the tab
+/// gradient should blend with the actual cover — D&F reds, Axler
+/// yellow/blue — not a hash-picked tint).
+enum CoverPalette {
+    /// 1–3 dominant non-background colors, most dominant first. Empty when
+    /// the page is essentially white/text ink — no real cover art.
+    static func dominantColors(in image: CGImage, maxCount: Int = 3) -> [NSColor] {
+        let width = 24, height = 32
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.interpolationQuality = .medium
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return [] }
+
+        // Coarse histogram (4 bits/channel), skipping page white and text
+        // ink — what remains is cover art.
+        var counts = [Int](repeating: 0, count: 4096)
+        var sums = [Double](repeating: 0, count: 4096 * 3)
+        var artPixels = 0
+        for index in stride(from: 0, to: pixels.count, by: 4) {
+            let red = Int(pixels[index])
+            let green = Int(pixels[index + 1])
+            let blue = Int(pixels[index + 2])
+            let brightest = max(red, green, blue)
+            let darkest = min(red, green, blue)
+            if brightest > 235, darkest > 210 { continue }  // page white
+            if brightest < 45 { continue }                  // text ink / black
+            let bucket = (red >> 4) << 8 | (green >> 4) << 4 | (blue >> 4)
+            counts[bucket] += 1
+            sums[bucket * 3] += Double(red)
+            sums[bucket * 3 + 1] += Double(green)
+            sums[bucket * 3 + 2] += Double(blue)
+            artPixels += 1
+        }
+        // A text page keeps its hash tint: too few art pixels to trust.
+        guard artPixels >= (width * height) / 8 else { return [] }
+
+        let ranked = counts.indices
+            .filter { counts[$0] > 0 }
+            .sorted { counts[$0] > counts[$1] }
+        var picked: [(red: Double, green: Double, blue: Double)] = []
+        for bucket in ranked {
+            guard picked.count < maxCount else { break }
+            guard counts[bucket] >= max(artPixels / 25, 3) else { break }
+            let n = Double(counts[bucket])
+            let color = (
+                red: sums[bucket * 3] / n / 255,
+                green: sums[bucket * 3 + 1] / n / 255,
+                blue: sums[bucket * 3 + 2] / n / 255
+            )
+            // Only meaningfully DIFFERENT colors join the gradient.
+            let isDistinct = picked.allSatisfy { existing in
+                let dr = existing.red - color.red
+                let dg = existing.green - color.green
+                let db = existing.blue - color.blue
+                return (dr * dr + dg * dg + db * db).squareRoot() > 0.25
+            }
+            if isDistinct { picked.append(color) }
+        }
+        return picked.map {
+            NSColor(srgbRed: $0.red, green: $0.green, blue: $0.blue, alpha: 1)
+        }
+    }
+}
+
+/// The flat cover preview under a hovered tab: enlarged first page over a
+/// [title | chapter] row (vertical hairline between them), drawn as a
+/// downward extension of the tab (square top corners against the strip,
+/// rounded bottom, no shadow). One shared instance — one preview at a
+/// time. Mouse-transparent and non-activating.
 @MainActor
 final class TabCoverPreviewPanel: NSPanel {
     static let shared = TabCoverPreviewPanel()
 
     private let coverView = NSImageView()
     private let titleField = NSTextField(wrappingLabelWithString: "")
+    private let chapterField = NSTextField(wrappingLabelWithString: "")
+    private let divider = NSView()
     private let container = NSView()
     private(set) var shownPath: String?
 
@@ -1219,46 +1384,83 @@ final class TabCoverPreviewPanel: NSPanel {
         coverView.layer?.contentsGravity = .resizeAspect
         coverView.imageScaling = .scaleNone
 
+        // Word wrapping + truncatesLastVisibleLine: `byTruncatingTail`
+        // on a wrapping label disables the WRAP (one line, ellipsis).
         titleField.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        titleField.alignment = .center
-        titleField.maximumNumberOfLines = 2
-        titleField.lineBreakMode = .byTruncatingTail
+        titleField.alignment = .left
+        titleField.maximumNumberOfLines = 3
+        titleField.lineBreakMode = .byWordWrapping
+        titleField.cell?.truncatesLastVisibleLine = true
+
+        chapterField.font = NSFont.systemFont(ofSize: 11.5)
+        chapterField.alignment = .left
+        chapterField.maximumNumberOfLines = 3
+        chapterField.lineBreakMode = .byWordWrapping
+        chapterField.cell?.truncatesLastVisibleLine = true
+
+        divider.wantsLayer = true
 
         container.addSubview(coverView)
         container.addSubview(titleField)
+        container.addSubview(divider)
+        container.addSubview(chapterField)
         contentView = container
     }
 
     func show(
-        path: String, title: String, tint: NSColor,
+        path: String, title: String, chapter: String, tint: NSColor,
         palette: DesignPalette, belowTopLeft anchor: CGPoint
     ) {
         shownPath = path
         let coverSize = CGSize(width: 150, height: 200)
         let padding: CGFloat = 12
+        let columnGap: CGFloat = 9
+        let columnWidth: CGFloat = 96
+
         titleField.stringValue = title
         titleField.textColor = palette.ink
+        chapterField.stringValue = chapter
+        chapterField.textColor = palette.ink.withAlphaComponent(0.72)
+        divider.layer?.backgroundColor = palette.lozengeDivider.cgColor
+
         let titleHeight = titleField.sizeThatFits(
-            NSSize(width: coverSize.width, height: 40)
+            NSSize(width: columnWidth, height: 54)
         ).height
-        let width = coverSize.width + 2 * padding
-        let height = coverSize.height + titleHeight + 2 * padding + 8
+        let chapterHeight = chapterField.sizeThatFits(
+            NSSize(width: columnWidth, height: 54)
+        ).height
+        let rowHeight = max(titleHeight, chapterHeight)
+        let rowWidth = columnWidth * 2 + 1 + columnGap * 2
+        let width = max(coverSize.width, rowWidth) + 2 * padding
+        let height = coverSize.height + rowHeight + 2 * padding + 8
 
         container.layer?.backgroundColor = palette.stripBackground.cgColor
         coverView.layer?.backgroundColor = tint.cgColor
-        coverView.layer?.contents = TabCoverThumbnails.image(
+        coverView.layer?.contents = TabCoverThumbnails.art(
             forPath: path,
-            onLoad: { [weak self] image in
+            onLoad: { [weak self] art in
                 guard let self, self.shownPath == path else { return }
-                self.coverView.layer?.contents = image
+                self.coverView.layer?.contents = art.image
             }
-        )
+        )?.image
 
+        // [title | chapter] row along the bottom; centered cover above.
+        let rowX = (width - rowWidth) / 2
         titleField.frame = NSRect(
-            x: padding, y: padding, width: coverSize.width, height: titleHeight
+            x: rowX, y: padding + (rowHeight - titleHeight) / 2,
+            width: columnWidth, height: titleHeight
+        )
+        divider.frame = NSRect(
+            x: rowX + columnWidth + columnGap, y: padding,
+            width: 1, height: rowHeight
+        )
+        chapterField.frame = NSRect(
+            x: rowX + columnWidth + columnGap + 1 + columnGap,
+            y: padding + (rowHeight - chapterHeight) / 2,
+            width: columnWidth, height: chapterHeight
         )
         coverView.frame = NSRect(
-            x: padding, y: padding + titleHeight + 8,
+            x: (width - coverSize.width) / 2, y: padding + rowHeight + 8,
             width: coverSize.width, height: coverSize.height
         )
         setFrame(

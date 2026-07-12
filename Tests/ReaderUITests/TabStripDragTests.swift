@@ -264,6 +264,36 @@ struct TabStripDragTests {
         #expect(h.strip.frame.width > 420, "the remainder overflows into scrolling")
     }
 
+    @Test func activeCellNeverShrinksOnOverflow() {
+        // Round 22: the selected tab's full section title is the one most
+        // worth reading — it keeps its natural width while others shrink.
+        let h = Harness(
+            frame: NSRect(x: 100, y: 300, width: 420, height: 400),
+            tabs: ["placeholder"]
+        )
+        defer { h.cleanUp() }
+        let activeCrumb = "13.3 Classical Straightedge and Compass"
+        h.strip.apply(items: [
+            Harness.item(title: "Book 1", breadcrumb: "Chapter 1: A Long Section Name"),
+            Harness.item(title: "Book 2", breadcrumb: activeCrumb, isActive: true),
+            Harness.item(title: "Book 3", breadcrumb: "Chapter 3: Another Long Name"),
+            Harness.item(title: "Book 4", breadcrumb: "Chapter 4: Yet Another One"),
+        ], palette: .light, isWindowSplit: false)
+        h.strip.layout()
+
+        let font = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
+        let naturalText = min(
+            (activeCrumb as NSString).size(withAttributes: [.font: font]).width,
+            TabStripNSView.maxCellTextWidth
+        )
+        let cells = h.strip.subviews.compactMap { $0 as? TabItemNSView }
+            .sorted { $0.frame.minX < $1.frame.minX }
+        #expect(cells[1].frame.width >= naturalText + 31 - 0.5,
+                "the active cell keeps its full natural width")
+        #expect(cells[0].frame.width < cells[1].frame.width,
+                "inactive neighbors shrink first")
+    }
+
     @Test func overflowGrowsContentWidthForScrolling() {
         // Firefox/Chrome behavior: past the shrink floor the strip's content
         // outgrows the viewport (the scroll view shows the rest) instead of

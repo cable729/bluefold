@@ -271,14 +271,20 @@ private struct OutlineRows: View {
     }
 
     private func row(for node: OutlineNode) -> some View {
-        Button {
+        let isCurrent = node.id == currentNodeID
+        return Button {
             if let entry = node.entry {
                 onJump(entry)
             }
         } label: {
             Text(node.label)
                 .lineLimit(2)
-                .fontWeight(node.id == currentNodeID ? .semibold : .regular)
+                .fontWeight(isCurrent ? .semibold : .regular)
+                .foregroundStyle(
+                    isCurrent
+                        ? DesignPalette.current.accentColor
+                        : DesignPalette.current.textPrimaryColor
+                )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
         }
@@ -286,10 +292,21 @@ private struct OutlineRows: View {
         .id(node.id)
     }
 
-    private func background(for node: OutlineNode) -> Color {
-        node.id == currentNodeID
-            ? DesignPalette.current.accentSoftColor
-            : Color.clear
+    /// The section being read: soft accent fill + a leading accent bar —
+    /// the fill alone read as nothing in sepia (owner round 22).
+    @ViewBuilder
+    private func background(for node: OutlineNode) -> some View {
+        if node.id == currentNodeID {
+            HStack(spacing: 0) {
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(DesignPalette.current.accentColor)
+                    .frame(width: 3)
+                Rectangle()
+                    .fill(DesignPalette.current.accentSoftColor)
+            }
+        } else {
+            Color.clear
+        }
     }
 }
 
