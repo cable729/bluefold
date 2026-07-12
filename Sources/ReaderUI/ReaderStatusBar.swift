@@ -214,19 +214,20 @@ struct ReaderStatusBar: View {
     }
 }
 
+#endif
+
 /// Enablement math for the status-bar page arrows, extracted for tests.
 /// `pageIndex` is nil when no tab is active; a `pageCount` of 0 means no
-/// document (both disable the arrows).
-enum PageArrows {
-    static func canGoBack(pageIndex: Int?, pageCount: Int) -> Bool {
+/// document (both disable the arrows). Cross-platform: the iOS bottom bar
+/// uses the same math.
+public enum PageArrows {
+    public static func canGoBack(pageIndex: Int?, pageCount: Int) -> Bool {
         guard let pageIndex, pageCount > 0 else { return false }
         return pageIndex > 0
     }
 
-    static func canGoForward(pageIndex: Int?, pageCount: Int) -> Bool {
+    public static func canGoForward(pageIndex: Int?, pageCount: Int) -> Bool {
         guard let pageIndex, pageCount > 0 else { return false }
         return pageIndex < pageCount - 1
     }
 }
-#endif
-

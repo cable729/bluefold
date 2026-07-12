@@ -10,6 +10,10 @@ import SwiftUI
 final class ReaderChromeModel {
     var showingLibrary = false
     var showingImporter = false
+    /// Sidebar panel (regular width) / sheet (compact).
+    var sidebarVisible = false
+    /// iPhone reading mode: chrome fades while scrolling; tap toggles.
+    var chromeHidden = false
 }
 
 /// Hardware-keyboard commands for iPadOS (and iPhone with a keyboard):
@@ -37,8 +41,21 @@ struct ReaderCommandsIOS: Commands {
             .disabled(model.activeTabID == nil)
         }
 
+        CommandGroup(after: .sidebar) {
+            Button(chrome.sidebarVisible ? "Hide Sidebar" : "Show Sidebar") {
+                chrome.sidebarVisible.toggle()
+            }
+            .keyboardShortcut("b")
+        }
+
         CommandGroup(after: .toolbar) {
             layoutPicker
+            Divider()
+            Button(model.splitTabID == nil ? "Split Right" : "Close Split") {
+                model.toggleSplit()
+            }
+            .keyboardShortcut("\\")
+            .disabled(model.activeTabID == nil)
             Divider()
             themePicker
             Divider()
@@ -51,6 +68,11 @@ struct ReaderCommandsIOS: Commands {
             Button("Forward") { model.goForward() }
                 .keyboardShortcut("]")
                 .disabled(!model.canGoForward)
+            Divider()
+            Button("Previous Section") { model.goToPreviousSection() }
+                .disabled(!model.canGoToPreviousSection)
+            Button("Next Section") { model.goToNextSection() }
+                .disabled(!model.canGoToNextSection)
             Divider()
             Button("Next Tab") { model.activateAdjacentTab(offset: 1) }
                 .keyboardShortcut("]", modifiers: [.command, .shift])
@@ -75,6 +97,12 @@ struct ReaderCommandsIOS: Commands {
         CommandMenu("Search") {
             Button("Find in Document") { model.presentFind() }
                 .keyboardShortcut("f")
+                .disabled(model.activeTabID == nil)
+        }
+
+        CommandMenu("Bookmarks") {
+            Button("Bookmark This Page") { model.addBookmarkAtCurrentPosition() }
+                .keyboardShortcut("d")
                 .disabled(model.activeTabID == nil)
         }
     }

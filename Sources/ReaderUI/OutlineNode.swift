@@ -1,17 +1,16 @@
-#if os(macOS)
 import PDFKit
 import ReaderCore
 
 /// Value-type snapshot of a PDF's table of contents, built once per document
 /// so SwiftUI can render it without touching PDFKit objects.
-struct OutlineNode: Identifiable {
-    let id = UUID()
-    let label: String
-    let entry: NavEntry?
-    let children: [OutlineNode]?
+public struct OutlineNode: Identifiable, Sendable {
+    public let id = UUID()
+    public let label: String
+    public let entry: NavEntry?
+    public let children: [OutlineNode]?
 
     @MainActor
-    static func tree(from document: PDFDocument) -> [OutlineNode] {
+    public static func tree(from document: PDFDocument) -> [OutlineNode] {
         guard let root = document.outlineRoot else { return [] }
         return children(of: root, in: document)
     }
@@ -19,7 +18,7 @@ struct OutlineNode: Identifiable {
     /// The deepest section whose start page is at or before `pageIndex` —
     /// "which section am I in". Nil when the outline is empty or the page
     /// precedes every section.
-    static func deepestLabel(in nodes: [OutlineNode], atOrBefore pageIndex: Int) -> String? {
+    public static func deepestLabel(in nodes: [OutlineNode], atOrBefore pageIndex: Int) -> String? {
         deepestPath(in: nodes, atOrBefore: pageIndex).last
     }
 
@@ -28,7 +27,7 @@ struct OutlineNode: Identifiable {
     /// Ancestors without a destination of their own still contribute their
     /// label. Empty when the outline is empty or the page precedes every
     /// section (e.g. scanned PDFs with no outline at all).
-    static func deepestPath(in nodes: [OutlineNode], atOrBefore pageIndex: Int) -> [String] {
+    public static func deepestPath(in nodes: [OutlineNode], atOrBefore pageIndex: Int) -> [String] {
         var best: (path: [String], page: Int)?
         func walk(_ nodes: [OutlineNode], ancestors: [String]) {
             for node in nodes {
@@ -49,7 +48,7 @@ struct OutlineNode: Identifiable {
     /// point counts as the page top. Round 10: section skips land on the
     /// section's exact anchor, not the top of its page — several sections
     /// share a page in real books.
-    static func readingKey(of entry: NavEntry) -> (page: Int, offset: CGFloat) {
+    public static func readingKey(of entry: NavEntry) -> (page: Int, offset: CGFloat) {
         (entry.pageIndex, -(entry.point?.y ?? CGFloat.greatestFiniteMagnitude))
     }
 
@@ -58,7 +57,7 @@ struct OutlineNode: Identifiable {
     /// section often share one anchor (always, in scans with synthesized
     /// page-top points) — stepping between identical positions is an
     /// invisible no-op that wedged ⇤ at chapter starts (round 13.7).
-    static func orderedSectionEntries(in nodes: [OutlineNode]) -> [NavEntry] {
+    public static func orderedSectionEntries(in nodes: [OutlineNode]) -> [NavEntry] {
         var entries: [NavEntry] = []
         func walk(_ nodes: [OutlineNode]) {
             for node in nodes {
@@ -96,18 +95,18 @@ struct OutlineNode: Identifiable {
     /// full ancestor path, and node id. Built once per document so live
     /// breadcrumbs (updated while scrolling, round 15) cost a binary search
     /// per tick, not an outline walk.
-    struct SectionStop: Equatable {
-        let page: Int
-        let offset: CGFloat
-        let path: [String]
-        let nodeID: UUID
+    public struct SectionStop: Equatable, Sendable {
+        public let page: Int
+        public let offset: CGFloat
+        public let path: [String]
+        public let nodeID: UUID
     }
 
     /// Every destination-carrying node in reading order, ancestor paths
     /// included. Same-spot entries (chapter heading + its first section on
     /// one anchor) keep only the DEEPEST path — that is the label a reader
     /// standing there expects.
-    static func sectionStops(in nodes: [OutlineNode]) -> [SectionStop] {
+    public static func sectionStops(in nodes: [OutlineNode]) -> [SectionStop] {
         var stops: [SectionStop] = []
         func walk(_ nodes: [OutlineNode], ancestors: [String]) {
             for node in nodes {
@@ -142,7 +141,7 @@ struct OutlineNode: Identifiable {
     /// The stop containing `current` — the last one anchored at or before
     /// the position, with the same landing slop as section stepping. Binary
     /// search: this runs on every scroll tick.
-    static func currentStop(in stops: [SectionStop], at current: NavEntry) -> SectionStop? {
+    public static func currentStop(in stops: [SectionStop], at current: NavEntry) -> SectionStop? {
         let here = readingKey(of: current)
         var low = 0
         var high = stops.count - 1
@@ -182,7 +181,7 @@ struct OutlineNode: Identifiable {
 
     /// The section after the current one (identity-based: immune to the
     /// view landing a few points off the anchor).
-    static func sectionEntry(in nodes: [OutlineNode], after current: NavEntry) -> NavEntry? {
+    public static func sectionEntry(in nodes: [OutlineNode], after current: NavEntry) -> NavEntry? {
         let ordered = orderedSectionEntries(in: nodes)
         guard let index = currentSectionIndex(in: ordered, at: current) else {
             return ordered.first  // before everything: next = first section
@@ -192,7 +191,7 @@ struct OutlineNode: Identifiable {
 
     /// Media-player "previous": deep into a section it returns to THAT
     /// section's start; standing at its start it goes to the one before.
-    static func sectionEntry(in nodes: [OutlineNode], before current: NavEntry) -> NavEntry? {
+    public static func sectionEntry(in nodes: [OutlineNode], before current: NavEntry) -> NavEntry? {
         let ordered = orderedSectionEntries(in: nodes)
         guard let index = currentSectionIndex(in: ordered, at: current) else { return nil }
         let entry = ordered[index]
@@ -217,7 +216,7 @@ struct OutlineNode: Identifiable {
 
     /// IDs of the ancestors of `targetID`, root first — the disclosure
     /// groups the sidebar must expand to reveal it (follow mode).
-    static func ancestorIDs(of targetID: UUID, in nodes: [OutlineNode]) -> [UUID] {
+    public static func ancestorIDs(of targetID: UUID, in nodes: [OutlineNode]) -> [UUID] {
         func walk(_ nodes: [OutlineNode], path: [UUID]) -> [UUID]? {
             for node in nodes {
                 if node.id == targetID {
@@ -234,7 +233,7 @@ struct OutlineNode: Identifiable {
     }
 
     /// Same search, returning the node id (sidebar highlight).
-    static func deepestNodeID(in nodes: [OutlineNode], atOrBefore pageIndex: Int) -> UUID? {
+    public static func deepestNodeID(in nodes: [OutlineNode], atOrBefore pageIndex: Int) -> UUID? {
         var best: (id: UUID, page: Int)?
         func walk(_ nodes: [OutlineNode]) {
             for node in nodes {
@@ -265,7 +264,7 @@ struct OutlineNode: Identifiable {
                 // deep inside the section and re-target it forever
                 // (round 13.6).
                 let crop = page.bounds(for: .cropBox)
-                let point = ReaderPDFView.validatedPoint(destination.point, on: page)
+                let point = LinkResolver.validatedPoint(destination.point, on: page)
                     ?? CGPoint(x: crop.minX, y: crop.maxY)
                 entry = NavEntry(
                     pageIndex: document.index(for: page),
@@ -278,4 +277,3 @@ struct OutlineNode: Identifiable {
         }
     }
 }
-#endif

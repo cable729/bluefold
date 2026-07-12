@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 import ReaderPersistence
 import SearchIndexKit
@@ -10,8 +9,8 @@ import SearchIndexKit
 /// backfills it onto Calibre rows), then file_ref path, then auto-register
 /// the file as a loose book.
 @MainActor
-enum BookResolver {
-    static func resolveBookID(forFileAt url: URL, store: LibraryStore) -> Int64? {
+public enum BookResolver {
+    public static func resolveBookID(forFileAt url: URL, store: LibraryStore) -> Int64? {
         let path = url.standardizedFileURL.path
         let hash = try? ContentHash.compute(for: url)
 
@@ -29,4 +28,3 @@ enum BookResolver {
         return try? store.insertLooseBook(contentHash: hash, title: title, pathHint: path).id
     }
 }
-#endif
