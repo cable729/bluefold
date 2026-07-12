@@ -55,6 +55,9 @@ struct ReaderView: View {
                 ReaderBottomBarIOS(model: model, theme: theme, palette: palette)
             }
         }
+        // Theme the whole reading area so split gaps and the letterbox match
+        // the page background instead of flashing system white.
+        .background(Color(uiColor: theme.pdfBackground).ignoresSafeArea())
         .animation(.easeInOut(duration: 0.2), value: chromeHidden)
         .fileImporter(
             isPresented: $chrome.showingImporter,
@@ -149,12 +152,12 @@ struct ReaderView: View {
                 }
             } else if let document = model.activeDocument {
                 pdfView(tab: tab, document: document, pane: .primary)
-                    // Drop a tab chip or a sidebar section on the trailing
-                    // edge to open it in the split pane (iPad).
-                    .overlay(alignment: .trailing) {
-                        if UIDevice.current.userInterfaceIdiom == .pad,
-                           model.splitTabID == nil {
-                            splitDropZone
+                    // Drop a tab chip, sidebar section, or link on the edge
+                    // to open it in a split: right on iPad (side-by-side),
+                    // bottom on iPhone (top/bottom).
+                    .overlay(alignment: sizeClass == .regular ? .trailing : .bottom) {
+                        if model.splitTabID == nil {
+                            splitDropZone(axis: sizeClass == .regular ? .horizontal : .vertical)
                         }
                     }
             } else if let error = model.downloadError {
@@ -190,16 +193,16 @@ struct ReaderView: View {
         .onChromeGestures(pane: pane, sizeClass: sizeClass, chrome: chrome)
     }
 
-    /// Invisible trailing strip that lights up when a tab chip or sidebar
-    /// section is dragged over it — drop opens the split.
-    private var splitDropZone: some View {
-        SplitDropTargetIOS(palette: palette) { payload in
+    /// Invisible edge strip that lights up when a tab chip, sidebar
+    /// section, or link is dragged over it — drop opens the split on `axis`.
+    private func splitDropZone(axis: SplitAxis) -> some View {
+        SplitDropTargetIOS(axis: axis, palette: palette) { payload in
             if let tabID = DragPayload.decodeTab(payload) {
-                model.openInSplit(tabID: tabID)
+                model.openInSplit(tabID: tabID, axis: axis)
                 return true
             }
             if let entry = DragPayload.decodeSection(payload) {
-                model.openEntryInSplit(entry)
+                model.openEntryInSplit(entry, axis: axis)
                 return true
             }
             return false
@@ -236,29 +239,39 @@ private struct SplitContainerIOS<Primary: View, Secondary: View>: View {
     let onClosePrimary: () -> Void
     let onCloseSecondary: () -> Void
 
-    /// Live fraction while dragging; nil when settled.
-    @State private var dragFraction: CGFloat?
+    /// Live drag translation along the split axis; the panes only resize
+    /// once, on release — during the drag just a ghost line moves, so a big
+    /// PDF isn't re-laid-out every frame (that was the jitter).
+    @State private var dragTranslation: CGFloat = 0
+    @State private var isDragging = false
 
     private let minFraction: CGFloat = 0.14
     private let maxFraction: CGFloat = 0.86
-    private let grabThickness: CGFloat = 22
+    private let grabThickness: CGFloat = 24
 
     var body: some View {
         GeometryReader { geo in
             let total = axis == .vertical ? geo.size.height : geo.size.width
-            let f = min(max(dragFraction ?? fraction, minFraction), maxFraction)
+            let f = min(max(fraction, minFraction), maxFraction)
             let primaryExtent = max(0, total * f)
-            if axis == .vertical {
-                VStack(spacing: 0) {
-                    pane(primary, onClose: onClosePrimary).frame(height: primaryExtent)
-                    divider(total: total)
-                    pane(secondary, onClose: onCloseSecondary)
+            Group {
+                if axis == .vertical {
+                    VStack(spacing: 0) {
+                        pane(primary, onClose: onClosePrimary).frame(height: primaryExtent)
+                        divider(total: total)
+                        pane(secondary, onClose: onCloseSecondary)
+                    }
+                } else {
+                    HStack(spacing: 0) {
+                        pane(primary, onClose: onClosePrimary).frame(width: primaryExtent)
+                        divider(total: total)
+                        pane(secondary, onClose: onCloseSecondary)
+                    }
                 }
-            } else {
-                HStack(spacing: 0) {
-                    pane(primary, onClose: onClosePrimary).frame(width: primaryExtent)
-                    divider(total: total)
-                    pane(secondary, onClose: onCloseSecondary)
+            }
+            .overlay(alignment: .topLeading) {
+                if isDragging {
+                    ghostLine(boundary: primaryExtent, total: total)
                 }
             }
         }
@@ -283,59 +296,81 @@ private struct SplitContainerIOS<Primary: View, Secondary: View>: View {
             .clipped()
     }
 
+    /// The resting divider: a hairline with a grab handle. Owns the drag
+    /// gesture, so dragging elsewhere in a pane scrolls the PDF as normal.
     private func divider(total: CGFloat) -> some View {
-        Rectangle()
-            .fill(Color.clear)
+        ZStack {
+            Color(platformColor: palette.chromeBorder)
+                .frame(
+                    width: axis == .horizontal ? 1 : nil,
+                    height: axis == .vertical ? 1 : nil
+                )
+            Capsule()
+                .fill(.secondary)
+                .frame(
+                    width: axis == .vertical ? 36 : 4,
+                    height: axis == .vertical ? 4 : 36
+                )
+        }
+        .frame(
+            width: axis == .horizontal ? grabThickness : nil,
+            height: axis == .vertical ? grabThickness : nil
+        )
+        .frame(
+            maxWidth: axis == .vertical ? .infinity : nil,
+            maxHeight: axis == .horizontal ? .infinity : nil
+        )
+        .contentShape(Rectangle())
+        .hoverEffect(.highlight)
+        .gesture(dragGesture(total: total))
+    }
+
+    /// The accent line that tracks the finger during a drag.
+    private func ghostLine(boundary: CGFloat, total: CGFloat) -> some View {
+        let position = min(max(boundary + dragTranslation, 0), total)
+        return Capsule()
+            .fill(Color(platformColor: palette.accent))
             .frame(
-                width: axis == .horizontal ? grabThickness : nil,
-                height: axis == .vertical ? grabThickness : nil
+                width: axis == .vertical ? nil : 3,
+                height: axis == .vertical ? 3 : nil
             )
             .frame(
                 maxWidth: axis == .vertical ? .infinity : nil,
                 maxHeight: axis == .horizontal ? .infinity : nil
             )
-            .overlay {
-                ZStack {
-                    Color(platformColor: palette.chromeBorder)
-                        .frame(
-                            width: axis == .horizontal ? 1 : nil,
-                            height: axis == .vertical ? 1 : nil
-                        )
-                    Capsule()
-                        .fill(.secondary)
-                        .frame(
-                            width: axis == .vertical ? 36 : 4,
-                            height: axis == .vertical ? 4 : 36
-                        )
+            .offset(
+                x: axis == .horizontal ? position : 0,
+                y: axis == .vertical ? position : 0
+            )
+    }
+
+    private func dragGesture(total: CGFloat) -> some Gesture {
+        DragGesture()
+            .onChanged { value in
+                isDragging = true
+                dragTranslation = axis == .vertical
+                    ? value.translation.height : value.translation.width
+            }
+            .onEnded { _ in
+                let end = min(max(fraction + dragTranslation / max(total, 1), 0), 1)
+                isDragging = false
+                dragTranslation = 0
+                if end <= minFraction {
+                    onClosePrimary()
+                } else if end >= maxFraction {
+                    onCloseSecondary()
+                } else {
+                    fraction = end
                 }
             }
-            .contentShape(Rectangle())
-            .hoverEffect(.highlight)
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        let delta = axis == .vertical
-                            ? value.translation.height : value.translation.width
-                        dragFraction = min(max(fraction + delta / max(total, 1), 0), 1)
-                    }
-                    .onEnded { _ in
-                        let end = dragFraction ?? fraction
-                        dragFraction = nil
-                        if end <= minFraction {
-                            onClosePrimary()
-                        } else if end >= maxFraction {
-                            onCloseSecondary()
-                        } else {
-                            fraction = end
-                        }
-                    }
-            )
     }
 }
 
-/// Trailing-edge drop target for opening a split (iPad). Kept narrow so it
-/// never blocks reading; widens visually only while a drag hovers it.
+/// Edge drop target for opening a split — a narrow strip on the trailing
+/// edge (horizontal split) or bottom edge (vertical split), lighting up
+/// only while a drag hovers it so it never blocks reading.
 private struct SplitDropTargetIOS: View {
+    let axis: SplitAxis
     let palette: DesignPalette
     let onDrop: (String) -> Bool
 
@@ -348,12 +383,16 @@ private struct SplitDropTargetIOS: View {
                 : Color.clear)
             .overlay {
                 if isTargeted {
-                    Image(systemName: "rectangle.split.2x1")
+                    Image(systemName: axis == .vertical
+                        ? "rectangle.split.1x2" : "rectangle.split.2x1")
                         .font(.title2)
                         .foregroundStyle(Color(platformColor: palette.accent))
                 }
             }
-            .frame(width: 56)
+            .frame(
+                width: axis == .horizontal ? 56 : nil,
+                height: axis == .vertical ? 56 : nil
+            )
             .contentShape(Rectangle())
             .dropDestination(for: String.self) { items, _ in
                 guard let payload = items.first else { return false }

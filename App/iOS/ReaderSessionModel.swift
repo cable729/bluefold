@@ -133,6 +133,11 @@ final class ReaderSessionModel {
         }
         if activate {
             setActive(tab.id, url: url)
+        } else {
+            // Background tab (⌘-tap / long-press "New Tab"): fill its
+            // breadcrumb from the resident document so it shows the section,
+            // not "p.N".
+            refreshBreadcrumb(forTabWithID: tab.id)
         }
         return tab.id
     }
@@ -173,6 +178,11 @@ final class ReaderSessionModel {
         if id == activeTabID, let outline = outline() {
             nodes = outline.nodes
         } else if id == splitTabID, let document = splitDocument {
+            nodes = OutlineNode.tree(from: document)
+        } else if let url = resolveURL(for: tabs[index]),
+                  let document = provider.loadedDocument(for: url) {
+            // A background tab whose document is already resident (a link
+            // opened into a new tab of the same book — never loads a doc).
             nodes = OutlineNode.tree(from: document)
         } else {
             return
@@ -368,8 +378,9 @@ final class ReaderSessionModel {
     /// Shows an existing tab in the trailing split pane. The active tab
     /// keeps the primary pane; splitting the active tab itself first
     /// activates a neighbor (a pane can't show the primary's tab).
-    func openInSplit(tabID: UUID) {
+    func openInSplit(tabID: UUID, axis: SplitAxis? = nil) {
         guard tabs.contains(where: { $0.id == tabID }) else { return }
+        if let axis { splitAxis = axis }
         if tabID == activeTabID {
             guard let other = tabs.first(where: { $0.id != tabID }) else { return }
             activate(other.id)
@@ -383,10 +394,10 @@ final class ReaderSessionModel {
 
     /// Opens a new tab on `url` (default: the active document) at `entry`,
     /// directly into the split pane (sidebar section drag / long-press).
-    func openEntryInSplit(_ entry: NavEntry, url: URL? = nil) {
+    func openEntryInSplit(_ entry: NavEntry, url: URL? = nil, axis: SplitAxis? = nil) {
         guard let url = url ?? activeURL else { return }
         let id = openTab(url: url, at: entry, activate: false)
-        openInSplit(tabID: id)
+        openInSplit(tabID: id, axis: axis)
     }
 
     /// Closes the pane; the tab stays in the strip (macOS semantics).
@@ -472,14 +483,6 @@ final class ReaderSessionModel {
         tabs[index].history.push(current)
         tabs[index].apply(entry)
         activeController?.execute(entry)
-    }
-
-    /// Records the position being left when the VIEW navigates on its own
-    /// (status-bar scroll-to-top): a history push with no execute, so ⌘[
-    /// returns to where the reader was.
-    func pushHistory(tabID: UUID, from entry: NavEntry) {
-        guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return }
-        tabs[index].history.push(entry)
     }
 
     /// Find-result navigation (sidebar Find mode): history push + jump to
@@ -718,11 +721,30 @@ final class ReaderSessionModel {
         guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return }
         tabs[index].apply(entry)
         tabs[index].autoScales = autoScales
+        persistReadingState(for: tabs[index])
+    }
+
+    // MARK: - Reading state (per-book resume position, overlay DB)
+
+    static let deviceName = UIDevice.current.model
+
+    /// Records a tab's page as the book's resume position — so opening the
+    /// same book later (from the library, Files, or a link) lands where the
+    /// reader last was, on this device or another (synced later).
+    private func persistReadingState(for tab: TabState) {
+        guard let store = AppStores.library,
+              let url = resolveURL(for: tab),
+              let bookID = BookResolver.resolveBookID(forFileAt: url, store: store)
+        else { return }
+        try? store.setReadingState(
+            bookID: bookID, page: tab.pageIndex, device: Self.deviceName)
     }
 
     // MARK: - Session persistence
 
     func save() {
+        if let activeTab { persistReadingState(for: activeTab) }
+        if let splitTab { persistReadingState(for: splitTab) }
         let window = WindowState(
             id: windowID, frame: nil, tabs: tabs, activeTabID: activeTabID,
             splitTabID: splitTabID,

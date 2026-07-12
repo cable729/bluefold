@@ -153,6 +153,7 @@ struct ReaderTopBarIOS: View {
         Menu {
             ForEach(Array(entries.reversed().enumerated()), id: \.offset) { offset, entry in
                 Button(model.label(for: entry)) {
+                    guard enabled else { return }
                     jump(offset + 1)
                 }
             }
@@ -160,6 +161,9 @@ struct ReaderTopBarIOS: View {
             Image(systemName: icon)
                 .opacity(enabled ? 1 : 0.35)
         } primaryAction: {
+            // A disabled Menu still fires primaryAction on iOS — guard it so
+            // a grayed-out arrow really does nothing.
+            guard enabled else { return }
             step()
         }
         .disabled(!enabled)

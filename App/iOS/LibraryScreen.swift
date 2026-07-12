@@ -336,7 +336,9 @@ struct LibraryScreen: View {
         Task {
             do {
                 try await library.ensureLocalTracked(item)
-                onOpen(item, entry)
+                // No explicit page (a plain open, not a search hit) resumes
+                // where the reader last left this book.
+                onOpen(item, entry ?? library.lastReadEntry(for: item))
                 dismiss()
             } catch {
                 openError = error.localizedDescription

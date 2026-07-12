@@ -81,18 +81,24 @@ public enum LinkResolver {
 extension PDFView {
     /// The current reading position in session-model terms.
     public func currentNavEntry() -> NavEntry {
-        guard
-            let document,
-            let destination = currentDestination,
-            let page = destination.page
-        else {
+        guard let document else {
             return NavEntry(pageIndex: 0, scaleFactor: scaleFactor)
         }
-        return NavEntry(
-            pageIndex: document.index(for: page),
-            point: LinkResolver.normalize(destination.point),
-            scaleFactor: scaleFactor
-        )
+        if let destination = currentDestination, let page = destination.page {
+            return NavEntry(
+                pageIndex: document.index(for: page),
+                point: LinkResolver.normalize(destination.point),
+                scaleFactor: scaleFactor
+            )
+        }
+        // `currentDestination` is briefly nil mid-layout (e.g. the instant a
+        // link tap fires) — falling through to page 0 made "back" jump to
+        // the top of the document. The most-visible page is the honest
+        // fallback: it keeps the reader on the page they were leaving.
+        if let page = currentPage {
+            return NavEntry(pageIndex: document.index(for: page), scaleFactor: scaleFactor)
+        }
+        return NavEntry(pageIndex: 0, scaleFactor: scaleFactor)
     }
 
     /// Navigates to a session-model entry with an EXPLICIT in-crop point.

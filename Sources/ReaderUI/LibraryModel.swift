@@ -1270,14 +1270,29 @@ public final class LibraryModel {
         try await FileAvailability.ensureLocal(item.fileURL)
     }
 
+    /// The last-viewed page for a library item as a NavEntry, so opening a
+    /// book resumes where the reader left off. nil = never opened (or no
+    /// overlay store). Cross-platform: macOS uses it in `openItem`, iOS in
+    /// the library screen's open handler.
+    public func lastReadEntry(for item: LibraryItem) -> NavEntry? {
+        guard let store,
+              let bookID = bookRowIDs[item.id]
+                ?? BookResolver.resolveBookID(forFileAt: item.fileURL, store: store),
+              let state = try? store.readingState(forBook: bookID),
+              state.page > 0
+        else { return nil }
+        return NavEntry(pageIndex: state.page)
+    }
+
     #if os(macOS)
     /// Ensures the file is local (downloading from iCloud if evicted), then
     /// stages it in a reader window, optionally at a position (full-text
-    /// search hits open at their page). Returns a new window ID if one must
-    /// be opened by the caller.
+    /// search hits open at their page, otherwise the last-read page).
+    /// Returns a new window ID if one must be opened by the caller.
     public func openItem(_ item: LibraryItem, at entry: NavEntry? = nil) async throws -> UUID? {
         try await ensureLocalTracked(item)
-        return SessionCoordinator.shared.openInReader(fileURL: item.fileURL, at: entry)
+        let target = entry ?? lastReadEntry(for: item)
+        return SessionCoordinator.shared.openInReader(fileURL: item.fileURL, at: target)
     }
     #endif
 }

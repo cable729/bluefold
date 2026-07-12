@@ -100,7 +100,6 @@ struct PDFKitView: UIViewRepresentable {
         private let pane: Pane
         private var scrollObservation: NSKeyValueObservation?
         private weak var scrollView: UIScrollView?
-        private var scrollToTopProxy: ScrollToTopProxy?
         /// Last time a scroll tick was forwarded (throttle: the model does
         /// a binary search per note, and KVO fires every frame mid-fling).
         private var lastScrollNote: CFTimeInterval = 0
@@ -126,28 +125,15 @@ struct PDFKitView: UIViewRepresentable {
             // scroll view fires on main.
             if let scrollView = view.subviews.compactMap({ $0 as? UIScrollView }).first {
                 self.scrollView = scrollView
+                // Owner feedback: the iOS status-bar "tap to scroll to top"
+                // gesture is unwanted in a reader — disable it.
+                scrollView.scrollsToTop = false
                 scrollObservation = scrollView.observe(\.contentOffset) { [weak self] _, _ in
                     MainActor.assumeIsolated {
                         self?.scrollTicked()
                     }
                 }
-                installScrollToTopProxy(on: scrollView)
             }
-        }
-
-        /// Status-bar scroll-to-top is a big invisible jump — record the
-        /// departure point in history so back returns. The proxy forwards
-        /// every other delegate call to PDFKit's own delegate.
-        private func installScrollToTopProxy(on scrollView: UIScrollView) {
-            guard !(scrollView.delegate is ScrollToTopProxy) else { return }
-            let proxy = ScrollToTopProxy()
-            proxy.original = scrollView.delegate
-            proxy.onWillScrollToTop = { [weak self] in
-                guard let self, let view = self.view else { return }
-                self.model?.pushHistory(tabID: self.tabID, from: view.currentNavEntry())
-            }
-            scrollToTopProxy = proxy
-            scrollView.delegate = proxy
         }
 
         private func scrollTicked() {
@@ -155,9 +141,10 @@ struct PDFKitView: UIViewRepresentable {
             guard now - lastScrollNote > 0.15 else { return }
             lastScrollNote = now
             notePosition()
-            // PDFKit occasionally re-claims the delegate; re-wrap it.
-            if let scrollView, !(scrollView.delegate is ScrollToTopProxy) {
-                installScrollToTopProxy(on: scrollView)
+            // PDFKit occasionally re-creates its scroll view; keep
+            // scroll-to-top disabled if a new one appeared.
+            if let scrollView, scrollView.scrollsToTop {
+                scrollView.scrollsToTop = false
             }
         }
 
@@ -244,35 +231,5 @@ struct PDFKitView: UIViewRepresentable {
         deinit {
             NotificationCenter.default.removeObserver(self)
         }
-    }
-}
-
-/// UIScrollViewDelegate shim that intercepts ONLY scrollViewShouldScrollToTop
-/// (to record the departure point in jump history) and forwards everything
-/// else to PDFKit's own delegate untouched.
-@MainActor
-private final class ScrollToTopProxy: NSObject, UIScrollViewDelegate {
-    /// PDFKit's delegate. `nonisolated(unsafe)`: read from the nonisolated
-    /// forwarding overrides, but only ever touched on the main thread.
-    nonisolated(unsafe) weak var original: UIScrollViewDelegate?
-    var onWillScrollToTop: (() -> Void)?
-
-    nonisolated override func responds(to aSelector: Selector!) -> Bool {
-        super.responds(to: aSelector) || (original?.responds(to: aSelector) ?? false)
-    }
-
-    nonisolated override func forwardingTarget(for aSelector: Selector!) -> Any? {
-        if original?.responds(to: aSelector) == true {
-            return original
-        }
-        return super.forwardingTarget(for: aSelector)
-    }
-
-    func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
-        let allowed = original?.scrollViewShouldScrollToTop?(scrollView) ?? true
-        if allowed {
-            onWillScrollToTop?()
-        }
-        return allowed
     }
 }

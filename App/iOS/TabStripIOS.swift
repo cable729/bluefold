@@ -270,9 +270,20 @@ private struct TabGroupIOS: View {
             }
             if UIDevice.current.userInterfaceIdiom == .pad {
                 Button {
-                    model.openInSplit(tabID: tab.id)
+                    model.openInSplit(tabID: tab.id, axis: .horizontal)
                 } label: {
                     Label("Open in Split", systemImage: "rectangle.split.2x1")
+                }
+                Button {
+                    model.openInSplit(tabID: tab.id, axis: .vertical)
+                } label: {
+                    Label("Split Bottom", systemImage: "rectangle.split.1x2")
+                }
+            } else {
+                Button {
+                    model.openInSplit(tabID: tab.id, axis: .vertical)
+                } label: {
+                    Label("Split Bottom", systemImage: "rectangle.split.1x2")
                 }
             }
             Divider()
