@@ -555,6 +555,34 @@ below is self-contained.
   strip (50pt) and lozenges (40pt). Simulator-verified on both devices
   (grouping/caps/sidebar-find/compact cluster); drag/long-press/
   scroll-to-top/tap-toggle remain owner hand-tests (simctl can't touch).
+- [~] **M16e** Round 4 (2026-07-12, owner feedback): **library freeze
+  fixed** — `LibraryModel.indexLibrary()` is `@MainActor`, so the
+  candidate prep (128 KiB read + SHA-256 content hash PER BOOK, `isLocal`
+  stats, `isIndexed` lookups) ran on the main thread and froze the UI for
+  seconds when the library opened against a large iCloud Calibre folder;
+  extracted into `prepareIndexingCandidates` (nonisolated static, run in a
+  detached `.utility` task), the per-book `indexDocument` loop stays on
+  main but yields on every await. **Split orientation**: `SplitAxis`
+  (`.horizontal`/`.vertical`) added to `ReaderCore.WindowState.splitAxis`
+  (optional, nil = horizontal, backward-compatible). iOS `SplitContainerIOS`
+  lays primary+split along the axis with a draggable divider that CLOSES
+  the shrunk pane at either extreme, plus a per-pane top-trailing close
+  button; iPhone splits are always vertical (one tab row — the tab strip
+  never stacks), iPad chooses via the top-bar Split menu (Split Right /
+  Split Bottom / re-orient / close). Verified on both sims (seed
+  `splitAxis:"vertical"`). macOS vertical split shipped in parallel (see
+  M16e-mac). **NOTE — the desktop simultaneous 2-D grid (left/right AND
+  top/bottom at once) is DEFERRED**: it needs a pane-tree/quadrant model
+  (a real ReaderCore + renderer redesign) and is tracked in BACKLOG; this
+  round delivers single-split ORIENTATION on every platform. **iOS tab
+  polish**: `refreshBreadcrumb(forTabWithID:)` fills a tab's section on
+  open/restore/download (was "p.N" until first scroll — the macOS app does
+  this on view attach); strip fades under the leading/trailing edges;
+  tapping the **cover cap** shows the book preview WITHOUT selecting (text
+  cells select). **iPhone lock button** (top bar) pins the chrome visible.
+  Key iOS traps recorded: (1) a horizontal `ScrollView` of Color-backed
+  cells goes height-greedy — hard-cap the strip; (2) the split divider is
+  a `GeometryReader` fraction, reset to 0.5 on `splitTabID` change.
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `BluefoldUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but locally synthesized input can't drive them reliably (see XCUITest notes below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI for end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest$(date +%s)`; full-suite local runs can degrade mid-run (see XCUITest notes below) — spot-check single tests locally, full passes belong to CI. `VERIFY_UITESTS=1 ./scripts/verify.sh` runs the suite as opt-in step 5. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
 - [~] **M18** code side DONE (2026-07-08): Settings window ⌘, (AppSettings:
   LRU capacity live-applied via SessionCoordinator, indexing + OCR toggles

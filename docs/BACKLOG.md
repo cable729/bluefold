@@ -34,6 +34,25 @@ the repo goes public.
   reading-state persistence on iOS, sidebar follow-mode toggle +
   thumbnails mode, per-pane tab bars (macOS round 20 parity),
   ⌘O/⌘P palettes, Apple Pencil annotation questions.
+  **Round 4 DONE 2026-07-12** (M16e): library-freeze fix (indexing prep
+  off-main), split ORIENTATION top/bottom on every platform (iPhone
+  vertical w/ draggable divider + per-pane close, iPad Split menu, macOS
+  Split Down), tab breadcrumb-on-open, strip edge fade, cover-cap preview
+  (no select), iPhone chrome lock button.
+- **Split 2-D grid (desktop) — NOT STARTED.** Owner wants desktop to split
+  left/right AND top/bottom at the SAME time (a 2×2 / quadrant layout).
+  Today the model is one primary + one secondary pane (single axis); this
+  needs a pane-tree or fixed-grid model in `ReaderCore.WindowState` plus a
+  recursive renderer in `ReaderWindowView` and session migration — its own
+  round. Constraint to preserve: tabs NEVER stack top/bottom (each pane
+  keeps a horizontal tab strip; big platforms can have left/right pane
+  strips). iPad should follow whatever desktop lands on.
+- **iPad tab drag-reorder — VERIFY.** Wiring exists (`.draggable` +
+  `.dropDestination` on tab cells, `move(tabID:before:)`); the standard
+  long-press-drag-alongside-context-menu pattern. Owner reported it not
+  working pre-grouping; needs a hand-test on device (simctl can't
+  synthesize drags). If still flaky, the tap/contextMenu/draggable gesture
+  disambiguation on the grouped cells is the suspect.
 - **M17 — XCUITest smoke suite + CI job B** (xcodebuild macOS app tests +
   iOS simulator build). Launch-arg fixtures already exist (`--open`,
   `BLUEFOLD_SESSION_DIR`).

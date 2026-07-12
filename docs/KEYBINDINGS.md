@@ -211,7 +211,7 @@ macOS table so nothing has to be relearned:
 | ⌘1 … ⌘8, ⌘9 | Go to tab by position; ⌘9 = LAST tab |
 | ⌥⌘1 … ⌥⌘4 | Single Page / Continuous / Two Pages / Two Pages Continuous |
 | ⌘B | Show/hide sidebar (Contents + Bookmarks) |
-| ⌘\ | Split Right (toggle) — duplicates the active tab into a trailing split; closes an open split |
+| ⌘\ | Split (toggle) — duplicates the active tab into a split; closes an open split. iPhone splits top/bottom; iPad splits right (the top-bar Split menu also offers Split Bottom / re-orient) |
 | ⌘F | Find in Document — opens the sidebar's Find mode (results list; tap = jump + history push) |
 | ⌘D | Bookmark This Page |
 | ← / → | Previous / Next page (`ReaderPDFViewIOS.keyCommands`, priority over scroll; same bare-arrow rule as macOS) |
@@ -223,10 +223,14 @@ history menus = long-press the arrows; drag-to-split = drag a tab cell,
 sidebar section, or PDF LINK onto the trailing edge of the page (links
 also drag onto the tab strip). Long-press a tab cell for the tab menu
 (Duplicate / Open in Split / Close / Close to Left / Close to Right /
-Close Others); tap the CURRENT tab cell for the cover preview panel (the
-macOS hover panel — cells show sections, the panel shows the book).
-The sidebar filter field stands in for the ⌘P in-book palette; the
-status-bar scroll-to-top gesture pushes jump history (⌘[ returns).
+Close Others); **tap the book cover cap** on a tab for the cover preview
+panel (the macOS hover analog — shows the book; does NOT select the tab),
+tap a tab's text to select it. The split panes carry a draggable divider
+(dragging it to an extreme closes the shrunk pane) and a per-pane close
+button. The sidebar filter field stands in for the ⌘P in-book palette;
+the status-bar scroll-to-top gesture pushes jump history (⌘[ returns).
+On iPhone, a **lock button** in the top bar keeps the toolbars visible
+(the chrome otherwise auto-hides while reading and toggles on a page tap).
 
 ⌘O and ⌘P are intentionally UNBOUND on iOS — reserved for the open/in-book
 palettes so the chords mean the same thing on every platform when those
