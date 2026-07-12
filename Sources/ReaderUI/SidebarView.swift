@@ -98,6 +98,9 @@ struct SidebarView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxHeight: .infinity)
+        // Warm-paper sidebar surface (dark theme's sidebar is warmer than
+        // the navy chrome band, so an explicit fill matters there).
+        .background(DesignPalette.current.sidebarBackgroundColor)
     }
 
     private var thumbnails: some View {
@@ -284,7 +287,9 @@ private struct OutlineRows: View {
     }
 
     private func background(for node: OutlineNode) -> Color {
-        node.id == currentNodeID ? Color.accentColor.opacity(0.18) : Color.clear
+        node.id == currentNodeID
+            ? DesignPalette.current.accentSoftColor
+            : Color.clear
     }
 }
 

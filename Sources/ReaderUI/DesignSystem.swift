@@ -117,7 +117,7 @@ struct DesignPalette {
 enum BookTint {
     /// (cover fill, works-on-it text is light?) — cover palette from the
     /// BookGrid mockup: navy, kraft, blue, brick, paper-white, warm paper.
-    static let covers: [(NSColor, Bool)] = [
+    static let covers: [(NSColor, lightText: Bool)] = [
         (NSColor(hex: 0x0E2849), true),   // navy
         (NSColor(hex: 0xD2B090), false),  // kraft
         (NSColor(hex: 0x2E7FE5), true),   // blue
@@ -129,7 +129,23 @@ enum BookTint {
     /// Deterministic tint for a book path (FNV-1a; Hasher is seeded per
     /// process, which would reshuffle colors every launch).
     static func color(forPath path: String) -> NSColor {
-        covers[Int(fnv1a(path) % UInt64(covers.count))].0
+        cover(forPath: path).0
+    }
+
+    /// Tint plus whether light text reads on it (generated covers).
+    static func cover(forPath path: String) -> (NSColor, lightText: Bool) {
+        covers[Int(mix(fnv1a(path)) % UInt64(covers.count))]
+    }
+
+    /// splitmix64 finalizer. Raw FNV-1a's LOW bits are dominated by the
+    /// last bytes hashed — every path ends ".pdf", so `% count` was
+    /// funneling whole libraries into one bucket (observed: three fixture
+    /// books, one color). The avalanche spreads the tail through all bits.
+    static func mix(_ value: UInt64) -> UInt64 {
+        var hash = value
+        hash = (hash ^ (hash >> 30)) &* 0xbf58476d1ce4e5b9
+        hash = (hash ^ (hash >> 27)) &* 0x94d049bb133111eb
+        return hash ^ (hash >> 31)
     }
 
     static func fnv1a(_ string: String) -> UInt64 {

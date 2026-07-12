@@ -357,6 +357,52 @@ below is self-contained.
     whole restore path below the keystroke is unit-covered. Live ⌘⇧T
     keypress hand-check still TODO.
 
+- [x] **UI-14** Round 20 (2026-07-11): "Cloth & Paper" design-system
+  redesign (from the owner's Claude-design mockup zip) + per-pane tab bars.
+  - **Design tokens** (`DesignSystem.swift`): `DesignPalette`
+    light/dark/sepia — warm-paper chrome (light `#F2EBE2→#E8E0D5`, sepia
+    `#EEE1CE→#E5D6BD`), NAVY dark chrome band (`#1A2C47→#132037` over
+    `#1B1A18` content), one accent `#2E7FE5`, ink `#0E2849`. `BookTint`:
+    six-color cover palette hashed per book path — FNV-1a needs a
+    splitmix64 finalizer (`BookTint.mix`) because every path ends ".pdf"
+    and the raw low bits funneled whole libraries into one bucket.
+    ThemeManager now paints EVERY theme's titlebar (transparent titlebar +
+    chrome background color); `pdfBackground` = palette content color.
+  - **Tab strip redesigned** (`TabStripView.swift` rewrite): same-book runs
+    share one tinted LOZENGE — swatch + book title once, a chapter cell
+    per tab; the active cell is a translucent-ink full-cell fill with ✕
+    (mockup's "quiet fill in the divider's ink"). Cells take natural text
+    width (measure with the SEMIBOLD font — the active cell renders
+    semibold and regular-width metrics truncated it; and mirror the
+    constraint chain incl. the always-reserved ✕ slot). On overflow cells
+    shrink to a 44pt floor, then the strip SCROLLS horizontally
+    (`TabStripScrollView`, Firefox/Chrome behavior; vertical wheel
+    scrolls it; active tab auto-scrolled into view). Drag machinery
+    (reorder/tear-off/failsafe monitors/ghost) kept; during drags
+    lozenges dissolve to uniform singleton cells so slot math stays
+    arithmetic.
+  - **Per-pane tab bars** (owner request): each split pane owns a strip.
+    Model: `splitTabIDs: [UUID]` ordered membership on WindowState
+    (backward compatible — old files' `splitTabID` restores a one-tab
+    strip; a corrupt all-tabs-split file collapses to one strip),
+    `splitTabID` = the split strip's ACTIVE tab. Pane-aware
+    select/close/reorder/adopt/cycle/⌘1-9; `moveTab(id:toPane:at:)` for
+    cross-pane strip drags; `TabStripRegistry` keys by `TabStripID`
+    (window + pane) so tear-offs drop onto either pane of any window.
+    Pane headers and the split dot ARE GONE — the non-focused pane dims a
+    whisper (black 6%, hit-testing off) instead. ⌘\ etc. unchanged.
+  - **Restyles**: status bar (chrome gradient, ink foreground, mono page
+    chip), reader sidebar (warm surface, accent-soft current-section row),
+    library (serif scope header + book count, warm sidebar, content
+    background, generated tinted serif covers for cover-less books).
+  - Tests 478 (+20: SplitStripMembershipTests suite, strip lozenge/overflow
+    layout, chrome-follows-theme updated to all-themes-tinted).
+    RenderSmoke XCUITests updated (two strips in a split window; lozenge
+    grouping). Verified: scripts/verify.sh green; hand-checked an isolated
+    instance (BLUEFOLD_SESSION_DIR + fixture session) across
+    light/dark/sepia via screenshots — lozenges, per-pane bars, focus
+    dimming, library grid all render as designed.
+
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE
   (simulator-verified); F-1 added library/search/theming/link-history UI.

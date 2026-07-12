@@ -196,6 +196,9 @@ public struct LibraryView: View {
             }
         }
         .listStyle(.sidebar)
+        // Warm-paper sidebar (design system) instead of the vibrancy blur.
+        .scrollContentBackground(.hidden)
+        .background(DesignPalette.current.sidebarBackgroundColor)
         .frame(minWidth: 190)
     }
 
@@ -480,13 +483,15 @@ public struct LibraryView: View {
                     }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(DesignPalette.current.contentBackgroundColor)
     }
 
     /// Serif scope title + book count over the content (design-system
     /// library header).
     private var libraryHeader: some View {
         let palette = DesignPalette.current
-        return HStack(alignment: .firstBaseline, spacing: 12) {
+        return HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(scopeTitle)
                 .font(.system(size: 24, weight: .semibold, design: .serif))
                 .foregroundStyle(palette.inkColor)
@@ -1130,6 +1135,43 @@ private struct BookCell<MenuContent: View>: View {
     }
 }
 
+/// Cover stand-in for books without cover art, in the design system's
+/// generated-cover style: the book's stable tint, an accent tick, serif
+/// title, italic serif author — the mockup's BookGrid look.
+private struct GeneratedCover: View {
+    let item: LibraryItem
+
+    var body: some View {
+        let (tint, lightText) = BookTint.cover(forPath: item.fileURL.path)
+        let text = lightText ? Color(nsColor: .white).opacity(0.92) : Color(nsColor: NSColor(hex: 0x2A2015))
+        RoundedRectangle(cornerRadius: 4)
+            .fill(Color(nsColor: tint))
+            .overlay(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(lightText ? Color.white.opacity(0.8) : Color(nsColor: NSColor(hex: 0x0E2849)))
+                    .frame(width: 26, height: 3)
+                    .padding(12)
+            }
+            .overlay {
+                Text(item.title)
+                    .font(.system(size: 15, weight: .semibold, design: .serif))
+                    .foregroundStyle(text)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+            }
+            .overlay(alignment: .bottomLeading) {
+                Text(item.authors.joined(separator: "; "))
+                    .font(.system(size: 9, design: .serif))
+                    .italic()
+                    .foregroundStyle(text.opacity(0.75))
+                    .lineLimit(1)
+                    .padding(12)
+            }
+    }
+}
+
 /// The visual content of a cell, equatable so a selection change only
 /// re-renders the two cells whose `isSelected` actually flipped instead of
 /// every visible cell.
@@ -1175,13 +1217,7 @@ private struct BookCellContent: View, Equatable {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                 } else {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(.quaternary)
-                        .overlay {
-                            Image(systemName: "book.closed")
-                                .font(.largeTitle)
-                                .foregroundStyle(.secondary)
-                        }
+                    GeneratedCover(item: item)
                         .aspectRatio(0.72, contentMode: .fit)
                 }
                 if isDownloading {

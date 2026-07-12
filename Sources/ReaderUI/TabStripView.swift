@@ -247,7 +247,9 @@ final class TabStripNSView: NSView {
     }
 
     private static let labelFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
-    private static let cellFont = NSFont.systemFont(ofSize: 11.5)
+    /// Cells are measured at SEMIBOLD: the active cell renders semibold,
+    /// and measuring regular truncated it (semibold is wider).
+    private static let cellFont = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
 
     private static func textWidth(_ string: String, font: NSFont) -> CGFloat {
         (string as NSString).size(withAttributes: [.font: font]).width.rounded(.up)
@@ -285,16 +287,18 @@ final class TabStripNSView: NSView {
         }
         var runs: [RunLayout] = runRanges(of: ordered).map { range in
             let labelText = Self.textWidth(ordered[range.lowerBound].title, font: Self.labelFont)
-            // swatch 9 + gaps + title + padding
-            let label = 7 + 9 + 6 + min(labelText, Self.maxLabelTextWidth) + 4
+            // swatch 9 + gaps + title (+ NSTextField's own padding) + padding
+            let label = 7 + 9 + 6 + min(labelText + 6, Self.maxLabelTextWidth) + 4
             let cells = range.map { index -> CGFloat in
                 let item = ordered[index]
                 let text = min(
-                    Self.textWidth(item.breadcrumb, font: Self.cellFont),
+                    Self.textWidth(item.breadcrumb, font: Self.cellFont) + 4,
                     Self.maxCellTextWidth
                 )
-                let closeRoom: CGFloat = item.isActive ? 16 : 0
-                return max(Self.minCellWidth, 9 + text + closeRoom + 9)
+                // Mirror the cell's constraint chain exactly (leading 9 +
+                // text + 3 + close 12 + trailing 7); the ✕ slot is always
+                // reserved so hover/active never reflows the text.
+                return max(Self.minCellWidth, 9 + text + 3 + 12 + 7)
             }
             return RunLayout(range: range, labelWidth: label, cellWidths: cells)
         }
