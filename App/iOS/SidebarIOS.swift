@@ -19,6 +19,9 @@ struct SidebarIOS: View {
 
     @State private var filter = ""
     @State private var expanded: Set<UUID> = []
+    /// Follow the reading position: keep only the current section's ancestor
+    /// path expanded and scroll it into view. Off = free manual browsing.
+    @State private var followSection = true
     @State private var findQuery = ""
     @State private var findController = FindController()
     @FocusState private var findFieldFocused: Bool
@@ -93,30 +96,46 @@ struct SidebarIOS: View {
                 }
             }
             if mode == .contents {
-                HStack(spacing: 6) {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
-                        .foregroundStyle(Color(platformColor: palette.textMuted))
-                    TextField("Filter sections", text: $filter)
-                        .textFieldStyle(.plain)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                    if !filter.isEmpty {
-                        Button {
-                            filter = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(Color(platformColor: palette.textMuted))
+                HStack(spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                            .foregroundStyle(Color(platformColor: palette.textMuted))
+                        TextField("Filter sections", text: $filter)
+                            .textFieldStyle(.plain)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                        if !filter.isEmpty {
+                            Button {
+                                filter = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(Color(platformColor: palette.textMuted))
+                            }
+                            .accessibilityLabel("Clear filter")
                         }
-                        .accessibilityLabel("Clear filter")
                     }
+                    .font(.subheadline)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(platformColor: palette.ink).opacity(0.06))
+                    )
+                    // Follow the current chapter as you scroll (macOS
+                    // crosshair toggle): collapses everything but the
+                    // current section's path and keeps it in view.
+                    Button {
+                        followSection.toggle()
+                    } label: {
+                        Image(systemName: followSection
+                            ? "location.fill" : "location")
+                            .foregroundStyle(Color(platformColor:
+                                followSection ? palette.accent : palette.textMuted))
+                    }
+                    .accessibilityLabel(followSection
+                        ? "Following current section" : "Follow current section")
+                    .hoverEffect(.highlight)
                 }
-                .font(.subheadline)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(platformColor: palette.ink).opacity(0.06))
-                )
             } else if mode == .bookmarks {
                 Button {
                     model.addBookmarkAtCurrentPosition()
@@ -148,15 +167,20 @@ struct SidebarIOS: View {
             .onChange(of: model.currentSectionStop?.nodeID) { _, _ in
                 revealCurrent(with: proxy)
             }
+            .onChange(of: followSection) { _, on in
+                if on { revealCurrent(with: proxy) }
+            }
         }
     }
 
-    /// Expands the current section's ancestors and scrolls it into view.
+    /// Follow mode: collapse everything EXCEPT the current section's
+    /// ancestor path (expanded exactly enough to reveal it) and scroll it
+    /// into view. When following is off, expansion is the user's to manage.
     private func revealCurrent(with proxy: ScrollViewProxy) {
-        guard let stop = model.currentSectionStop else { return }
+        guard followSection, let stop = model.currentSectionStop else { return }
         let ancestors = OutlineNode.ancestorIDs(of: stop.nodeID, in: model.outlineNodes)
-        expanded.formUnion(ancestors)
         withAnimation(.easeInOut(duration: 0.2)) {
+            expanded = Set(ancestors)
             proxy.scrollTo(stop.nodeID, anchor: .center)
         }
     }
@@ -171,6 +195,9 @@ struct SidebarIOS: View {
             HStack(spacing: 4) {
                 if hasChildren {
                     Button {
+                        // Manual expansion means the reader wants to browse:
+                        // stop auto-collapsing behind them.
+                        followSection = false
                         if isExpanded {
                             expanded.remove(node.id)
                         } else {

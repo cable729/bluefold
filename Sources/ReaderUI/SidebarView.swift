@@ -212,11 +212,12 @@ private struct OutlineList: View {
             ?? OutlineNode.deepestNodeID(in: outline, atOrBefore: currentPageIndex)
     }
 
-    /// Follow mode: expand the current section's ancestors, then scroll it
+    /// Follow mode: collapse everything EXCEPT the current section's
+    /// ancestor path (expanded exactly enough to reveal it), then scroll it
     /// into view (next runloop tick, after the expansion has laid out).
     private func revealCurrent(with proxy: ScrollViewProxy, animated: Bool) {
         guard followsCurrentSection, let id = currentNodeID else { return }
-        expanded.formUnion(OutlineNode.ancestorIDs(of: id, in: outline))
+        expanded = Set(OutlineNode.ancestorIDs(of: id, in: outline))
         DispatchQueue.main.async {
             if animated {
                 withAnimation {
