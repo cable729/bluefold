@@ -32,8 +32,32 @@ struct LibraryScreen: View {
     @State private var newTagName = ""
     @State private var newCollectionFor: LibraryItem?
     @State private var newCollectionName = ""
+    /// Finder-style layout: large covers, small covers, or a list.
+    @AppStorage("LibraryLayoutIOS") private var layout: LibraryLayoutIOS = .coversLarge
 
-    private static let gridColumns = [GridItem(.adaptive(minimum: 110), spacing: 12)]
+    /// Finder-style library layouts.
+    enum LibraryLayoutIOS: String, CaseIterable {
+        case coversLarge, coversSmall, list
+        var label: String {
+            switch self {
+            case .coversLarge: "Large Covers"
+            case .coversSmall: "Small Covers"
+            case .list: "List"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .coversLarge: "square.grid.2x2"
+            case .coversSmall: "square.grid.3x3"
+            case .list: "list.bullet"
+            }
+        }
+    }
+
+    private var gridColumns: [GridItem] {
+        let minimum: CGFloat = layout == .coversSmall ? 78 : 118
+        return [GridItem(.adaptive(minimum: minimum), spacing: 12)]
+    }
 
     var body: some View {
         Group {
@@ -171,10 +195,15 @@ struct LibraryScreen: View {
                         .font(.callout)
                         .foregroundStyle(.red)
                 }
+                // Search results order: matching tags/collections first,
+                // then books, then in-book text hits.
+                if !matchingScopes.isEmpty {
+                    scopesSection
+                }
+                booksView
                 if !library.textHits.isEmpty {
                     textHitsSection
                 }
-                grid
             }
             .padding()
         }
@@ -285,15 +314,27 @@ struct LibraryScreen: View {
         open(item, at: NavEntry(pageIndex: max(0, hit.page - 1)))
     }
 
-    // MARK: - Grid
+    // MARK: - Books (grid or list)
 
-    private var grid: some View {
-        LazyVGrid(columns: Self.gridColumns, alignment: .leading, spacing: 16) {
-            ForEach(library.filteredItems) { item in
-                cell(for: item)
+    @ViewBuilder
+    private var booksView: some View {
+        if layout == .list {
+            LazyVStack(spacing: 0) {
+                ForEach(library.filteredItems) { item in
+                    listRow(for: item)
+                    Divider()
+                }
+            }
+        } else {
+            LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 16) {
+                ForEach(library.filteredItems) { item in
+                    cell(for: item)
+                }
             }
         }
     }
+
+    private var coverHeight: CGFloat { layout == .coversSmall ? 104 : 150 }
 
     private func cell(for item: LibraryItem) -> some View {
         Button {
@@ -301,33 +342,129 @@ struct LibraryScreen: View {
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 CoverView(item: item)
-                    .frame(height: 150)
+                    .frame(height: coverHeight)
                     .frame(maxWidth: .infinity)
-                    .overlay {
-                        if library.downloading.contains(item.id) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(.black.opacity(0.35))
-                                ProgressView()
-                                    .tint(.white)
-                            }
-                        }
-                    }
+                    .overlay { downloadOverlay(item) }
                 Text(item.title)
-                    .font(.caption.weight(.medium))
+                    .font(layout == .coversSmall ? .caption2.weight(.medium) : .caption.weight(.medium))
                     .lineLimit(2, reservesSpace: true)
                     .multilineTextAlignment(.leading)
-                Text(item.authors.joined(separator: ", "))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if layout != .coversSmall {
+                    Text(item.authors.joined(separator: ", "))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
         }
         .buttonStyle(.plain)
-        .contextMenu {
-            tagToggleMenu(for: item)
-            collectionToggleMenu(for: item)
+        .contextMenu { bookMenu(item) }
+        .draggable(DragPayload.book(item.id))
+    }
+
+    private func listRow(for item: LibraryItem) -> some View {
+        Button {
+            open(item, at: nil)
+        } label: {
+            HStack(spacing: 12) {
+                CoverView(item: item)
+                    .frame(width: 34, height: 46)
+                    .overlay { downloadOverlay(item) }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(1)
+                    Text(item.authors.joined(separator: ", "))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+            }
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .contextMenu { bookMenu(item) }
+        .draggable(DragPayload.book(item.id))
+    }
+
+    @ViewBuilder
+    private func downloadOverlay(_ item: LibraryItem) -> some View {
+        if library.downloading.contains(item.id) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6).fill(.black.opacity(0.35))
+                ProgressView().tint(.white)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func bookMenu(_ item: LibraryItem) -> some View {
+        tagToggleMenu(for: item)
+        collectionToggleMenu(for: item)
+    }
+
+    // MARK: - Search: matching tags & collections (shown above books)
+
+    private var matchingScopes: [(filter: LibraryFilter, name: String, color: String?)] {
+        let query = library.searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !query.isEmpty else { return [] }
+        var result: [(LibraryFilter, String, String?)] = []
+        func walkTags(_ nodes: [TagNode]) {
+            for node in nodes {
+                if node.tag.name.lowercased().contains(query) {
+                    result.append((.tag(node.tag.id ?? -1), node.tag.name, node.tag.color))
+                }
+                walkTags(node.children)
+            }
+        }
+        func walkCollections(_ nodes: [CollectionNode]) {
+            for node in nodes {
+                if node.collection.name.lowercased().contains(query) {
+                    result.append((.collection(node.collection.id ?? -1), node.collection.name, nil))
+                }
+                walkCollections(node.children)
+            }
+        }
+        walkTags(library.tagTree)
+        walkCollections(library.collectionTree)
+        return result
+    }
+
+    private var scopesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Tags & Collections")
+                .font(.headline)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(Array(matchingScopes.enumerated()), id: \.offset) { _, scope in
+                        Button {
+                            library.filter = scope.filter
+                            library.searchText = ""
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: isTagFilter(scope.filter)
+                                    ? "tag.fill" : "square.stack.3d.up.fill")
+                                    .font(.caption2)
+                                    .foregroundStyle(TagColor.color(fromHex: scope.color) ?? .secondary)
+                                Text(scope.name).font(.subheadline)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Capsule().fill(.quaternary.opacity(0.6)))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            Divider()
+        }
+    }
+
+    private func isTagFilter(_ filter: LibraryFilter) -> Bool {
+        if case .tag = filter { return true }
+        return false
     }
 
     /// Downloads the file from iCloud if evicted (progress shows on the
@@ -427,8 +564,22 @@ struct LibraryScreen: View {
                     .accessibilityLabel("Filter")
                 }
             }
+            ToolbarItem(placement: .topBarTrailing) { layoutMenu }
             ToolbarItem(placement: .topBarTrailing) { sourceMenu }
         }
+    }
+
+    private var layoutMenu: some View {
+        Menu {
+            Picker("Layout", selection: $layout) {
+                ForEach(LibraryLayoutIOS.allCases, id: \.self) { option in
+                    Label(option.label, systemImage: option.icon).tag(option)
+                }
+            }
+        } label: {
+            Image(systemName: layout.icon)
+        }
+        .accessibilityLabel("Library layout")
     }
 
     // MARK: - Source menu

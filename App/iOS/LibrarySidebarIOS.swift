@@ -15,6 +15,9 @@ struct LibrarySidebarIOS: View {
     @State private var pendingCreate: PendingCreate?
     @State private var pendingRename: PendingRename?
     @State private var nameText = ""
+    /// The row a book is being dragged over (drop-to-tag highlight).
+    @State private var dropTargetTagID: Int64?
+    @State private var dropTargetCollectionID: Int64?
 
     private enum PendingCreate: Identifiable {
         case tag(parent: Int64?)
@@ -118,7 +121,22 @@ struct LibrarySidebarIOS: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .listRowBackground(rowBackground(for: .tag(tag.id ?? -1)))
+        .listRowBackground(
+            dropTargetTagID == tag.id
+                ? Color.accentColor.opacity(0.25)
+                : rowBackground(for: .tag(tag.id ?? -1))
+        )
+        // Drag a book from the grid onto a tag to apply it.
+        .dropDestination(for: String.self) { items, _ in
+            guard let payload = items.first,
+                  let itemID = DragPayload.decodeBook(payload),
+                  let id = tag.id
+            else { return false }
+            library.addTag(tagID: id, toItemIDs: [itemID])
+            return true
+        } isTargeted: { targeted in
+            dropTargetTagID = targeted ? tag.id : nil
+        }
         .contextMenu {
             Button {
                 pendingCreate = .tag(parent: tag.id); nameText = ""
@@ -159,7 +177,22 @@ struct LibrarySidebarIOS: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .listRowBackground(rowBackground(for: .collection(collection.id ?? -1)))
+        .listRowBackground(
+            dropTargetCollectionID == collection.id
+                ? Color.accentColor.opacity(0.25)
+                : rowBackground(for: .collection(collection.id ?? -1))
+        )
+        // Drag a book onto a collection to add it.
+        .dropDestination(for: String.self) { items, _ in
+            guard let payload = items.first,
+                  let itemID = DragPayload.decodeBook(payload),
+                  let id = collection.id
+            else { return false }
+            library.addToCollection(collectionID: id, itemIDs: [itemID])
+            return true
+        } isTargeted: { targeted in
+            dropTargetCollectionID = targeted ? collection.id : nil
+        }
         .contextMenu {
             Button {
                 pendingCreate = .collection(parent: collection.id); nameText = ""

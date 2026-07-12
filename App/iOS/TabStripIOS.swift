@@ -10,9 +10,20 @@ import UniformTypeIdentifiers
 enum DragPayload {
     static let tabPrefix = "bluefold-tab:"
     static let sectionPrefix = "bluefold-section:"
+    static let bookPrefix = "bluefold-book:"
 
     static func tab(_ id: UUID) -> String {
         tabPrefix + id.uuidString
+    }
+
+    /// A library book being dragged onto a sidebar tag/collection.
+    static func book(_ itemID: String) -> String {
+        bookPrefix + itemID
+    }
+
+    static func decodeBook(_ string: String) -> String? {
+        guard string.hasPrefix(bookPrefix) else { return nil }
+        return String(string.dropFirst(bookPrefix.count))
     }
 
     static func section(_ entry: NavEntry) -> String {
