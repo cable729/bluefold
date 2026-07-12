@@ -21,9 +21,11 @@ struct PDFKitView: UIViewRepresentable {
     func makeUIView(context: Context) -> ReaderPDFViewIOS {
         let view = ReaderPDFViewIOS()
         view.usePageViewController(false)
-        view.displayMode = .singlePageContinuous
+        view.displayMode = PDFDisplayMode(rawValue: tab.displayModeRaw) ?? .singlePageContinuous
         view.displayDirection = .vertical
         view.backgroundColor = backgroundColor
+        // System find UI (⌘F / toolbar button routes through the model).
+        view.isFindInteractionEnabled = true
         view.autoScales = tab.autoScales
         if !tab.autoScales {
             view.scaleFactor = tab.scaleFactor
@@ -105,6 +107,14 @@ struct PDFKitView: UIViewRepresentable {
         func execute(_ entry: NavEntry) {
             guard let view, let document = view.document else { return }
             view.go(to: entry, in: document)
+        }
+
+        func apply(displayMode: PDFDisplayMode) {
+            view?.displayMode = displayMode
+        }
+
+        func presentFindNavigator() {
+            view?.findInteraction.presentFindNavigator(showingReplace: false)
         }
 
         /// Persists the exact reading position back into the tab.

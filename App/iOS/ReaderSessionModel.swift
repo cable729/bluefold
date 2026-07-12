@@ -13,6 +13,10 @@ protocol ActivePDFNavigating: AnyObject {
     var liveNavEntry: NavEntry? { get }
     /// Scrolls the view to an entry (validated-point navigation).
     func execute(_ entry: NavEntry)
+    /// Applies a page-layout change to the live view.
+    func apply(displayMode: PDFDisplayMode)
+    /// Presents the system find UI (UIFindInteraction).
+    func presentFindNavigator()
 }
 
 /// Single-window session model for iOS: owns the tab strip, the active tab,
@@ -162,6 +166,46 @@ final class ReaderSessionModel {
             provider.evict(path: DocumentProvider.canonicalPath(
                 for: URL(fileURLWithPath: closed.pathHint)))
         }
+    }
+
+    /// Tab switching by position: 1…8 = that tab, 9 = LAST tab (browser
+    /// convention, same as macOS ⌘1–9).
+    func activateTab(number: Int) {
+        guard !tabs.isEmpty else { return }
+        let index = number == 9 ? tabs.count - 1 : number - 1
+        guard tabs.indices.contains(index) else { return }
+        activate(tabs[index].id)
+    }
+
+    /// Next (+1) / previous (−1) tab, wrapping (⌘⇧] / ⌘⇧[).
+    func activateAdjacentTab(offset: Int) {
+        guard
+            let activeTabID,
+            let index = tabs.firstIndex(where: { $0.id == activeTabID }),
+            tabs.count > 1
+        else { return }
+        let next = (index + offset + tabs.count) % tabs.count
+        activate(tabs[next].id)
+    }
+
+    // MARK: - Page layout & find (live-view commands)
+
+    var activeDisplayMode: PDFDisplayMode {
+        PDFDisplayMode(rawValue: activeTab?.displayModeRaw ?? 1) ?? .singlePageContinuous
+    }
+
+    /// Persists the layout on the active tab and applies it to the live
+    /// view in place (no view rebuild — position is kept by PDFKit).
+    func setDisplayMode(_ mode: PDFDisplayMode) {
+        guard let activeTabID,
+              let index = tabs.firstIndex(where: { $0.id == activeTabID })
+        else { return }
+        tabs[index].displayModeRaw = mode.rawValue
+        activeController?.apply(displayMode: mode)
+    }
+
+    func presentFind() {
+        activeController?.presentFindNavigator()
     }
 
     // MARK: - Navigation & history (single source of truth: ReaderCore)

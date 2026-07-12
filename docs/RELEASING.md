@@ -113,3 +113,32 @@ with required reviewers before adding collaborators.
   and update the `og:image` URL in `index.html`.
 - Sparkle (in-app updates) is the natural next step once there are real
   users; until then the site + releases/latest URL is the update channel.
+
+## iOS / iPadOS release path (not yet started)
+
+The Bluefold-iOS target (iPhone + iPad, one binary — `TARGETED_DEVICE_FAMILY
+= "1,2"`) can only ship through Apple channels; there is no DMG equivalent.
+In rough order of effort:
+
+1. **Device install via Xcode** (works today): free with the existing
+   developer account — connect a device, select the Bluefold-iOS scheme,
+   run. Signing is automatic (team A448YLFLYC); apps signed this way expire
+   after a year (7 days on a free account) and suit personal use only.
+2. **TestFlight** (first real distribution step): App Store Connect →
+   create the app record for `com.cable729.bluefold.ios` → `xcodebuild
+   archive` + upload (Xcode Organizer or `xcrun altool`/Transporter).
+   Internal testing (up to 100 testers on the team) needs no review;
+   external TestFlight links go through a one-time beta review. Builds
+   expire after 90 days.
+3. **App Store**: same archive/upload pipeline plus listing metadata,
+   screenshots (iPhone + 13-inch iPad sizes), privacy questionnaire
+   ("data not collected" holds while sync is off/private-DB CloudKit),
+   and app review. Review will exercise first-run with NO Calibre folder —
+   the "Skip for Now" path must land somewhere useful.
+
+Prerequisites to sort before step 2: wire the iOS entitlements file into
+the pbxproj release config (it exists but is deliberately unwired — see
+docs/SYNC.md), decide whether v1 ships with CloudKit sync enabled (if so,
+deploy the CloudKit schema to Production first), and pick a marketing
+version scheme shared with macOS (`MARKETING_VERSION` currently tracks the
+macOS release number).

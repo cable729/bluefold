@@ -192,6 +192,31 @@ Implementation: `KeyChord.parse`/`chordString` (round-tripping string form),
 `Sources/ReaderUI/Commands/`, overlay applied in `CommandRegistry.all`;
 `KeybindingsTests` covers parsing, merge, conflicts, and unbind semantics.
 
+## iPadOS / iOS hardware keyboard
+
+The iOS app has its own, much smaller command set
+(`App/iOS/ReaderCommandsIOS.swift` — NOT the macOS command table; no
+keybindings.json overlay, no palettes yet). Rendered by the iPadOS 26
+menu bar and the hold-⌘ shortcut HUD. Chords deliberately mirror the
+macOS table so nothing has to be relearned:
+
+| Shortcut | Action |
+| --- | --- |
+| ⌥⌘O | Open PDF… (document picker) |
+| ⌘⇧L | Open Library |
+| ⌘W | Close Tab |
+| ⌘[ / ⌘] | Back / Forward in jump history |
+| ⌘⇧[ / ⌘⇧] | Previous / Next tab (wraps) |
+| ⌘1 … ⌘8, ⌘9 | Go to tab by position; ⌘9 = LAST tab |
+| ⌥⌘1 … ⌥⌘4 | Single Page / Continuous / Two Pages / Two Pages Continuous |
+| ⌘F | Find in Document (system UIFindInteraction) |
+| ← / → | Previous / Next page (`ReaderPDFViewIOS.keyCommands`, priority over scroll; same bare-arrow rule as macOS) |
+
+⌘O and ⌘P are intentionally UNBOUND on iOS — reserved for the open/in-book
+palettes so the chords mean the same thing on every platform when those
+arrive. Changing an iOS chord? Keep this table and the macOS table in
+sync in the same commit.
+
 ## Reassignments & conflicts found in the audit (2026-07-08)
 
 - **⌘O**: was Open File; backlog assigns it to the navigate palette. Palette

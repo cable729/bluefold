@@ -457,6 +457,39 @@ below is self-contained.
   → simctl io screenshot; theme via `simctl spawn <sim> defaults write
   com.cable729.bluefold.ios BluefoldTheme <raw>`. CloudKit sync UI pending
   (M15 Settings section is macOS-only so far).
+- [~] **M16b** iPadOS port (2026-07-11): the iOS target already shipped
+  `TARGETED_DEVICE_FAMILY = "1,2"`, so the iPad gap was experience, not
+  build. Added, all in `App/iOS` (no pbxproj edits — synchronized
+  folders): **hardware-keyboard commands** (`ReaderCommandsIOS`, rendered
+  by the iPadOS 26 menu bar and the hold-⌘ HUD; chords mirror
+  docs/KEYBINDINGS.md — ⌥⌘O open file, ⌘⇧L library, ⌘W close tab,
+  ⌘[/⌘] history, ⌘⇧[/⌘⇧] adjacent tab, ⌘1–8/⌘9 tab-by-position/last,
+  ⌥⌘1–4 layouts, ⌘F find; ⌘O/⌘P left unbound, reserved for the palettes),
+  with sheet flags lifted into `ReaderChromeModel` so scene-level commands
+  and the control bar drive the same state; **page layouts honored on
+  iOS** (PDFKitView now respects `tab.displayModeRaw` instead of
+  hardcoding continuous; control-bar layout menu + `setDisplayMode` apply
+  changes to the live view in place); **system find**
+  (`isFindInteractionEnabled` + `presentFindNavigator` via the
+  `ActivePDFNavigating` protocol, control-bar magnifier button); **←/→
+  hardware-arrow paging** in `ReaderPDFViewIOS.keyCommands`
+  (`wantsPriorityOverSystemBehavior`, matching the macOS bare-arrow rule;
+  not a history event); **pointer hover effects** on control bar + tab
+  chips; **library sheet at `.presentationSizing(.page)`** on iOS 18+
+  (iPad's default form sheet is too narrow for the covers grid).
+  **Simulator-verified 2026-07-11** (iPad Pro 11-inch (M5) sim, seeded
+  session.json per the M16 recipe — NOTE the recipe's "pathHint only"
+  understates it: TabState decode also requires `scaleFactor` and
+  `displayModeRaw`, and reinstalling the app moves the data container so
+  absolute pathHints must be re-seeded): session restore on iPad, new
+  control-bar buttons, and twoUpContinuous restored from a seeded
+  `displayModeRaw: 3` rendering side-by-side pages. NOT yet verified
+  (simctl can't synthesize taps/keys): menu-bar/⌘-HUD chords, find
+  navigator UI, pointer hover — needs an owner hand-run with a paired
+  keyboard/trackpad or an iOS XCUITest target. Single-scene by design:
+  app state is App-level @State shared by every scene, so
+  `UIApplicationSupportsMultipleScenes` stays off until per-scene models
+  exist (see BACKLOG).
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `BluefoldUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but locally synthesized input can't drive them reliably (see XCUITest notes below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI for end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest$(date +%s)`; full-suite local runs can degrade mid-run (see XCUITest notes below) — spot-check single tests locally, full passes belong to CI. `VERIFY_UITESTS=1 ./scripts/verify.sh` runs the suite as opt-in step 5. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
 - [~] **M18** code side DONE (2026-07-08): Settings window ⌘, (AppSettings:
   LRU capacity live-applied via SessionCoordinator, indexing + OCR toggles

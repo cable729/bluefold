@@ -1,3 +1,4 @@
+import PDFKit
 import ReaderCore
 import ReaderUI
 import SwiftUI
@@ -11,9 +12,8 @@ struct ReaderView: View {
     let model: ReaderSessionModel
     let theme: ThemeStore
     let library: LibraryModel
+    @Bindable var chrome: ReaderChromeModel
 
-    @State private var showingImporter = false
-    @State private var showingLibrary = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -28,7 +28,7 @@ struct ReaderView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .fileImporter(
-            isPresented: $showingImporter,
+            isPresented: $chrome.showingImporter,
             allowedContentTypes: [.pdf],
             allowsMultipleSelection: true
         ) { result in
@@ -36,14 +36,26 @@ struct ReaderView: View {
                 model.open(urls: urls)
             }
         }
-        .sheet(isPresented: $showingLibrary) {
-            LibraryScreen(library: library) { item, entry in
-                model.openTab(url: item.fileURL, at: entry)
-            }
+        .sheet(isPresented: $chrome.showingLibrary) {
+            librarySheet
         }
         .preferredColorScheme(theme.preferredColorScheme)
         .onChange(of: colorScheme, initial: true) { _, scheme in
             theme.noteSystemColorScheme(isDark: scheme == .dark)
+        }
+    }
+
+    /// On iPad the default sheet is a narrow form card; the covers grid
+    /// wants the wider page sizing (iOS 18+ — 17 keeps the form sheet).
+    @ViewBuilder
+    private var librarySheet: some View {
+        let screen = LibraryScreen(library: library) { item, entry in
+            model.openTab(url: item.fileURL, at: entry)
+        }
+        if #available(iOS 18.0, *) {
+            screen.presentationSizing(.page)
+        } else {
+            screen
         }
     }
 
@@ -58,6 +70,7 @@ struct ReaderView: View {
             }
             .disabled(!model.canGoBack)
             .accessibilityLabel("Back")
+            .hoverEffect(.highlight)
 
             Button {
                 model.goForward()
@@ -66,29 +79,66 @@ struct ReaderView: View {
             }
             .disabled(!model.canGoForward)
             .accessibilityLabel("Forward")
+            .hoverEffect(.highlight)
 
             Spacer()
+
+            if model.activeTabID != nil {
+                Button {
+                    model.presentFind()
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                }
+                .accessibilityLabel("Find in document")
+                .hoverEffect(.highlight)
+
+                layoutMenu
+            }
 
             themeMenu
 
             Button {
-                showingLibrary = true
+                chrome.showingLibrary = true
             } label: {
                 Image(systemName: "books.vertical")
             }
             .accessibilityLabel("Library")
+            .hoverEffect(.highlight)
 
             Button {
-                showingImporter = true
+                chrome.showingImporter = true
             } label: {
                 Image(systemName: "plus")
             }
             .accessibilityLabel("Open PDF")
+            .hoverEffect(.highlight)
         }
         .font(.body)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(.bar)
+    }
+
+    private var layoutMenu: some View {
+        Menu {
+            Picker("Page Layout", selection: Binding(
+                get: { model.activeDisplayMode },
+                set: { model.setDisplayMode($0) }
+            )) {
+                Label("Single Page", systemImage: "doc")
+                    .tag(PDFDisplayMode.singlePage)
+                Label("Continuous Scroll", systemImage: "doc.text")
+                    .tag(PDFDisplayMode.singlePageContinuous)
+                Label("Two Pages", systemImage: "book")
+                    .tag(PDFDisplayMode.twoUp)
+                Label("Two Pages Continuous", systemImage: "book.pages")
+                    .tag(PDFDisplayMode.twoUpContinuous)
+            }
+        } label: {
+            Image(systemName: "rectangle.split.2x1")
+        }
+        .accessibilityLabel("Page layout")
+        .hoverEffect(.highlight)
     }
 
     private var themeMenu: some View {
@@ -108,6 +158,7 @@ struct ReaderView: View {
             Image(systemName: "circle.lefthalf.filled")
         }
         .accessibilityLabel("Theme")
+        .hoverEffect(.highlight)
     }
 
     // MARK: - Tab strip
@@ -149,6 +200,7 @@ struct ReaderView: View {
             in: Capsule()
         )
         .contentShape(Capsule())
+        .hoverEffect(.highlight)
         .onTapGesture {
             model.activate(tab.id)
         }
@@ -199,11 +251,11 @@ struct ReaderView: View {
                 Text("Open a book from your library, or a PDF from Files.")
             } actions: {
                 Button("Browse Library…") {
-                    showingLibrary = true
+                    chrome.showingLibrary = true
                 }
                 .buttonStyle(.borderedProminent)
                 Button("Open PDF…") {
-                    showingImporter = true
+                    chrome.showingImporter = true
                 }
             }
         }

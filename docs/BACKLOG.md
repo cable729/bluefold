@@ -18,6 +18,15 @@ the repo goes public.
   dataless-file download flow, session save on .inactive/.background.
   Deferred: iOS own-imports into the overlay DB; outline sidebar /
   bookmarks / reading state on iOS.
+- ✅ DONE 2026-07-11 (M16b; keyboard/pointer paths need an owner hand-run) —
+  **iPadOS port.** Hardware-keyboard commands (menu bar / hold-⌘ HUD,
+  chords mirror KEYBINDINGS.md), page layouts honored per tab + layout
+  menu, system find (UIFindInteraction, ⌘F), ←/→ hardware-arrow paging,
+  pointer hover effects, page-sized library sheet. Deferred iPad
+  follow-ups: multi-window/multi-scene (needs per-scene session models —
+  today's app state is App-level and session.json is single-window on
+  iOS), outline sidebar in a regular-width split view, go-to-page UI,
+  ⌘O/⌘P palettes, Apple Pencil annotation questions.
 - **M17 — XCUITest smoke suite + CI job B** (xcodebuild macOS app tests +
   iOS simulator build). Launch-arg fixtures already exist (`--open`,
   `BLUEFOLD_SESSION_DIR`).

@@ -78,6 +78,31 @@ final class ReaderPDFViewIOS: PDFView {
         onLinkActivated?(target, currentNavEntry())
     }
 
+    // MARK: - Hardware keyboard: ←/→ page (matches macOS, where bare
+    // arrows page even in continuous display modes — PDFView only pages
+    // in single-page mode on its own). Priority over system behavior so
+    // the inner scroll view's arrow-scrolling doesn't swallow them; not
+    // a history event (scrolling/paging never pushes history).
+
+    override var keyCommands: [UIKeyCommand]? {
+        let previous = UIKeyCommand(
+            action: #selector(pagePrevious), input: UIKeyCommand.inputLeftArrow)
+        let next = UIKeyCommand(
+            action: #selector(pageNext), input: UIKeyCommand.inputRightArrow)
+        for command in [previous, next] {
+            command.wantsPriorityOverSystemBehavior = true
+        }
+        return [previous, next] + (super.keyCommands ?? [])
+    }
+
+    @objc private func pagePrevious() {
+        if canGoToPreviousPage { goToPreviousPage(nil) }
+    }
+
+    @objc private func pageNext() {
+        if canGoToNextPage { goToNextPage(nil) }
+    }
+
     private func linkTarget(at viewPoint: CGPoint) -> LinkTarget? {
         guard
             let page = page(for: viewPoint, nearest: false),
