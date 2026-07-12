@@ -583,6 +583,33 @@ below is self-contained.
   Key iOS traps recorded: (1) a horizontal `ScrollView` of Color-backed
   cells goes height-greedy — hard-cap the strip; (2) the split divider is
   a `GeometryReader` fraction, reset to 0.5 on `splitTabID` change.
+- [~] **M16f** Round 4b (2026-07-12): **macOS top/bottom split** landed
+  (agent) — `ReaderWindowModel.splitAxis` + `VSplitView`/`HSplitView`
+  branch in `ReaderWindowView`, `view.splitDown` / `view.splitOrientationToggle`
+  commands, persisted via `WindowState.splitAxis`; per-pane horizontal tab
+  strips preserved (panes stack, strips never do). **iPad "scroll lock"
+  bug fixed** — toggling a page-layout/fit mode left the previous mode's
+  zoom+offset, so the page rendered tiny in a corner; the live
+  `apply(displayMode:)` now captures the position, toggles `autoScales`
+  (off→on) to force a re-fit, then re-anchors via the shared `go(to:in:)`
+  (and `setDisplayMode` persists `autoScales = true` so a layout switch
+  isn't saved as a fixed zoom). **iOS tag/collection system** — the macOS
+  library sidebar, ported: `LibrarySidebarIOS` (All Books / Untagged /
+  Not-in-a-Collection scopes + hierarchical Tags and Collections trees
+  with color dots, inline New / New-Sub / Rename / Color / Delete via
+  `+` headers and row context menus), driving `LibraryModel.filter`. iPad
+  shows it as the leading column of a `NavigationSplitView`; iPhone opens
+  it as a `.medium/.large` sheet from a Filter toolbar button. New model
+  API: `renameTag(id:to:)`, `renameCollection(id:to:)` (+ store
+  `renameCollection`). `TagColor` un-gated (presets + hex→Color
+  cross-platform; the NSImage swatch stays macOS-only). `--library`
+  launch hook mirrors `--sidebar`. **Verified on both sims against a
+  realistic library** (the iPad sim's sandbox already had a Calibre
+  mirror): sidebar tree + colors + covers render, and indexing runs in
+  the background ("Indexing for search… 3/5") with the UI responsive —
+  the freeze fix confirmed live. Deferred (BACKLOG): desktop 2-D grid,
+  iPad tab drag-reorder verification, tag drag-to-reparent, sidebar
+  drag-to-tag.
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `BluefoldUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but locally synthesized input can't drive them reliably (see XCUITest notes below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI for end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest$(date +%s)`; full-suite local runs can degrade mid-run (see XCUITest notes below) — spot-check single tests locally, full passes belong to CI. `VERIFY_UITESTS=1 ./scripts/verify.sh` runs the suite as opt-in step 5. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
 - [~] **M18** code side DONE (2026-07-08): Settings window ⌘, (AppSettings:
   LRU capacity live-applied via SessionCoordinator, indexing + OCR toggles

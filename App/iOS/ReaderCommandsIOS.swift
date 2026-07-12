@@ -15,7 +15,9 @@ enum SidebarMode: String, CaseIterable {
 @MainActor
 @Observable
 final class ReaderChromeModel {
-    var showingLibrary = false
+    /// `--library` opens the library sheet on launch (automation hook,
+    /// like `--sidebar`; simctl can't tap).
+    var showingLibrary = ProcessInfo.processInfo.arguments.contains("--library")
     var showingImporter = false
     /// Sidebar panel (regular width) / sheet (compact). `--sidebar` is an
     /// automation hook (simctl can't tap), like macOS `--open`.

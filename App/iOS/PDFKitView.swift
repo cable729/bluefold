@@ -186,7 +186,20 @@ struct PDFKitView: UIViewRepresentable {
         }
 
         func apply(displayMode: PDFDisplayMode) {
-            view?.displayMode = displayMode
+            guard let view, let document = view.document else { return }
+            // Capture where the reader is BEFORE the mode change.
+            let entry = view.currentNavEntry()
+            view.displayMode = displayMode
+            // Changing displayMode alone leaves the previous mode's zoom and
+            // scroll offset in place — on iPad the page ends up tiny and
+            // shoved into a corner. Toggling autoScales forces PDFKit to
+            // recompute the fit scale for the new layout; then re-anchor to
+            // the captured position once the relayout settles.
+            view.autoScales = false
+            view.autoScales = true
+            DispatchQueue.main.async { [weak view] in
+                view?.go(to: entry, in: document)
+            }
         }
 
         func presentFindNavigator() {

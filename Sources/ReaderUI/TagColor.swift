@@ -1,6 +1,8 @@
+import SwiftUI
+
 #if os(macOS)
 import AppKit
-import SwiftUI
+#endif
 
 /// Tag display colors (feedback round 7).
 ///
@@ -38,6 +40,7 @@ public enum TagColor {
         return Color(red: r, green: g, blue: b)
     }
 
+    #if os(macOS)
     /// A small filled-circle image for menu rows. SwiftUI foreground styles
     /// are stripped inside NSMenu-backed context menus, but a non-template
     /// NSImage keeps its colors.
@@ -54,6 +57,7 @@ public enum TagColor {
         image.isTemplate = false
         return image
     }
+    #endif
 
     /// sRGB components in 0...1, or nil when the string isn't "#RRGGBB".
     static func components(fromHex hex: String?) -> (Double, Double, Double)? {
@@ -72,4 +76,3 @@ public enum TagColor {
         )
     }
 }
-#endif

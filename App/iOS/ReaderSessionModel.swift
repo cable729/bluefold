@@ -276,6 +276,9 @@ final class ReaderSessionModel {
               let index = tabs.firstIndex(where: { $0.id == activeTabID })
         else { return }
         tabs[index].displayModeRaw = mode.rawValue
+        // A layout switch re-fits (autoScales), so it must not be persisted
+        // as a fixed zoom — otherwise the next launch restores a stale scale.
+        tabs[index].autoScales = true
         activeController?.apply(displayMode: mode)
     }
 

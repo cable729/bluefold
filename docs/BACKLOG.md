@@ -47,6 +47,10 @@ the repo goes public.
   round. Constraint to preserve: tabs NEVER stack top/bottom (each pane
   keeps a horizontal tab strip; big platforms can have left/right pane
   strips). iPad should follow whatever desktop lands on.
+- **iOS tag/collection follow-ups.** The library sidebar (scopes + Tags
+  and Collections trees + create/rename/color/delete) shipped 2026-07-12
+  (M16f). Not yet: drag a book onto a sidebar tag/collection to tag it
+  (macOS-style), tag drag-to-reparent, multi-select bulk tagging.
 - **iPad tab drag-reorder — VERIFY.** Wiring exists (`.draggable` +
   `.dropDestination` on tab cells, `move(tabID:before:)`); the standard
   long-press-drag-alongside-context-menu pattern. Owner reported it not

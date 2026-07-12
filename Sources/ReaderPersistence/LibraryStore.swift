@@ -372,6 +372,17 @@ public final class LibraryStore: Sendable {
         }
     }
 
+    /// Renames a collection (bumps `modified_at` so it syncs).
+    public func renameCollection(id: Int64, name: String) throws {
+        let ts = now()
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE collection SET name = ?, modified_at = ? WHERE id = ?",
+                arguments: [name, ts, id]
+            )
+        }
+    }
+
     /// Sets or clears a tag's display color ("#RRGGBB" hex string; nil =
     /// colorless). Bumps `modified_at` so the change syncs; no-ops on
     /// tombstoned tags.

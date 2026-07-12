@@ -22,7 +22,9 @@ struct LibraryScreen: View {
     let onOpen: (LibraryItem, NavEntry?) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var showingFolderPicker = false
+    @State private var showingFilters = false
     @State private var openError: String?
     /// Item whose context menu asked for a new tag/collection; the alert's
     /// text field creates it and immediately applies it to that book.
@@ -34,23 +36,39 @@ struct LibraryScreen: View {
     private static let gridColumns = [GridItem(.adaptive(minimum: 110), spacing: 12)]
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if library.needsSetup {
-                    setupView
-                } else {
-                    content
+        Group {
+            if sizeClass == .regular {
+                // iPad: the macOS-style two-column layout — scope sidebar
+                // on the left, covers grid on the right.
+                NavigationSplitView {
+                    LibrarySidebarIOS(library: library)
+                        .navigationTitle("Library")
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button("Done") { dismiss() }
+                            }
+                        }
+                } detail: {
+                    NavigationStack { gridScreen(showFilterButton: false) }
                 }
+            } else {
+                // iPhone: grid with a Filter button opening the scope
+                // sidebar as a sheet.
+                NavigationStack { gridScreen(showFilterButton: true) }
             }
-            .navigationTitle("Library")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Done") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) { filterMenu }
-                ToolbarItem(placement: .topBarTrailing) { sourceMenu }
+        }
+        .sheet(isPresented: $showingFilters) {
+            NavigationStack {
+                LibrarySidebarIOS(library: library) { showingFilters = false }
+                    .navigationTitle("Filter")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showingFilters = false }
+                        }
+                    }
             }
+            .presentationDetents([.medium, .large])
         }
         .fileImporter(
             isPresented: $showingFolderPicker,
@@ -376,64 +394,44 @@ struct LibraryScreen: View {
         }
     }
 
-    // MARK: - Filter & source menus
+    // MARK: - Screen scaffold
 
-    private var filterMenu: some View {
-        Menu {
-            Picker("Scope", selection: $library.filter) {
-                Label("All Books", systemImage: "books.vertical")
-                    .tag(LibraryFilter.all)
-                Label("Untagged (\(library.untaggedCount))", systemImage: "tag.slash")
-                    .tag(LibraryFilter.untagged)
-                Label(
-                    "Not in Any Collection (\(library.notInAnyCollectionCount))",
-                    systemImage: "square.stack.3d.up.slash"
-                )
-                .tag(LibraryFilter.notInAnyCollection)
-                if !library.tagTree.isEmpty {
-                    Section("Tags") {
-                        ForEach(flattenedTags, id: \.record.self) { entry in
-                            Text(indented(entry.record.name, depth: entry.depth))
-                                .tag(LibraryFilter.tag(entry.record.id ?? -1))
-                        }
-                    }
+    /// The covers grid (or first-run setup) with its title and toolbar.
+    /// `showFilterButton` = iPhone (Done + Filter sheet); on iPad the
+    /// sidebar owns scope selection so the button is hidden.
+    private func gridScreen(showFilterButton: Bool) -> some View {
+        Group {
+            if library.needsSetup {
+                setupView
+            } else {
+                content
+            }
+        }
+        .navigationTitle("Library")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if showFilterButton {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Done") { dismiss() }
                 }
-                if !library.collectionTree.isEmpty {
-                    Section("Collections") {
-                        ForEach(flattenedCollections, id: \.record.self) { entry in
-                            Text(indented(entry.record.name, depth: entry.depth))
-                                .tag(LibraryFilter.collection(entry.record.id ?? -1))
-                        }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingFilters = true
+                    } label: {
+                        Image(systemName: isFiltered
+                            ? "line.3.horizontal.decrease.circle.fill"
+                            : "line.3.horizontal.decrease.circle")
                     }
+                    .accessibilityLabel("Filter")
                 }
             }
-        } label: {
-            Image(systemName: isFiltered
-                ? "line.3.horizontal.decrease.circle.fill"
-                : "line.3.horizontal.decrease.circle")
+            ToolbarItem(placement: .topBarTrailing) { sourceMenu }
         }
-        .accessibilityLabel("Filter")
     }
+
+    // MARK: - Source menu
 
     private var isFiltered: Bool { library.filter != .all }
-
-    private var flattenedTags: [(record: TagRecord, depth: Int)] {
-        func flatten(_ nodes: [TagNode], depth: Int) -> [(TagRecord, Int)] {
-            nodes.flatMap { [($0.tag, depth)] + flatten($0.children, depth: depth + 1) }
-        }
-        return flatten(library.tagTree, depth: 0)
-    }
-
-    private var flattenedCollections: [(record: CollectionRecord, depth: Int)] {
-        func flatten(_ nodes: [CollectionNode], depth: Int) -> [(CollectionRecord, Int)] {
-            nodes.flatMap { [($0.collection, depth)] + flatten($0.children, depth: depth + 1) }
-        }
-        return flatten(library.collectionTree, depth: 0)
-    }
-
-    private func indented(_ name: String, depth: Int) -> String {
-        String(repeating: "    ", count: depth) + name
-    }
 
     private var sourceMenu: some View {
         Menu {

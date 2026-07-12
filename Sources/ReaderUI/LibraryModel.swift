@@ -1033,6 +1033,18 @@ public final class LibraryModel {
         reloadOverlay()
     }
 
+    public func renameTag(id: Int64, to name: String) {
+        guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        try? store?.renameTag(id: id, name: name)
+        reloadOverlay()
+    }
+
+    public func renameCollection(id: Int64, to name: String) {
+        guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        try? store?.renameCollection(id: id, name: name)
+        reloadOverlay()
+    }
+
     /// Sets or clears a tag's display color ("#RRGGBB"; nil = colorless).
     public func setTagColor(id: Int64, color: String?) {
         try? store?.setTagColor(id: id, color: color)
