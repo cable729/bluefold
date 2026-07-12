@@ -41,7 +41,7 @@ struct ReaderTopBarIOS: View {
 
             if model.activeTabID != nil {
                 Button {
-                    model.presentFind()
+                    chrome.showFind()
                 } label: {
                     Image(systemName: "magnifyingglass")
                 }

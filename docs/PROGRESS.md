@@ -523,6 +523,38 @@ below is self-contained.
   ⌘-chords — owner hand-run list. Remaining iOS gaps → BACKLOG:
   reading-state persistence, follow-mode toggle, thumbnails sidebar mode,
   multi-scene.
+- [~] **M16d** iPad/iPhone round 3 (2026-07-12, owner feedback on round 2):
+  **iPhone**: chrome tap-toggle now a dedicated recognizer
+  (`chromeTap`, simultaneous + non-cancelling; the round-2 `touchesEnded`
+  override never fired — PDFKit subviews consume touches) with an
+  unhide-on-tab-change safety; section-skip ⇤ ⇥ added to the compact
+  cluster; status-bar scroll-to-top pushes jump history (UIScrollView
+  delegate PROXY forwarding to PDFKit's own delegate — the only reliable
+  hook); THEME-SWITCH POSITION LOSS fixed: same-tab view rebuilds restore
+  from `model.livePosition`, not TabState (SwiftUI can build the
+  replacement view before dismantling the old one, so the captured state
+  is stale — remember this for any `.id`-keyed representable). **Find
+  moved into the sidebar** (Contents/Bookmarks/Find segments; ⌘F and the
+  magnifier open it; FindController un-gated from macOS — streaming find,
+  typing never navigates, tap = jump+push+highlight). **Tab strip = the
+  macOS main-app look**: adjacent same-book tabs group into ONE tinted
+  lozenge with the book's page-0 as a rounded left cap
+  (`TabCoverThumbIOS`, off-main render on a private PDFDocument, cached);
+  cells show section breadcrumbs only; tapping the CURRENT cell opens the
+  cover preview panel (the macOS hover panel — where the book name
+  lives), `.presentationCompactAdaptation(.popover)`; context menu grew
+  Close Tabs to the Left/Right (also added on macOS by a parallel agent:
+  `closeTabsToLeft/Right(of:)` + strip menu + palette commands + 9
+  tests). **Links draggable** (UIDragInteraction vending the section
+  payload; drop on strip = new tab, drop zone = split). **Library**:
+  covers fall back to a page-0 render (CoverThumb) and then to a
+  BookTint+title generated cover; context menus grew New Tag… / New
+  Collection… create-and-apply alerts. Layout trap for the strip: Color
+  subviews (dividers/placeholder tints) have no intrinsic height — a
+  horizontal ScrollView goes greedy and fills the screen; hard-cap the
+  strip (50pt) and lozenges (40pt). Simulator-verified on both devices
+  (grouping/caps/sidebar-find/compact cluster); drag/long-press/
+  scroll-to-top/tap-toggle remain owner hand-tests (simctl can't touch).
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `BluefoldUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but locally synthesized input can't drive them reliably (see XCUITest notes below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI for end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest$(date +%s)`; full-suite local runs can degrade mid-run (see XCUITest notes below) — spot-check single tests locally, full passes belong to CI. `VERIFY_UITESTS=1 ./scripts/verify.sh` runs the suite as opt-in step 5. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
 - [~] **M18** code side DONE (2026-07-08): Settings window ⌘, (AppSettings:
   LRU capacity live-applied via SessionCoordinator, indexing + OCR toggles

@@ -18,6 +18,8 @@ protocol ActivePDFNavigating: AnyObject {
     func apply(displayMode: PDFDisplayMode)
     /// Presents the system find UI (UIFindInteraction).
     func presentFindNavigator()
+    /// Highlights a find match in the view (sidebar Find mode).
+    func highlight(_ selection: PDFSelection?)
     /// Fit-to-width / fit-to-height (status bar; same semantics as macOS
     /// ActivePDFControlling: width = autoScales, height = explicit scale).
     func fitWidth()
@@ -420,6 +422,28 @@ final class ReaderSessionModel {
         activeController?.execute(entry)
     }
 
+    /// Records the position being left when the VIEW navigates on its own
+    /// (status-bar scroll-to-top): a history push with no execute, so ⌘[
+    /// returns to where the reader was.
+    func pushHistory(tabID: UUID, from entry: NavEntry) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return }
+        tabs[index].history.push(entry)
+    }
+
+    /// Find-result navigation (sidebar Find mode): history push + jump to
+    /// the match, then highlight the selection in the live view.
+    func jumpToFindResult(_ selection: PDFSelection) {
+        guard let document = activeDocument,
+              let page = selection.pages.first
+        else { return }
+        let bounds = selection.bounds(for: page)
+        jump(to: NavEntry(
+            pageIndex: document.index(for: page),
+            point: CGPoint(x: bounds.minX, y: bounds.maxY)
+        ))
+        activeController?.highlight(selection)
+    }
+
     /// Crash-safe page tracking (PDFViewPageChanged → `view.currentPage`,
     /// the page most on screen — the status-bar number). Never a history
     /// event. Distinct from `notePosition`: `currentDestination` anchors to
@@ -607,6 +631,31 @@ final class ReaderSessionModel {
             close(tab.id)
         }
         activate(id)
+    }
+
+    func canCloseTabs(leftOf id: UUID) -> Bool {
+        (tabs.firstIndex { $0.id == id } ?? 0) > 0
+    }
+
+    func canCloseTabs(rightOf id: UUID) -> Bool {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return false }
+        return index < tabs.count - 1
+    }
+
+    /// Strip-order bulk closes. The split pane's tab is spared, like
+    /// Close Other Tabs.
+    func closeTabs(leftOf id: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        for tab in tabs.prefix(index) where tab.id != splitTabID {
+            close(tab.id)
+        }
+    }
+
+    func closeTabs(rightOf id: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        for tab in tabs.suffix(from: index + 1) where tab.id != splitTabID {
+            close(tab.id)
+        }
     }
 
     // MARK: - Position capture (from the live PDFView)

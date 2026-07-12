@@ -1,3 +1,4 @@
+import PDFKit
 import ReaderCore
 import ReaderUI
 import SwiftUI
@@ -12,17 +13,17 @@ import SwiftUI
 /// auto-expand, and the list scrolls to keep it visible.
 struct SidebarIOS: View {
     let model: ReaderSessionModel
+    @Bindable var chrome: ReaderChromeModel
     let palette: DesignPalette
     var onNavigate: (() -> Void)?
 
-    private enum Mode: String, CaseIterable {
-        case contents = "Contents"
-        case bookmarks = "Bookmarks"
-    }
-
-    @State private var mode: Mode = .contents
     @State private var filter = ""
     @State private var expanded: Set<UUID> = []
+    @State private var findQuery = ""
+    @State private var findController = FindController()
+    @FocusState private var findFieldFocused: Bool
+
+    private var mode: SidebarMode { chrome.sidebarMode }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,19 +38,60 @@ struct SidebarIOS: View {
                 }
             case .bookmarks:
                 bookmarkList
+            case .find:
+                findResults
             }
         }
         .background(Color(platformColor: palette.sidebarBackground))
+        .onChange(of: mode, initial: true) { _, newMode in
+            if newMode == .find {
+                findFieldFocused = true
+            }
+        }
     }
 
     private var header: some View {
         VStack(spacing: 8) {
-            Picker("Sidebar mode", selection: $mode) {
-                ForEach(Mode.allCases, id: \.self) { mode in
+            Picker("Sidebar mode", selection: $chrome.sidebarMode) {
+                ForEach(SidebarMode.allCases, id: \.self) { mode in
                     Text(mode.rawValue).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
+            if mode == .find {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(Color(platformColor: palette.textMuted))
+                    TextField("Find in document", text: $findQuery)
+                        .textFieldStyle(.plain)
+                        .focused($findFieldFocused)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    if !findQuery.isEmpty {
+                        Button {
+                            findQuery = ""
+                            findController.cancel()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(Color(platformColor: palette.textMuted))
+                        }
+                        .accessibilityLabel("Clear search")
+                    }
+                }
+                .font(.subheadline)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(platformColor: palette.ink).opacity(0.06))
+                )
+                .onChange(of: findQuery) { _, query in
+                    // Streaming find; typing never navigates (macOS rule).
+                    if let document = model.activeDocument {
+                        findController.search(query, in: document)
+                    }
+                }
+            }
             if mode == .contents {
                 HStack(spacing: 6) {
                     Image(systemName: "line.3.horizontal.decrease.circle")
@@ -75,7 +117,7 @@ struct SidebarIOS: View {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color(platformColor: palette.ink).opacity(0.06))
                 )
-            } else {
+            } else if mode == .bookmarks {
                 Button {
                     model.addBookmarkAtCurrentPosition()
                 } label: {
@@ -265,6 +307,64 @@ struct SidebarIOS: View {
             }
         }
         .draggable(entry.map { DragPayload.section($0) } ?? "")
+    }
+
+    // MARK: - Find results (in-document search — the macOS search sidebar)
+
+    private var findResults: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 2) {
+                if findController.isSearching {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(12)
+                } else if findQuery.isEmpty {
+                    Text("Search the current book.")
+                        .font(.subheadline)
+                        .foregroundStyle(Color(platformColor: palette.textMuted))
+                        .padding(12)
+                } else if findController.didSearch, findController.matches.isEmpty {
+                    Text("No matches for “\(findQuery)”.")
+                        .font(.subheadline)
+                        .foregroundStyle(Color(platformColor: palette.textMuted))
+                        .padding(12)
+                } else {
+                    ForEach(
+                        Array(findController.matches.enumerated()), id: \.offset
+                    ) { _, match in
+                        findRow(match)
+                    }
+                }
+            }
+            .padding(.vertical, 6)
+        }
+    }
+
+    private func findRow(_ match: PDFSelection) -> some View {
+        Button {
+            model.jumpToFindResult(match)
+            onNavigate?()
+        } label: {
+            HStack(alignment: .firstTextBaseline) {
+                Text(match.string?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    ?? "Match")
+                    .font(.subheadline)
+                    .foregroundStyle(Color(platformColor: palette.textPrimary))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Spacer()
+                if let page = match.pages.first,
+                   let document = model.activeDocument {
+                    Text("p.\(document.index(for: page) + 1)")
+                        .font(.caption)
+                        .foregroundStyle(Color(platformColor: palette.textMuted))
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Bookmarks

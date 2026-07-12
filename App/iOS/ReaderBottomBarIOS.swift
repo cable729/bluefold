@@ -134,17 +134,15 @@ struct ReaderBottomBarIOS: View {
     /// ⇤ ‹ [477] of 738 › ⇥ — centered, mono page chip (macOS mockup).
     private var pageCluster: some View {
         HStack(spacing: 9) {
-            if sizeClass == .regular {
-                Button {
-                    model.goToPreviousSection()
-                } label: {
-                    Image(systemName: "chevron.left.to.line")
-                        .foregroundStyle(Color(platformColor: palette.ink).opacity(0.45))
-                }
-                .disabled(!model.canGoToPreviousSection)
-                .accessibilityLabel("Previous section")
-                .hoverEffect(.highlight)
+            Button {
+                model.goToPreviousSection()
+            } label: {
+                Image(systemName: "chevron.left.to.line")
+                    .foregroundStyle(Color(platformColor: palette.ink).opacity(0.45))
             }
+            .disabled(!model.canGoToPreviousSection)
+            .accessibilityLabel("Previous section")
+            .hoverEffect(.highlight)
             Button {
                 model.goToPreviousPage()
             } label: {
@@ -187,17 +185,15 @@ struct ReaderBottomBarIOS: View {
                 pageIndex: model.activeTab?.pageIndex, pageCount: pageCount ?? 0))
             .accessibilityLabel("Next page")
             .hoverEffect(.highlight)
-            if sizeClass == .regular {
-                Button {
-                    model.goToNextSection()
-                } label: {
-                    Image(systemName: "chevron.right.to.line")
-                        .foregroundStyle(Color(platformColor: palette.ink).opacity(0.45))
-                }
-                .disabled(!model.canGoToNextSection)
-                .accessibilityLabel("Next section")
-                .hoverEffect(.highlight)
+            Button {
+                model.goToNextSection()
+            } label: {
+                Image(systemName: "chevron.right.to.line")
+                    .foregroundStyle(Color(platformColor: palette.ink).opacity(0.45))
             }
+            .disabled(!model.canGoToNextSection)
+            .accessibilityLabel("Next section")
+            .hoverEffect(.highlight)
         }
         .font(.system(size: 13))
     }

@@ -1,5 +1,6 @@
 import Foundation
 import ImageIO
+import PDFKit
 import ReaderUI
 import UIKit
 
@@ -60,7 +61,28 @@ enum CoverThumb {
         guard
             let source = CGImageSourceCreateWithURL(url as CFURL, nil),
             let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-        else { return Transfer(image: nil) }
+        else {
+            // No cover image (loose imports, Calibre rows without covers):
+            // render the book's first page instead — "unprocessed
+            // thumbnail" placeholders read as broken.
+            return Transfer(image: pdfFirstPage(url))
+        }
         return Transfer(image: UIImage(cgImage: cgImage))
+    }
+
+    /// Page-0 render for PDFs handed here directly (no cover.jpg). Uses a
+    /// private PDFDocument, never the shared LRU's.
+    private nonisolated static func pdfFirstPage(_ url: URL) -> UIImage? {
+        guard url.pathExtension.lowercased() == "pdf",
+              let document = PDFDocument(url: url),
+              let page = document.page(at: 0)
+        else { return nil }
+        let bounds = page.bounds(for: .cropBox)
+        guard bounds.height > 0 else { return nil }
+        let scale = CGFloat(maxPixelSize) / max(bounds.width, bounds.height)
+        return page.thumbnail(
+            of: CGSize(width: bounds.width * scale, height: bounds.height * scale),
+            for: .cropBox
+        )
     }
 }

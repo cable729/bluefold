@@ -56,7 +56,17 @@ struct PDFKitView: UIViewRepresentable {
         // Restore via the shared validated-point jump (a raw unspecified
         // destination point silently no-ops on some documents). Deferred one
         // runloop turn so it survives PDFView's initial layout pass.
-        let restore = tab.currentNavEntry
+        // Same-tab rebuilds (theme switch re-keys the view) restore from
+        // the model's LIVE position: SwiftUI may build the replacement
+        // view before dismantling the old one, so the tab's captured state
+        // can be a whole reading session stale (owner-reported jump).
+        let restore: NavEntry =
+            if pane == .primary, tab.id == model.activeTabID,
+               let live = model.livePosition {
+                live
+            } else {
+                tab.currentNavEntry
+            }
         if restore.pageIndex > 0 || restore.point != nil {
             DispatchQueue.main.async { [weak view] in
                 guard let view, let document = view.document else { return }
@@ -89,6 +99,8 @@ struct PDFKitView: UIViewRepresentable {
         weak var view: ReaderPDFViewIOS?
         private let pane: Pane
         private var scrollObservation: NSKeyValueObservation?
+        private weak var scrollView: UIScrollView?
+        private var scrollToTopProxy: ScrollToTopProxy?
         /// Last time a scroll tick was forwarded (throttle: the model does
         /// a binary search per note, and KVO fires every frame mid-fling).
         private var lastScrollNote: CFTimeInterval = 0
@@ -113,12 +125,29 @@ struct PDFKitView: UIViewRepresentable {
             // follow-highlight stale between pages). KVO on the inner
             // scroll view fires on main.
             if let scrollView = view.subviews.compactMap({ $0 as? UIScrollView }).first {
+                self.scrollView = scrollView
                 scrollObservation = scrollView.observe(\.contentOffset) { [weak self] _, _ in
                     MainActor.assumeIsolated {
                         self?.scrollTicked()
                     }
                 }
+                installScrollToTopProxy(on: scrollView)
             }
+        }
+
+        /// Status-bar scroll-to-top is a big invisible jump — record the
+        /// departure point in history so back returns. The proxy forwards
+        /// every other delegate call to PDFKit's own delegate.
+        private func installScrollToTopProxy(on scrollView: UIScrollView) {
+            guard !(scrollView.delegate is ScrollToTopProxy) else { return }
+            let proxy = ScrollToTopProxy()
+            proxy.original = scrollView.delegate
+            proxy.onWillScrollToTop = { [weak self] in
+                guard let self, let view = self.view else { return }
+                self.model?.pushHistory(tabID: self.tabID, from: view.currentNavEntry())
+            }
+            scrollToTopProxy = proxy
+            scrollView.delegate = proxy
         }
 
         private func scrollTicked() {
@@ -126,6 +155,10 @@ struct PDFKitView: UIViewRepresentable {
             guard now - lastScrollNote > 0.15 else { return }
             lastScrollNote = now
             notePosition()
+            // PDFKit occasionally re-claims the delegate; re-wrap it.
+            if let scrollView, !(scrollView.delegate is ScrollToTopProxy) {
+                installScrollToTopProxy(on: scrollView)
+            }
         }
 
         @objc private func pageChanged(_ notification: Notification) {
@@ -158,6 +191,11 @@ struct PDFKitView: UIViewRepresentable {
 
         func presentFindNavigator() {
             view?.findInteraction.presentFindNavigator(showingReplace: false)
+        }
+
+        func highlight(_ selection: PDFSelection?) {
+            selection?.color = .systemYellow
+            view?.setCurrentSelection(selection, animate: true)
         }
 
         func fitWidth() {
@@ -193,5 +231,35 @@ struct PDFKitView: UIViewRepresentable {
         deinit {
             NotificationCenter.default.removeObserver(self)
         }
+    }
+}
+
+/// UIScrollViewDelegate shim that intercepts ONLY scrollViewShouldScrollToTop
+/// (to record the departure point in jump history) and forwards everything
+/// else to PDFKit's own delegate untouched.
+@MainActor
+private final class ScrollToTopProxy: NSObject, UIScrollViewDelegate {
+    /// PDFKit's delegate. `nonisolated(unsafe)`: read from the nonisolated
+    /// forwarding overrides, but only ever touched on the main thread.
+    nonisolated(unsafe) weak var original: UIScrollViewDelegate?
+    var onWillScrollToTop: (() -> Void)?
+
+    nonisolated override func responds(to aSelector: Selector!) -> Bool {
+        super.responds(to: aSelector) || (original?.responds(to: aSelector) ?? false)
+    }
+
+    nonisolated override func forwardingTarget(for aSelector: Selector!) -> Any? {
+        if original?.responds(to: aSelector) == true {
+            return original
+        }
+        return super.forwardingTarget(for: aSelector)
+    }
+
+    func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+        let allowed = original?.scrollViewShouldScrollToTop?(scrollView) ?? true
+        if allowed {
+            onWillScrollToTop?()
+        }
+        return allowed
     }
 }

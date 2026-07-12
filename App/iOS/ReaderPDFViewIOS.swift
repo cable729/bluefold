@@ -35,6 +35,11 @@ final class ReaderPDFViewIOS: PDFView {
 
     private let linkTap = UITapGestureRecognizer()
     private let linkPress = UILongPressGestureRecognizer()
+    /// Chrome show/hide toggle (iPhone). Separate recognizer that never
+    /// cancels touches and recognizes alongside PDFKit's own taps — a
+    /// touchesEnded override never fired (PDFKit's subviews consume the
+    /// touches before they bubble).
+    private let chromeTap = UITapGestureRecognizer()
     private lazy var linkMenu = UIEditMenuInteraction(delegate: self)
     /// Link under the active long-press, held for the menu callbacks.
     private var pressedLink: LinkTarget?
@@ -64,7 +69,18 @@ final class ReaderPDFViewIOS: PDFView {
         linkPress.delegate = self
         addGestureRecognizer(linkPress)
 
+        chromeTap.addTarget(self, action: #selector(handleChromeTap))
+        chromeTap.cancelsTouchesInView = false
+        chromeTap.delegate = self
+        chromeTap.require(toFail: linkTap)  // links never toggle chrome
+        addGestureRecognizer(chromeTap)
+
         addInteraction(linkMenu)
+
+        // Links are draggable onto the tab strip / split drop zone.
+        let linkDrag = UIDragInteraction(delegate: self)
+        linkDrag.isEnabled = true  // default off on iPhone
+        addInteraction(linkDrag)
     }
 
     override func layoutSubviews() {
@@ -95,15 +111,38 @@ final class ReaderPDFViewIOS: PDFView {
         }
     }
 
-    /// Our recognizers begin ONLY over an internal link; everywhere else
-    /// they fail immediately so PDFKit's own recognizers proceed unimpeded.
+    /// The link recognizers begin ONLY over an internal link; everywhere
+    /// else they fail immediately so PDFKit's own recognizers proceed
+    /// unimpeded. The chrome tap is the mirror image: anywhere BUT a link.
     /// (PDFView is itself a UIGestureRecognizerDelegate on iOS — override,
     /// and defer to super for every recognizer that isn't ours.)
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer === chromeTap {
+            return onContentTap != nil
+                && linkTarget(at: gestureRecognizer.location(in: self)) == nil
+        }
         guard gestureRecognizer === linkTap || gestureRecognizer === linkPress else {
             return super.gestureRecognizerShouldBegin(gestureRecognizer)
         }
         return linkTarget(at: gestureRecognizer.location(in: self)) != nil
+    }
+
+    /// The chrome tap observes without claiming: it must fire alongside
+    /// PDFKit's own taps (selection-clearing etc.), never instead of them.
+    override func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
+        if gestureRecognizer === chromeTap || other === chromeTap {
+            return true
+        }
+        return super.gestureRecognizer(
+            gestureRecognizer, shouldRecognizeSimultaneouslyWith: other)
+    }
+
+    @objc private func handleChromeTap() {
+        guard chromeTap.state == .ended else { return }
+        onContentTap?()
     }
 
     @objc private func handleLinkTap() {
@@ -130,18 +169,6 @@ final class ReaderPDFViewIOS: PDFView {
         if pan.state == .began {
             onScrollInteraction?()
         }
-    }
-
-    /// Chrome toggle: a finished tap that our link recognizer rejected and
-    /// that produced no selection. Called from the deferred PDFKit taps'
-    /// completion is unreliable, so use touchesEnded on the view itself.
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        super.touchesEnded(touches, with: event)
-        guard let touch = touches.first, touch.tapCount == 1,
-              currentSelection == nil,
-              linkTarget(at: touch.location(in: self)) == nil
-        else { return }
-        onContentTap?()
     }
 
     private func linkTarget(at viewPoint: CGPoint) -> LinkTarget? {
@@ -176,6 +203,24 @@ final class ReaderPDFViewIOS: PDFView {
 
     @objc private func pageNext() {
         if canGoToNextPage { goToNextPage(nil) }
+    }
+}
+
+// MARK: - Link dragging (drop on the tab strip / split zone)
+
+extension ReaderPDFViewIOS: @MainActor UIDragInteractionDelegate {
+    func dragInteraction(
+        _ interaction: UIDragInteraction,
+        itemsForBeginning session: UIDragSession
+    ) -> [UIDragItem] {
+        let location = session.location(in: self)
+        guard let target = linkTarget(at: location),
+              target.remoteFileURL == nil  // same-document links only
+        else { return [] }
+        let payload = DragPayload.section(target.entry)
+        let item = UIDragItem(itemProvider: NSItemProvider(object: payload as NSString))
+        item.localObject = payload
+        return [item]
     }
 }
 

@@ -1,4 +1,3 @@
-#if os(macOS)
 import Observation
 import PDFKit
 
@@ -176,4 +175,3 @@ public final class FindController {
         }
     }
 }
-#endif

@@ -1,3 +1,4 @@
+import PDFKit
 import ReaderCore
 import ReaderUI
 import SwiftUI
@@ -38,24 +39,66 @@ enum DragPayload {
     }
 }
 
-/// The Cloth & Paper tab strip: book-tinted lozenge cells (title over
-/// deepest-breadcrumb-component), on the chrome strip band. Touch
-/// translations of the macOS strip: tap = activate, drag = reorder,
-/// long-press = the tab context menu, drop of a sidebar section = new tab.
+/// Page-0 cover thumbnails for tab caps and the tab preview panel — the
+/// iOS twin of macOS TabCoverThumbnails: rendered off-main on a private
+/// PDFDocument (never the shared LRU's), cached by path.
+enum TabCoverThumbIOS {
+    private nonisolated(unsafe) static let cache = NSCache<NSString, UIImage>()
+
+    @MainActor private static var inFlight: Set<String> = []
+
+    static func cached(forPath path: String) -> UIImage? {
+        cache.object(forKey: path as NSString)
+    }
+
+    /// Renders (or returns cached) page-0 thumbnail ~`height` points tall.
+    @MainActor
+    static func thumbnail(forPath path: String, height: CGFloat = 120) async -> UIImage? {
+        if let cached = cached(forPath: path) { return cached }
+        guard !inFlight.contains(path) else { return nil }
+        inFlight.insert(path)
+        defer { inFlight.remove(path) }
+        let image = await Task.detached(priority: .utility) { () -> UIImage? in
+            guard let document = PDFDocument(url: URL(fileURLWithPath: path)),
+                  let page = document.page(at: 0)
+            else { return nil }
+            let bounds = page.bounds(for: .cropBox)
+            guard bounds.height > 0 else { return nil }
+            let scale = (height * 2) / bounds.height  // 2x for retina
+            let size = CGSize(width: bounds.width * scale, height: height * 2)
+            return page.thumbnail(of: size, for: .cropBox)
+        }.value
+        if let image {
+            cache.setObject(image, forKey: path as NSString)
+        }
+        return image
+    }
+}
+
+/// The Cloth & Paper tab strip, matching the macOS main app: adjacent tabs
+/// of the SAME book share one tinted lozenge with the book's page-0 cover
+/// as a rounded left cap; cells inside show their section breadcrumb.
+/// Touch translations: tap = activate, tap the ACTIVE cell again = cover
+/// preview panel (the macOS hover panel), drag = reorder, long-press =
+/// context menu, drop of a sidebar section = new tab.
 struct TabStripIOS: View {
     let model: ReaderSessionModel
     let palette: DesignPalette
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(model.tabs) { tab in
-                    TabCellIOS(model: model, tab: tab, palette: palette)
+            HStack(spacing: 8) {
+                ForEach(groups) { group in
+                    TabGroupIOS(model: model, group: group, palette: palette)
                 }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
         }
+        // Color subviews (dividers, cover placeholders) have no intrinsic
+        // height — without a hard cap the horizontal scroller goes greedy
+        // and the strip fills the screen.
+        .frame(height: 50)
         .background(Color(platformColor: palette.stripBackground))
         // A sidebar section dropped on strip whitespace opens a new tab.
         .dropDestination(for: String.self) { items, _ in
@@ -67,30 +110,93 @@ struct TabStripIOS: View {
             return true
         }
     }
+
+    /// Adjacent same-book runs, macOS round-20 grouping.
+    private var groups: [TabGroup] {
+        var result: [TabGroup] = []
+        for tab in model.tabs {
+            if var last = result.last, last.path == tab.pathHint {
+                last.tabs.append(tab)
+                result[result.count - 1] = last
+            } else {
+                result.append(TabGroup(id: tab.id, path: tab.pathHint, tabs: [tab]))
+            }
+        }
+        return result
+    }
 }
 
-private struct TabCellIOS: View {
+struct TabGroup: Identifiable {
+    let id: UUID  // first tab's id — stable enough for strip diffing
+    let path: String
+    var tabs: [TabState]
+}
+
+private struct TabGroupIOS: View {
     let model: ReaderSessionModel
-    let tab: TabState
+    let group: TabGroup
     let palette: DesignPalette
 
+    @State private var cover: UIImage?
+    /// Tab whose cover preview panel is up (tap on the active cell).
+    @State private var previewTabID: UUID?
+
+    private var tint: Color {
+        Color(platformColor: BookTint.color(forPath: group.path))
+    }
+
     var body: some View {
+        HStack(spacing: 0) {
+            coverCap
+            ForEach(Array(group.tabs.enumerated()), id: \.element.id) { index, tab in
+                if index > 0 {
+                    Color(platformColor: palette.lozengeDivider)
+                        .frame(width: 1)
+                        .padding(.vertical, 5)
+                }
+                cell(for: tab)
+            }
+        }
+        .frame(height: 40)
+        .background(
+            RoundedRectangle(cornerRadius: 8).fill(tint.opacity(0.20))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .task(id: group.path) {
+            if let cached = TabCoverThumbIOS.cached(forPath: group.path) {
+                cover = cached
+            } else {
+                cover = await TabCoverThumbIOS.thumbnail(forPath: group.path)
+            }
+        }
+    }
+
+    /// Book page-0 as a full-height rounded left cap (macOS round 21).
+    @ViewBuilder
+    private var coverCap: some View {
+        Group {
+            if let cover {
+                Image(uiImage: cover)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                tint.opacity(0.6)
+            }
+        }
+        .frame(width: 26, height: 40)
+        .clipped()
+    }
+
+    private func cell(for tab: TabState) -> some View {
         let isActive = tab.id == model.activeTabID
         let isSplit = tab.id == model.splitTabID
-        let tint = Color(platformColor: BookTint.color(forPath: tab.pathHint))
 
-        HStack(spacing: 6) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(title)
-                    .font(.caption.weight(isActive ? .semibold : .medium))
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.caption2)
-                    .opacity(0.55)
-                    .lineLimit(1)
-                    .truncationMode(.tail)  // "3.1 Conv…", keep the number
-            }
-            .frame(maxWidth: 148, alignment: .leading)
+        return HStack(spacing: 6) {
+            Text(subtitle(for: tab))
+                .font(.caption.weight(isActive ? .semibold : .regular))
+                .lineLimit(1)
+                .truncationMode(.tail)  // "3.1 Conv…", keep the number
+                .frame(maxWidth: 140, alignment: .leading)
             if isSplit {
                 Image(systemName: "rectangle.split.2x1")
                     .font(.caption2)
@@ -104,28 +210,38 @@ private struct TabCellIOS: View {
                         .font(.caption2.weight(.semibold))
                         .opacity(0.55)
                 }
-                .accessibilityLabel("Close \(title)")
+                .accessibilityLabel("Close tab")
                 .hoverEffect(.highlight)
             }
         }
         .foregroundStyle(Color(platformColor: palette.ink))
         .padding(.horizontal, 10)
-        .padding(.vertical, 4)
+        .frame(maxHeight: .infinity)
         .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 8).fill(tint.opacity(0.20))
-                if isActive {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(platformColor: palette.activeCellFill))
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(Color(platformColor: palette.accent).opacity(0.55))
-                }
-            }
+            isActive
+                ? Color(platformColor: palette.activeCellFill)
+                : .clear
         )
-        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .contentShape(Rectangle())
         .hoverEffect(.highlight)
         .onTapGesture {
-            model.activate(tab.id)
+            if isActive {
+                // Tap the current tab = the macOS hover preview (the cells
+                // show sections, so this is where the book's name lives).
+                previewTabID = tab.id
+            } else {
+                model.activate(tab.id)
+            }
+        }
+        .popover(
+            isPresented: Binding(
+                get: { previewTabID == tab.id },
+                set: { if !$0 { previewTabID = nil } }
+            ),
+            attachmentAnchor: .rect(.bounds)
+        ) {
+            TabCoverPreviewIOS(path: group.path, tab: tab, palette: palette)
+                .presentationCompactAdaptation(.popover)
         }
         .contextMenu {
             Button {
@@ -147,14 +263,26 @@ private struct TabCellIOS: View {
                 Label("Close Tab", systemImage: "xmark")
             }
             Button(role: .destructive) {
+                model.closeTabs(leftOf: tab.id)
+            } label: {
+                Label("Close Tabs to the Left", systemImage: "arrow.left.to.line")
+            }
+            .disabled(!model.canCloseTabs(leftOf: tab.id))
+            Button(role: .destructive) {
+                model.closeTabs(rightOf: tab.id)
+            } label: {
+                Label("Close Tabs to the Right", systemImage: "arrow.right.to.line")
+            }
+            .disabled(!model.canCloseTabs(rightOf: tab.id))
+            Button(role: .destructive) {
                 model.closeOthers(keeping: tab.id)
             } label: {
                 Label("Close Other Tabs", systemImage: "xmark.square")
             }
         }
         .draggable(DragPayload.tab(tab.id))
-        // Dropping another tab on this cell reorders it to this position;
-        // dropping a sidebar section opens an adjacent tab.
+        // Dropping another tab on this cell reorders it here; dropping a
+        // sidebar section opens an adjacent tab.
         .dropDestination(for: String.self) { items, _ in
             guard let payload = items.first else { return false }
             if let draggedID = DragPayload.decodeTab(payload) {
@@ -173,18 +301,60 @@ private struct TabCellIOS: View {
         }
     }
 
-    private var title: String {
-        ((tab.pathHint as NSString).lastPathComponent as NSString)
-            .deletingPathExtension
-    }
-
-    /// Deepest breadcrumb component (round 21), falling back to the page.
-    private var subtitle: String {
+    /// Section breadcrumb (deepest component), falling back to the page.
+    /// The book's NAME lives on the cover cap + preview panel, like macOS.
+    private func subtitle(for tab: TabState) -> String {
         if let crumb = tab.breadcrumb,
            let deepest = crumb.components(separatedBy: " › ").last,
            !deepest.isEmpty {
             return deepest
         }
         return "p.\(tab.pageIndex + 1)"
+    }
+}
+
+/// The macOS hover panel, summoned by tapping the current tab: enlarged
+/// cover + book title + position.
+private struct TabCoverPreviewIOS: View {
+    let path: String
+    let tab: TabState
+    let palette: DesignPalette
+
+    @State private var cover: UIImage?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Group {
+                if let cover {
+                    Image(uiImage: cover)
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    Color(platformColor: BookTint.color(forPath: path)).opacity(0.4)
+                }
+            }
+            .frame(width: 84, height: 118)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            VStack(alignment: .leading, spacing: 6) {
+                Text(((path as NSString).lastPathComponent as NSString)
+                    .deletingPathExtension)
+                    .font(.headline)
+                    .lineLimit(3)
+                if let crumb = tab.breadcrumb, !crumb.isEmpty {
+                    Text(crumb)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
+                Text("p.\(tab.pageIndex + 1)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: 220, alignment: .leading)
+        }
+        .padding(14)
+        .task {
+            cover = await TabCoverThumbIOS.thumbnail(forPath: path)
+        }
     }
 }

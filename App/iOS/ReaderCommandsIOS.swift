@@ -5,6 +5,13 @@ import SwiftUI
 /// Presentation state the menu bar and the control bar both drive (the
 /// importer and library sheets live on ReaderView, but commands are
 /// scene-level — so the flags live here, above both).
+/// Which list the sidebar shows (macOS sidebar's icon tabs).
+enum SidebarMode: String, CaseIterable {
+    case contents = "Contents"
+    case bookmarks = "Bookmarks"
+    case find = "Find"
+}
+
 @MainActor
 @Observable
 final class ReaderChromeModel {
@@ -13,8 +20,16 @@ final class ReaderChromeModel {
     /// Sidebar panel (regular width) / sheet (compact). `--sidebar` is an
     /// automation hook (simctl can't tap), like macOS `--open`.
     var sidebarVisible = ProcessInfo.processInfo.arguments.contains("--sidebar")
+    var sidebarMode: SidebarMode = .contents
     /// iPhone reading mode: chrome fades while scrolling; tap toggles.
     var chromeHidden = false
+
+    /// The top-bar magnifier and ⌘F: find lives in the sidebar with
+    /// Contents/Bookmarks (owner feedback), not a separate surface.
+    func showFind() {
+        sidebarMode = .find
+        sidebarVisible = true
+    }
 }
 
 /// Hardware-keyboard commands for iPadOS (and iPhone with a keyboard):
@@ -96,7 +111,9 @@ struct ReaderCommandsIOS: Commands {
         }
 
         CommandMenu("Search") {
-            Button("Find in Document") { model.presentFind() }
+            // Sidebar Find mode (macOS ⌘F semantics: open the search
+            // sidebar), not the system find navigator.
+            Button("Find in Document") { chrome.showFind() }
                 .keyboardShortcut("f")
                 .disabled(model.activeTabID == nil)
         }

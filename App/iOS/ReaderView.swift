@@ -41,7 +41,7 @@ struct ReaderView: View {
             HStack(spacing: 0) {
                 if chrome.sidebarVisible, sizeClass == .regular,
                    model.activeTabID != nil {
-                    SidebarIOS(model: model, palette: palette)
+                    SidebarIOS(model: model, chrome: chrome, palette: palette)
                         .frame(width: 300)
                     Divider()
                         .overlay(Color(platformColor: palette.sidebarBorder))
@@ -73,7 +73,7 @@ struct ReaderView: View {
             librarySheet
         }
         .sheet(isPresented: compactSidebarBinding) {
-            SidebarIOS(model: model, palette: palette) {
+            SidebarIOS(model: model, chrome: chrome, palette: palette) {
                 chrome.sidebarVisible = false
             }
             .presentationDetents([.medium, .large])
@@ -81,6 +81,11 @@ struct ReaderView: View {
         .preferredColorScheme(theme.preferredColorScheme)
         .onChange(of: colorScheme, initial: true) { _, scheme in
             theme.noteSystemColorScheme(isDark: scheme == .dark)
+        }
+        .onChange(of: model.activeTabID) { _, _ in
+            // Never carry hidden chrome across a tab switch/close — the
+            // toggle affordance (tap the page) may not be obvious yet.
+            chrome.chromeHidden = false
         }
     }
 

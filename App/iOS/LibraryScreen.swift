@@ -24,6 +24,12 @@ struct LibraryScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingFolderPicker = false
     @State private var openError: String?
+    /// Item whose context menu asked for a new tag/collection; the alert's
+    /// text field creates it and immediately applies it to that book.
+    @State private var newTagFor: LibraryItem?
+    @State private var newTagName = ""
+    @State private var newCollectionFor: LibraryItem?
+    @State private var newCollectionName = ""
 
     private static let gridColumns = [GridItem(.adaptive(minimum: 110), spacing: 12)]
 
@@ -67,6 +73,52 @@ struct LibraryScreen: View {
         } message: {
             Text(openError ?? "")
         }
+        .alert(
+            "New Tag",
+            isPresented: Binding(
+                get: { newTagFor != nil },
+                set: { if !$0 { newTagFor = nil } }
+            )
+        ) {
+            TextField("Tag name", text: $newTagName)
+            Button("Create & Apply") {
+                createTagAndApply()
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert(
+            "New Collection",
+            isPresented: Binding(
+                get: { newCollectionFor != nil },
+                set: { if !$0 { newCollectionFor = nil } }
+            )
+        ) {
+            TextField("Collection name", text: $newCollectionName)
+            Button("Create & Add") {
+                createCollectionAndApply()
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private func createTagAndApply() {
+        let name = newTagName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, let item = newTagFor else { return }
+        library.createTag(name: name)
+        if let tag = library.allTags.first(where: { $0.name == name }) {
+            library.toggleTag(tag, for: item)
+        }
+        newTagName = ""
+    }
+
+    private func createCollectionAndApply() {
+        let name = newCollectionName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, let item = newCollectionFor else { return }
+        library.createCollection(name: name)
+        if let collection = library.collections.first(where: { $0.name == name }) {
+            library.toggleCollection(collection, for: item)
+        }
+        newCollectionName = ""
     }
 
     // MARK: - First-run setup
@@ -230,7 +282,7 @@ struct LibraryScreen: View {
             open(item, at: nil)
         } label: {
             VStack(alignment: .leading, spacing: 6) {
-                CoverView(url: item.coverURL)
+                CoverView(item: item)
                     .frame(height: 150)
                     .frame(maxWidth: .infinity)
                     .overlay {
@@ -276,41 +328,50 @@ struct LibraryScreen: View {
 
     // MARK: - Tags & collections
 
-    @ViewBuilder
     private func tagToggleMenu(for item: LibraryItem) -> some View {
-        let tags = library.allTags
-        if !tags.isEmpty {
-            Menu("Tags") {
-                ForEach(tags, id: \.self) { tag in
-                    Button {
-                        library.toggleTag(tag, for: item)
-                    } label: {
-                        if library.hasTag(tag, item: item) {
-                            Label(tag.name, systemImage: "checkmark")
-                        } else {
-                            Text(tag.name)
-                        }
+        Menu("Tags") {
+            ForEach(library.allTags, id: \.self) { tag in
+                Button {
+                    library.toggleTag(tag, for: item)
+                } label: {
+                    if library.hasTag(tag, item: item) {
+                        Label(tag.name, systemImage: "checkmark")
+                    } else {
+                        Text(tag.name)
                     }
                 }
+            }
+            if !library.allTags.isEmpty {
+                Divider()
+            }
+            Button {
+                newTagFor = item
+            } label: {
+                Label("New Tag…", systemImage: "plus")
             }
         }
     }
 
-    @ViewBuilder
     private func collectionToggleMenu(for item: LibraryItem) -> some View {
-        if !library.collections.isEmpty {
-            Menu("Collections") {
-                ForEach(library.collections, id: \.self) { collection in
-                    Button {
-                        library.toggleCollection(collection, for: item)
-                    } label: {
-                        if library.isInCollection(collection, item: item) {
-                            Label(collection.name, systemImage: "checkmark")
-                        } else {
-                            Text(collection.name)
-                        }
+        Menu("Collections") {
+            ForEach(library.collections, id: \.self) { collection in
+                Button {
+                    library.toggleCollection(collection, for: item)
+                } label: {
+                    if library.isInCollection(collection, item: item) {
+                        Label(collection.name, systemImage: "checkmark")
+                    } else {
+                        Text(collection.name)
                     }
                 }
+            }
+            if !library.collections.isEmpty {
+                Divider()
+            }
+            Button {
+                newCollectionFor = item
+            } label: {
+                Label("New Collection…", systemImage: "plus")
             }
         }
     }
@@ -391,29 +452,37 @@ struct LibraryScreen: View {
     }
 }
 
-/// Async cover thumbnail with a placeholder.
+/// Async cover thumbnail. Books without a cover image render their first
+/// page (CoverThumb's fallback); while loading — or when even that fails —
+/// the cell shows the book's generated-cover tint with its title, matching
+/// the macOS library.
 private struct CoverView: View {
-    let url: URL?
+    let item: LibraryItem
     @State private var image: UIImage?
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(.quaternary)
             if let image {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(.quaternary)
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
                     .clipShape(RoundedRectangle(cornerRadius: 6))
             } else {
-                Image(systemName: "book.closed")
-                    .font(.title)
-                    .foregroundStyle(.secondary)
+                let (tint, lightText) = BookTint.cover(forPath: item.fileURL.path)
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color(platformColor: tint).opacity(0.85))
+                Text(item.title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(lightText ? .white : Color(hue: 0.1, saturation: 0.5, brightness: 0.25))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(4)
+                    .padding(8)
             }
         }
-        .task(id: url) {
-            guard let url else { return }
-            image = await CoverThumb.thumbnail(for: url)
+        .task(id: item.id) {
+            image = await CoverThumb.thumbnail(for: item.coverURL ?? item.fileURL)
         }
     }
 }
