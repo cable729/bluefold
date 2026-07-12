@@ -51,12 +51,21 @@ the repo goes public.
   and Collections trees + create/rename/color/delete) shipped 2026-07-12
   (M16f). Not yet: drag a book onto a sidebar tag/collection to tag it
   (macOS-style), tag drag-to-reparent, multi-select bulk tagging.
-- **iPad tab drag-reorder — VERIFY.** Wiring exists (`.draggable` +
-  `.dropDestination` on tab cells, `move(tabID:before:)`); the standard
-  long-press-drag-alongside-context-menu pattern. Owner reported it not
-  working pre-grouping; needs a hand-test on device (simctl can't
-  synthesize drags). If still flaky, the tap/contextMenu/draggable gesture
-  disambiguation on the grouped cells is the suspect.
+- **iOS tab drag-reorder — STILL FRAGILE.** `.draggable` +
+  `.dropDestination` + `.contextMenu` on the grouped/clipped tab cells;
+  `move(tabID:before:)` logic is now correct. Owner has reported it not
+  working across rounds. The SwiftUI draggable+contextMenu combo in a
+  horizontally-clipped ScrollView is the suspect; the reliable fix is a
+  UIKit `UICollectionView`-backed strip (like the macOS AppKit
+  TabStripView) — its own round. Verify on device first.
+- **iOS PDF share EXTENSION (vs. open-in).** Round 5 registered document
+  types + open-in-place + `bluefold://` (Bluefold now appears in the share
+  sheet / "Open in…"). A true Share Extension target (accepting a PDF
+  shared from Safari/Mail without leaving the other app) is a separate
+  target + pbxproj work — not done.
+- **Cross-device tags need CloudKit sync (M15).** iOS and macOS have
+  separate `library.db`; tags/collections/reading-state don't propagate
+  until sync is activated (signing steps in docs/SYNC.md).
 - **M17 — XCUITest smoke suite + CI job B** (xcodebuild macOS app tests +
   iOS simulator build). Launch-arg fixtures already exist (`--open`,
   `BLUEFOLD_SESSION_DIR`).

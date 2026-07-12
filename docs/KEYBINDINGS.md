@@ -233,6 +233,11 @@ button. The sidebar filter field stands in for the ⌘P in-book palette;
 the status-bar scroll-to-top gesture pushes jump history (⌘[ returns).
 On iPhone, a **lock button** in the top bar keeps the toolbars visible
 (the chrome otherwise auto-hides while reading and toggles on a page tap).
+The reader sidebar (Contents / Bookmarks / Find) is reachable on iPhone
+too via the top-bar sidebar button (presented as a sheet); its Contents
+tab has a **follow-current-section toggle** (the location icon). Opening a
+book resumes its last-read page. Bluefold registers as a PDF viewer /
+open-in-place handler, so it appears in the iOS share sheet and "Open in…".
 
 ⌘O and ⌘P are intentionally UNBOUND on iOS — reserved for the open/in-book
 palettes so the chords mean the same thing on every platform when those

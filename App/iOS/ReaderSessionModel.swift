@@ -661,14 +661,16 @@ final class ReaderSessionModel {
         tabs.move(fromOffsets: source, toOffset: destination)
     }
 
-    /// Drop-based reorder: places `tabID` at `before`'s position.
+    /// Drop-based reorder: places `tabID` immediately before `targetID`.
     func move(tabID: UUID, before targetID: UUID) {
         guard tabID != targetID,
-              let from = tabs.firstIndex(where: { $0.id == tabID }),
-              let to = tabs.firstIndex(where: { $0.id == targetID })
+              let from = tabs.firstIndex(where: { $0.id == tabID })
         else { return }
         let tab = tabs.remove(at: from)
-        tabs.insert(tab, at: from < to ? to : to)
+        // Recompute the target index AFTER the removal so the insertion
+        // lands right before the target regardless of drag direction.
+        let insertAt = tabs.firstIndex(where: { $0.id == targetID }) ?? tabs.count
+        tabs.insert(tab, at: insertAt)
     }
 
     /// Duplicates a tab (position, zoom, and history travel) adjacent to

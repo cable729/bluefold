@@ -610,6 +610,36 @@ below is self-contained.
   the freeze fix confirmed live. Deferred (BACKLOG): desktop 2-D grid,
   iPad tab drag-reorder verification, tag drag-to-reparent, sidebar
   drag-to-tag.
+- [~] **M16g** Round 5 (2026-07-12, big owner-feedback batch): **reading
+  state** — opening a book resumes its last-viewed page on every platform
+  (`LibraryModel.lastReadEntry`; macOS `openItem` + iOS library-open use
+  it; iOS now WRITES reading_state on capture/save, which it never did).
+  **History/nav fixes** — `PDFView.currentNavEntry()` falls back to
+  `currentPage` when `currentDestination` is briefly nil (a link tap no
+  longer sends "back" to the document top); disabled back/forward guard
+  their actions (a disabled iOS Menu still fires primaryAction); the
+  status-bar **scroll-to-top gesture removed** (`scrollsToTop = false`);
+  background-opened tabs get their section breadcrumb. **Split polish** —
+  panes/gaps use the theme background (no white flash); the divider drag
+  is **deferred** (a ghost accent line tracks the finger; panes resize
+  once on release, killing the per-frame PDF relayout jitter); iPhone can
+  drop a tab/section/link on the BOTTOM edge to split top/bottom and has a
+  "Split Bottom" tab-menu item. **iPad display-mode ("scroll lock") fix**
+  was M16f. **Follow-section** — collapses everything except the current
+  section's ancestor path (both platforms); iOS gained a follow toggle.
+  **Library** — Finder-style layouts (Large/Small covers, List; toolbar
+  menu, persisted), search results ordered Tags & Collections → books →
+  in-book hits, and drag a book onto a sidebar tag/collection to apply it.
+  **System integration** — `App/iOS/Info.plist` (merged like macOS)
+  registers Bluefold as a PDF viewer / open-in-place + share target and
+  the `bluefold://` scheme; `onOpenURL` opens incoming PDFs. Verified on
+  both sims (split theme bg, list layout, library sidebar tree). NEEDS an
+  owner device hand-test (simctl can't drag/tap): tab drag-reorder (wiring
+  + `move(before:)` fixed, but the SwiftUI draggable+contextMenu combo is
+  fragile in a grouped clipped strip — a UIKit strip is the fallback),
+  divider-drag feel, drop-to-split, share-sheet appearance, reading-state
+  resume. Cross-device tag visibility still needs CloudKit sync (M15, not
+  activated — iOS/macOS have separate library.db).
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `BluefoldUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but locally synthesized input can't drive them reliably (see XCUITest notes below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI for end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest$(date +%s)`; full-suite local runs can degrade mid-run (see XCUITest notes below) — spot-check single tests locally, full passes belong to CI. `VERIFY_UITESTS=1 ./scripts/verify.sh` runs the suite as opt-in step 5. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
 - [~] **M18** code side DONE (2026-07-08): Settings window ⌘, (AppSettings:
   LRU capacity live-applied via SessionCoordinator, indexing + OCR toggles
