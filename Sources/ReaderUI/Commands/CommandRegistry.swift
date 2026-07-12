@@ -408,7 +408,11 @@ public enum CommandRegistry {
                 id: id, title: title, category: .view,
                 chords: chords,
                 isAvailable: { $0.model?.activeTab != nil },
-                isOn: { $0.model?.splitTabID != nil && $0.model?.splitSide == side },
+                isOn: {
+                    $0.model?.splitTabID != nil
+                        && $0.model?.splitAxis == .horizontal
+                        && $0.model?.splitSide == side
+                },
                 run: { context in
                     guard let model = context.model else { return }
                     if model.splitTabID != nil {
@@ -419,6 +423,33 @@ public enum CommandRegistry {
                 }
             ))
         }
+        // Split Down mirrors Split Right on the vertical axis: no split →
+        // duplicate the active tab into a top/bottom split (primary on top);
+        // any split open → close it. Unbound (owner assigns a chord).
+        commands.append(ReaderCommand(
+            id: "view.splitDown", title: "Split Down", category: .view,
+            isAvailable: { $0.model?.activeTab != nil },
+            isOn: { $0.model?.splitTabID != nil && $0.model?.splitAxis == .vertical },
+            run: { context in
+                guard let model = context.model else { return }
+                if model.splitTabID != nil {
+                    model.closeSplit()
+                } else {
+                    model.duplicateActiveTabIntoSplit(axis: .vertical)
+                }
+            }
+        ))
+        // Flips an open split between side-by-side and top/bottom in place —
+        // no tab moves. Unbound; unavailable with no split.
+        commands.append(ReaderCommand(
+            id: "view.splitOrientationToggle", title: "Toggle Split Orientation",
+            category: .view,
+            isAvailable: { $0.model?.splitTabID != nil },
+            run: { context in
+                guard let model = context.model, model.splitTabID != nil else { return }
+                model.setSplitAxis(model.splitAxis == .horizontal ? .vertical : .horizontal)
+            }
+        ))
         commands.append(ReaderCommand(
             id: "view.closeSplit", title: "Close Split", category: .view,
             isAvailable: { $0.model?.splitTabID != nil },

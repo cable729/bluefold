@@ -139,6 +139,9 @@ public final class ReaderWindowModel {
             // Files written before sided splits carry no side: trailing
             // (right) is what those files meant.
             splitSide = state.splitSide ?? .trailing
+            // Files written before vertical splits carry no axis: horizontal
+            // (side-by-side) is the only layout those files could mean.
+            splitAxis = state.splitAxis ?? .horizontal
             pendingFrame = state.frame
             windowFrame = state.frame
             refreshPins()
@@ -151,6 +154,7 @@ public final class ReaderWindowModel {
             id: windowID, frame: windowFrame, tabs: tabs,
             activeTabID: activeTabID, splitTabID: splitTabID,
             splitSide: splitTabID == nil ? nil : splitSide,
+            splitAxis: splitTabID == nil ? nil : splitAxis,
             splitTabIDs: splitTabIDs.isEmpty ? nil : splitTabIDs
         )
     }
@@ -219,6 +223,12 @@ public final class ReaderWindowModel {
     /// split lands where the last one was.
     public private(set) var splitSide: SplitSide = .trailing
 
+    /// Axis the split divides along: `.horizontal` = side-by-side (respects
+    /// `splitSide`), `.vertical` = stacked top/bottom (primary on top, split
+    /// below; `splitSide` is ignored). Only meaningful while `splitTabID` is
+    /// non-nil; kept across closeSplit so a reopened split keeps orientation.
+    public private(set) var splitAxis: SplitAxis = .horizontal
+
     public var splitTab: TabState? {
         guard let splitTabID else { return nil }
         return tabs.first { $0.id == splitTabID }
@@ -252,7 +262,9 @@ public final class ReaderWindowModel {
     /// primary pane's active tab first moves that pane's activation to
     /// another of its tabs — the primary strip must never end up empty
     /// (two live views over one TabState would fight over its position).
-    public func openInSplit(tabID: UUID, side: SplitSide = .trailing) {
+    public func openInSplit(
+        tabID: UUID, side: SplitSide = .trailing, axis: SplitAxis = .horizontal
+    ) {
         guard tabs.contains(where: { $0.id == tabID }) else { return }
         if !splitTabIDs.contains(tabID) {
             if tabID == activeTabID {
@@ -266,6 +278,7 @@ public final class ReaderWindowModel {
         }
         splitTabID = tabID
         splitSide = side
+        splitAxis = axis
         focusedPane = .split
         refreshPins()
         refreshBookmarks()
@@ -278,7 +291,9 @@ public final class ReaderWindowModel {
     /// works even in a single-tab window, unlike `openInSplit`, because the
     /// duplicate provides its own partner.
     @discardableResult
-    public func duplicateActiveTabIntoSplit(side: SplitSide = .trailing) -> UUID? {
+    public func duplicateActiveTabIntoSplit(
+        side: SplitSide = .trailing, axis: SplitAxis = .horizontal
+    ) -> UUID? {
         guard
             let activeTabID,
             let index = tabs.firstIndex(where: { $0.id == activeTabID })
@@ -289,6 +304,7 @@ public final class ReaderWindowModel {
         splitTabIDs.append(copy.id)
         splitTabID = copy.id
         splitSide = side
+        splitAxis = axis
         focusedPane = .split
         refreshPins()
         refreshBreadcrumb(tabID: copy.id)
@@ -312,6 +328,14 @@ public final class ReaderWindowModel {
     public func moveSplitToOtherSide() {
         guard splitTabID != nil else { return }
         splitSide = splitSide == .trailing ? .leading : .trailing
+        onMutation?()
+    }
+
+    /// Re-orients an open split between side-by-side (`.horizontal`) and
+    /// stacked top/bottom (`.vertical`). No-op when nothing is split.
+    public func setSplitAxis(_ axis: SplitAxis) {
+        guard splitTabID != nil, splitAxis != axis else { return }
+        splitAxis = axis
         onMutation?()
     }
 

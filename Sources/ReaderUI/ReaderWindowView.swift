@@ -199,20 +199,32 @@ public struct ReaderWindowView: View {
             if let document = model.provider.document(for: model.url(for: tab)) {
                 if let splitTab = model.splitTab,
                    let splitDocument = model.provider.document(for: model.url(for: splitTab)) {
-                    // The split pane sits leading OR trailing of the primary
-                    // (Split Left / Split Right). EACH pane carries its own
-                    // tab bar; the non-focused pane dims a whisper so focus
-                    // is visible without any header chrome.
-                    HSplitView {
-                        if model.splitSide == .leading {
+                    // Two panes. EACH pane carries its own HORIZONTAL tab bar
+                    // (never stacked); the non-focused pane dims a whisper so
+                    // focus is visible without any header chrome. Horizontal
+                    // axis = side-by-side, respecting Split Left/Right;
+                    // vertical axis = stacked, primary on top (side ignored).
+                    if model.splitAxis == .vertical {
+                        VSplitView {
+                            pane(tab: tab, document: document, role: .primary)
+                                .frame(minWidth: 200, maxWidth: .infinity,
+                                       minHeight: 150, maxHeight: .infinity)
                             pane(tab: splitTab, document: splitDocument, role: .split)
-                                .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+                                .frame(minWidth: 200, maxWidth: .infinity,
+                                       minHeight: 150, maxHeight: .infinity)
                         }
-                        pane(tab: tab, document: document, role: .primary)
-                            .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
-                        if model.splitSide == .trailing {
-                            pane(tab: splitTab, document: splitDocument, role: .split)
+                    } else {
+                        HSplitView {
+                            if model.splitSide == .leading {
+                                pane(tab: splitTab, document: splitDocument, role: .split)
+                                    .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+                            }
+                            pane(tab: tab, document: document, role: .primary)
                                 .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+                            if model.splitSide == .trailing {
+                                pane(tab: splitTab, document: splitDocument, role: .split)
+                                    .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+                            }
                         }
                     }
                 } else {
