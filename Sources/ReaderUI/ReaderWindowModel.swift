@@ -604,21 +604,43 @@ public final class ReaderWindowModel {
     // MARK: - Outline (cached per live document)
 
     @ObservationIgnored private var outlineCacheKey: ObjectIdentifier?
-    @ObservationIgnored private var outlineCacheNodes: [OutlineNode] = []
+    /// One tree per resident document, shared by everything that consumes
+    /// outline nodes — the sidebar AND the section-stop index. Node ids are
+    /// minted per build (`OutlineNode.id = UUID()`), so two separately built
+    /// trees of the same document NEVER share ids; when the stops carried
+    /// ids from their own private tree, the sidebar's follow-mode highlight
+    /// and auto-expansion compared against ids it had never rendered and
+    /// silently matched nothing (round 22 bug). Keyed per document because
+    /// a split shows two documents at once.
+    @ObservationIgnored private var outlineTreeCache: [ObjectIdentifier: [OutlineNode]] = [:]
     /// Page index → outline ancestor path, memoized per document (search can
     /// produce hundreds of hits; walking the outline per row is wasteful).
     @ObservationIgnored private var breadcrumbCache: [Int: [String]] = [:]
+
+    /// The shared tree for `document`, built on first use.
+    private func outlineTree(for document: PDFDocument) -> [OutlineNode] {
+        let key = ObjectIdentifier(document)
+        if let cached = outlineTreeCache[key] { return cached }
+        if outlineTreeCache.count >= 4 {  // stale-document backstop
+            outlineTreeCache.removeAll()
+            // Stops embed node ids of the trees just dropped; rebuilding a
+            // tree mints fresh ids, so stale stops would match nothing.
+            sectionStopsCache.removeAll()
+        }
+        let tree = OutlineNode.tree(from: document)
+        outlineTreeCache[key] = tree
+        return tree
+    }
 
     /// The outline tree, built once per live document (bodies re-evaluate
     /// constantly; walking PDFOutline each time is wasteful).
     func outline(for document: PDFDocument) -> [OutlineNode] {
         let key = ObjectIdentifier(document)
         if key != outlineCacheKey {
-            outlineCacheNodes = OutlineNode.tree(from: document)
             outlineCacheKey = key
             breadcrumbCache = [:]
         }
-        return outlineCacheNodes
+        return outlineTree(for: document)
     }
 
     /// Outline ancestor path of the page, root first — e.g.
@@ -635,8 +657,8 @@ public final class ReaderWindowModel {
 
     // MARK: - Live position (breadcrumbs while scrolling — round 15)
 
-    /// Ordered section stops per document. Keyed separately from the
-    /// single-slot outline cache: a split can show TWO documents, and
+    /// Ordered section stops per document (derived from the shared
+    /// `outlineTreeCache` trees): a split can show TWO documents, and
     /// alternating scroll ticks must not rebuild anything.
     @ObservationIgnored
     private var sectionStopsCache: [ObjectIdentifier: [OutlineNode.SectionStop]] = [:]
@@ -647,7 +669,10 @@ public final class ReaderWindowModel {
         if sectionStopsCache.count >= 4 {  // stale-document backstop
             sectionStopsCache.removeAll()
         }
-        let stops = OutlineNode.sectionStops(in: OutlineNode.tree(from: document))
+        // Built from the SHARED tree, never a private one: the stop node
+        // ids drive the sidebar's follow-mode highlight, which compares
+        // them against the ids of `outline(for:)` (see outlineTreeCache).
+        let stops = OutlineNode.sectionStops(in: outlineTree(for: document))
         sectionStopsCache[key] = stops
         return stops
     }

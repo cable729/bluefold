@@ -79,11 +79,23 @@ struct ReaderStatusBar: View {
         return Button {
             model.setDisplayMode(mode.rawValue)
         } label: {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .regular))
+            layoutIcon(icon)
                 .foregroundStyle(isOn ? palette.accentColor : palette.inkColor.opacity(0.5))
         }
         .instantHint(hint)
+    }
+
+    /// Uniform glyph box for the layout + fit icons. SF Symbols in this
+    /// row have unequal natural sizes — portrait-orientation glyphs are
+    /// taller: at 13 pt "rectangle.portrait" measures 14×16 while its
+    /// landscape neighbors are all 14 tall — so "Single page" read
+    /// visibly bigger than the rest (owner round 22). Fitting every
+    /// glyph into one fixed frame equalizes their visual height.
+    private func layoutIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 18, height: 14)
     }
 
     private var fitButtons: some View {
@@ -91,14 +103,14 @@ struct ReaderStatusBar: View {
             Button {
                 model.fitWidth()
             } label: {
-                Image(systemName: "arrow.left.and.right.square")
+                layoutIcon("arrow.left.and.right.square")
                     .foregroundStyle(palette.inkColor.opacity(0.5))
             }
             .instantHint("Fit width")
             Button {
                 model.fitHeight()
             } label: {
-                Image(systemName: "arrow.up.and.down.square")
+                layoutIcon("arrow.up.and.down.square")
                     .foregroundStyle(palette.inkColor.opacity(0.5))
             }
             .instantHint("Fit height")

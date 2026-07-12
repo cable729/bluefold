@@ -117,4 +117,112 @@ struct LivePositionTests {
         #expect(model.tabs.count == 1)
     }
 }
+
+/// Round 22: sidebar follow mode matched nothing — the section stops were
+/// built from a PRIVATE outline tree, and `OutlineNode.id` is minted per
+/// build, so the live section id never equaled any id the sidebar rendered.
+/// These pin the fix: one shared tree per document, stops derived from it.
+@Suite("Sidebar follow – shared outline identity")
+@MainActor
+struct SidebarFollowIdentityTests {
+    /// Pages 0–3 with a nested outline: Chapter 1 (p.1) > 1.A (p.2).
+    private func makeOutlinedDocument() -> PDFDocument {
+        let document = PDFDocument()
+        for i in 0..<4 {
+            document.insert(PDFPage(), at: i)
+        }
+        let root = PDFOutline()
+        let chapter = PDFOutline()
+        chapter.label = "Chapter 1"
+        chapter.destination = PDFDestination(
+            page: document.page(at: 1)!, at: CGPoint(x: 0, y: 700)
+        )
+        root.insertChild(chapter, at: 0)
+        let section = PDFOutline()
+        section.label = "1.A"
+        section.destination = PDFDestination(
+            page: document.page(at: 2)!, at: CGPoint(x: 0, y: 650)
+        )
+        chapter.insertChild(section, at: 0)
+        document.outlineRoot = root
+        return document
+    }
+
+    private func allIDs(in nodes: [OutlineNode]) -> Set<UUID> {
+        var ids: Set<UUID> = []
+        func walk(_ nodes: [OutlineNode]) {
+            for node in nodes {
+                ids.insert(node.id)
+                walk(node.children ?? [])
+            }
+        }
+        walk(nodes)
+        return ids
+    }
+
+    @Test func sectionStopIDsExistInTheSidebarTree() {
+        let model = ReaderWindowModel(store: nil)
+        let document = makeOutlinedDocument()
+
+        let sidebarIDs = allIDs(in: model.outline(for: document))
+        let stopIDs = Set(model.sectionStops(for: document).map(\.nodeID))
+
+        #expect(!stopIDs.isEmpty)
+        #expect(stopIDs.isSubset(of: sidebarIDs))
+    }
+
+    @Test func sectionStopIDsMatchRegardlessOfBuildOrder() {
+        // The scroll observer can request stops BEFORE the sidebar first
+        // renders the tree — the shared cache must serve both orders.
+        let model = ReaderWindowModel(store: nil)
+        let document = makeOutlinedDocument()
+
+        let stopIDs = Set(model.sectionStops(for: document).map(\.nodeID))
+        let sidebarIDs = allIDs(in: model.outline(for: document))
+
+        #expect(!stopIDs.isEmpty)
+        #expect(stopIDs.isSubset(of: sidebarIDs))
+    }
+
+    @Test func ancestorsOfTheLiveSectionAreExpandable() {
+        // The sidebar reveal path: expand `ancestorIDs(of: liveID)` in the
+        // rendered tree. With mismatched trees this returned [] and the
+        // current section stayed collapsed under its chapter.
+        let model = ReaderWindowModel(store: nil)
+        let document = makeOutlinedDocument()
+
+        let outline = model.outline(for: document)
+        let stops = model.sectionStops(for: document)
+        // Deep into page 2 → the nested "1.A" stop.
+        let stop = OutlineNode.currentStop(
+            in: stops, at: NavEntry(pageIndex: 2, point: CGPoint(x: 0, y: 600))
+        )
+        #expect(stop?.path == ["Chapter 1", "1.A"])
+
+        let ancestors = OutlineNode.ancestorIDs(of: stop!.nodeID, in: outline)
+        #expect(ancestors == [outline[0].id], "1.A reveals by expanding Chapter 1")
+    }
+
+    @Test func noteLivePositionPublishesAnIDTheSidebarRenders() throws {
+        // Full pipeline: scroll tick → noteLivePosition → currentSectionNodeID
+        // must identify a node of the tree the sidebar draws.
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SidebarFollowTests-\(UUID().uuidString).pdf")
+        #expect(makeOutlinedDocument().write(to: url))
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let model = ReaderWindowModel(store: nil)
+        let document = try #require(model.provider.document(for: url))
+        let tabID = model.openTab(fileURL: url)
+
+        model.noteLivePosition(
+            tabID: tabID, entry: NavEntry(pageIndex: 2, point: CGPoint(x: 0, y: 600))
+        )
+
+        let liveID = try #require(model.currentSectionNodeID)
+        let outline = model.outline(for: document)
+        #expect(allIDs(in: outline).contains(liveID))
+        #expect(!OutlineNode.ancestorIDs(of: liveID, in: outline).isEmpty)
+    }
+}
 #endif
