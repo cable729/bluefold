@@ -458,6 +458,10 @@ final class TabStripNSView: NSView {
     // MARK: - Cover hover preview hub
 
     private var previewTask: Task<Void, Never>?
+    /// The tab the pointer is currently over — exit events for anything
+    /// else are stale (AppKit doesn't order exit-old/enter-new between
+    /// sibling tracking areas).
+    private var hoveredTabID: UUID?
 
     /// Cells and lozenge caps route hovers here: ANY spot on a tab
     /// previews its book — cover, title, and that tab's current chapter
@@ -468,16 +472,39 @@ final class TabStripNSView: NSView {
     }
 
     func noteHover(item: TabDisplayItem, entered: Bool) {
-        previewTask?.cancel()
-        previewTask = nil
-        guard entered, drag == nil else {
-            if !entered { TabCoverPreviewPanel.shared.hide() }
+        guard drag == nil else {
+            previewTask?.cancel()
+            previewTask = nil
+            TabCoverPreviewPanel.shared.hide()
             return
         }
-        previewTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(280))
-            guard !Task.isCancelled, let self, self.drag == nil else { return }
-            self.presentPreview(for: item)
+        if entered {
+            hoveredTabID = item.id
+            previewTask?.cancel()
+            if TabCoverPreviewPanel.shared.isVisible {
+                // Crossing between tabs while the panel is up UPDATES it in
+                // place — no close-and-reopen blink (owner round 23).
+                presentPreview(for: item)
+            } else {
+                previewTask = Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(280))
+                    guard !Task.isCancelled, let self, self.drag == nil else { return }
+                    self.presentPreview(for: item)
+                }
+            }
+        } else {
+            // A stale exit (the pointer already entered a neighbor whose
+            // enter fired first) must not touch the panel.
+            guard hoveredTabID == item.id else { return }
+            hoveredTabID = nil
+            previewTask?.cancel()
+            // Grace period: exit→enter between adjacent cells arrives as
+            // two events; hiding instantly made the panel blink.
+            previewTask = Task {
+                try? await Task.sleep(for: .milliseconds(140))
+                guard !Task.isCancelled else { return }
+                TabCoverPreviewPanel.shared.hide()
+            }
         }
     }
 
@@ -601,6 +628,7 @@ final class TabStripNSView: NSView {
             return
         }
         clearMultiSelection()
+        previewTask?.cancel()  // a pending show must not fire post-click
         TabCoverPreviewPanel.shared.hide()
         actions.select(item.tabID)
         let inStrip = convert(event.locationInWindow, from: nil)

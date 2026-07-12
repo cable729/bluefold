@@ -363,6 +363,28 @@ struct TabStripDragTests {
         #expect(scroll.trailingFade.isHidden)
     }
 
+    @Test func previewPanelUpdatesInPlaceWithoutClosing() {
+        // Round 23: crossing tabs while the preview is up must UPDATE the
+        // panel, never orderOut/orderFront it (the blink the owner saw).
+        let panel = TabCoverPreviewPanel.shared
+        defer { panel.hide() }
+        panel.show(
+            path: "/tmp/a.pdf", title: "Book A", chapter: "Ch 1",
+            tint: .systemRed, palette: .light,
+            belowTopLeft: CGPoint(x: 100, y: 500)
+        )
+        #expect(panel.isVisible)
+        #expect(panel.shownPath == "/tmp/a.pdf")
+
+        panel.show(
+            path: "/tmp/a.pdf", title: "Book A", chapter: "Ch 2",
+            tint: .systemRed, palette: .light,
+            belowTopLeft: CGPoint(x: 100, y: 500)
+        )
+        #expect(panel.isVisible, "same-book crossing keeps the panel up")
+        #expect(panel.shownPath == "/tmp/a.pdf")
+    }
+
     @Test func cellsShowTheDeepestSectionStartFirst() {
         // Owner round 21: "13.2 Algebraic…" — the deepest section's
         // BEGINNING, never a head-truncated "…aic Extensions".
