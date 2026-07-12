@@ -209,8 +209,18 @@ macOS table so nothing has to be relearned:
 | ⌘⇧[ / ⌘⇧] | Previous / Next tab (wraps) |
 | ⌘1 … ⌘8, ⌘9 | Go to tab by position; ⌘9 = LAST tab |
 | ⌥⌘1 … ⌥⌘4 | Single Page / Continuous / Two Pages / Two Pages Continuous |
+| ⌘B | Show/hide sidebar (Contents + Bookmarks) |
+| ⌘\ | Split Right (toggle) — duplicates the active tab into a trailing split; closes an open split |
 | ⌘F | Find in Document (system UIFindInteraction) |
+| ⌘D | Bookmark This Page |
 | ← / → | Previous / Next page (`ReaderPDFViewIOS.keyCommands`, priority over scroll; same bare-arrow rule as macOS) |
+
+Touch translations of pointer-only macOS gestures: ⌘-click a link =
+⌘-tap (hardware keyboard) or long-press → "Open in New Tab"; tab
+right-click menu = long-press the tab cell; back/forward right-click
+history menus = long-press the arrows; drag-to-split = drag a tab cell or
+sidebar section onto the trailing edge of the page. The sidebar filter
+field stands in for the ⌘P in-book palette.
 
 ⌘O and ⌘P are intentionally UNBOUND on iOS — reserved for the open/in-book
 palettes so the chords mean the same thing on every platform when those

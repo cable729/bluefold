@@ -22,10 +22,17 @@ the repo goes public.
   **iPadOS port.** Hardware-keyboard commands (menu bar / hold-⌘ HUD,
   chords mirror KEYBINDINGS.md), page layouts honored per tab + layout
   menu, system find (UIFindInteraction, ⌘F), ←/→ hardware-arrow paging,
-  pointer hover effects, page-sized library sheet. Deferred iPad
-  follow-ups: multi-window/multi-scene (needs per-scene session models —
-  today's app state is App-level and session.json is single-window on
-  iOS), outline sidebar in a regular-width split view, go-to-page UI,
+  pointer hover effects, page-sized library sheet.
+  **Round 2 DONE 2026-07-12** (M16c): design-system chrome (top band /
+  lozenge strip / mockup status bar with go-to-page), sidebar (Contents +
+  Bookmarks, fuzzy filter = ⌘P stand-in, always-on follow), split pane
+  (⌘\ toggle, drag chip/section to trailing edge), link long-press/⌘-tap
+  open modes, tab drag-reorder + context menus, history long-press menus,
+  bookmarks (⌘D), iPhone chrome auto-hide. Deferred iPad follow-ups:
+  multi-window/multi-scene (needs per-scene session models — today's app
+  state is App-level and session.json is single-window on iOS),
+  reading-state persistence on iOS, sidebar follow-mode toggle +
+  thumbnails mode, per-pane tab bars (macOS round 20 parity),
   ⌘O/⌘P palettes, Apple Pencil annotation questions.
 - **M17 — XCUITest smoke suite + CI job B** (xcodebuild macOS app tests +
   iOS simulator build). Launch-arg fixtures already exist (`--open`,

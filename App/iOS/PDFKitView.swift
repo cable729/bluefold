@@ -129,6 +129,10 @@ struct PDFKitView: UIViewRepresentable {
         }
 
         @objc private func pageChanged(_ notification: Notification) {
+            guard let view, let document = view.document,
+                  let page = view.currentPage
+            else { return }
+            model?.noteCurrentPage(tabID: tabID, pageIndex: document.index(for: page))
             notePosition()
         }
 

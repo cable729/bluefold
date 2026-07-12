@@ -420,18 +420,26 @@ final class ReaderSessionModel {
         activeController?.execute(entry)
     }
 
-    /// Live position feed from the view (page changes + scroll ticks).
-    /// Updates the crash-safe page index and the persisted breadcrumb;
-    /// never a history event.
-    func notePosition(tabID: UUID, entry: NavEntry) {
+    /// Crash-safe page tracking (PDFViewPageChanged → `view.currentPage`,
+    /// the page most on screen — the status-bar number). Never a history
+    /// event. Distinct from `notePosition`: `currentDestination` anchors to
+    /// the visible TOP and reads a page ahead at boundaries (macOS keeps
+    /// the same split).
+    func noteCurrentPage(tabID: UUID, pageIndex: Int) {
         guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return }
-        tabs[index].pageIndex = entry.pageIndex
-        if tabID == activeTabID {
-            livePosition = entry
-            let crumb = currentSectionStop?.path.joined(separator: " › ") ?? ""
-            if tabs[index].breadcrumb != crumb {
-                tabs[index].breadcrumb = crumb
-            }
+        tabs[index].pageIndex = pageIndex
+    }
+
+    /// Live scroll-anchor feed (scroll ticks): drives the breadcrumb, the
+    /// sidebar follow highlight, and section stepping.
+    func notePosition(tabID: UUID, entry: NavEntry) {
+        guard tabID == activeTabID,
+              let index = tabs.firstIndex(where: { $0.id == tabID })
+        else { return }
+        livePosition = entry
+        let crumb = currentSectionStop?.path.joined(separator: " › ") ?? ""
+        if !crumb.isEmpty, tabs[index].breadcrumb != crumb {
+            tabs[index].breadcrumb = crumb
         }
     }
 

@@ -88,7 +88,7 @@ private struct TabCellIOS: View {
                     .font(.caption2)
                     .opacity(0.55)
                     .lineLimit(1)
-                    .truncationMode(.head)  // deepest component, tail kept
+                    .truncationMode(.tail)  // "3.1 Conv…", keep the number
             }
             .frame(maxWidth: 148, alignment: .leading)
             if isSplit {

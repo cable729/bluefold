@@ -10,8 +10,9 @@ import SwiftUI
 final class ReaderChromeModel {
     var showingLibrary = false
     var showingImporter = false
-    /// Sidebar panel (regular width) / sheet (compact).
-    var sidebarVisible = false
+    /// Sidebar panel (regular width) / sheet (compact). `--sidebar` is an
+    /// automation hook (simctl can't tap), like macOS `--open`.
+    var sidebarVisible = ProcessInfo.processInfo.arguments.contains("--sidebar")
     /// iPhone reading mode: chrome fades while scrolling; tap toggles.
     var chromeHidden = false
 }

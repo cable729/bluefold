@@ -490,6 +490,39 @@ below is self-contained.
   app state is App-level @State shared by every scene, so
   `UIApplicationSupportsMultipleScenes` stays off until per-scene models
   exist (see BACKLOG).
+- [~] **M16c** iPad round 2 (2026-07-12, owner feedback round): the Cloth &
+  Paper design system + the macOS interaction vocabulary, translated to
+  touch. Shared layer: `DesignSystem`, `OutlineNode`, `BookResolver`,
+  `PageArrows` un-gated from macOS and made public (`PlatformColor`
+  typealias bridges NSColor/UIColor; `DesignPalette.current` stays
+  macOS-only — iOS resolves via its ThemeStore). iOS chrome rebuilt:
+  `ReaderTopBarIOS` (sidebar toggle + history arrows whose long-press menus
+  list the jump stack by section — the right-click translation),
+  `TabStripIOS` (book-tinted lozenges, title over deepest breadcrumb
+  component tail-truncated, drag reorder, long-press context menu, drop
+  targets), `ReaderBottomBarIOS` (mockup status bar; compact width
+  collapses layouts into one menu and drops fit/section-skips),
+  `SidebarIOS` (Contents tree + Bookmarks; fuzzy filter field over section
+  paths = the ⌘P stand-in; always-on follow: highlight + ancestor
+  auto-expand + scroll-into-view; long-press/drag sections to new
+  tab/split), split pane (`splitTabID` persisted; ⌘\ duplicate-toggle,
+  chip/section drop zone on the trailing edge, slim header w/ close),
+  links (⌘-tap = background tab; long-press = Open Here / New Tab / Split
+  via UIEditMenuInteraction), bookmarks on iOS (BookResolver + overlay DB,
+  ⌘D + sidebar button, delete via context menu), iPhone reading mode
+  (chrome hides on scroll-drag, tap toggles; compact sidebar = sheet).
+  Position tracking mirrors macOS's split: `currentPage` → crash-safe
+  page index + status number; `currentDestination` (scroll-tick KVO,
+  throttled) → live breadcrumb/follow ONLY (currentDestination reads a
+  page ahead at boundaries — first build showed p.6 standing on p.5).
+  **Simulator-verified 2026-07-12** (iPad Pro 11" + iPhone 17 sims,
+  `--sidebar` launch hook added because simctl can't tap): light + dark
+  chrome, sidebar follow highlight/expansion, split restore from session,
+  live breadcrumbs in the strip, compact iPhone bar. NOT sim-verifiable
+  (needs touch/keyboard): drags, long-press menus, chrome auto-hide,
+  ⌘-chords — owner hand-run list. Remaining iOS gaps → BACKLOG:
+  reading-state persistence, follow-mode toggle, thumbnails sidebar mode,
+  multi-scene.
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `BluefoldUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but locally synthesized input can't drive them reliably (see XCUITest notes below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI for end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest$(date +%s)`; full-suite local runs can degrade mid-run (see XCUITest notes below) — spot-check single tests locally, full passes belong to CI. `VERIFY_UITESTS=1 ./scripts/verify.sh` runs the suite as opt-in step 5. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
 - [~] **M18** code side DONE (2026-07-08): Settings window ⌘, (AppSettings:
   LRU capacity live-applied via SessionCoordinator, indexing + OCR toggles
