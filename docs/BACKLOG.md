@@ -66,6 +66,14 @@ the repo goes public.
 - **Cross-device tags need CloudKit sync (M15).** iOS and macOS have
   separate `library.db`; tags/collections/reading-state don't propagate
   until sync is activated (signing steps in docs/SYNC.md).
+- **"Default PDF app" on iOS is NOT possible.** iOS has no default-handler
+  API or prompt for document types the way it does for browser/mail
+  (`com.apple.developer.web-browser` etc. are Apple-gated to those
+  categories). The ceiling is what round 5 shipped: registering the PDF
+  document type + open-in-place so Bluefold appears in the share sheet /
+  "Open in…", and the user picks it each time. macOS *can* set a default
+  handler (`LSSetDefaultRoleHandlerForContentType`) — a possible macOS-only
+  "Make Bluefold the default PDF viewer" Settings button.
 - **M17 — XCUITest smoke suite + CI job B** (xcodebuild macOS app tests +
   iOS simulator build). Launch-arg fixtures already exist (`--open`,
   `BLUEFOLD_SESSION_DIR`).
