@@ -278,6 +278,71 @@ struct TabStripDragTests {
         #expect(cells.allSatisfy { $0.frame.width >= TabStripNSView.minCellWidth - 0.5 })
     }
 
+    @Test func overflowFadesTrackTheScrollPosition() {
+        // Round 21: overflow must be VISIBLE — a fade+chevron on exactly
+        // the edges that hide tabs, at rest and at both extremes.
+        let strip = TabStripNSView(
+            stripID: TabStripID(windowID: UUID(), pane: .primary),
+            actions: TabStripActions(
+                select: { _ in }, close: { _ in }, duplicate: { _ in },
+                closeOthers: { _ in }, reorder: { _, _ in },
+                moveToStrip: { _, _, _ in }, detachToNewWindow: { _, _ in }
+            )
+        )
+        let container = TabStripContainerView(strip: strip)
+        let scroll = container.scrollView
+        container.frame = NSRect(x: 0, y: 0, width: 400, height: TabStripNSView.stripHeight)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 100),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView?.addSubview(container)
+
+        strip.apply(items: (1...12).map { Harness.item(title: "Book \($0)") },
+                    palette: .light, isWindowSplit: false)
+        container.layoutSubtreeIfNeeded()
+        container.layout()
+        strip.layout()
+        scroll.updateOverflowAffordance()
+
+        // The fades render ABOVE the scroll view (siblings), never buried
+        // by NSScrollView's own tiling.
+        #expect(scroll.leadingFade.superview === container)
+        #expect(container.subviews.firstIndex(of: scroll.leadingFade)!
+            > container.subviews.firstIndex(of: scroll)!)
+        #expect(strip.frame.width > 400, "12 tabs must overflow a 400pt strip")
+
+        // At rest (scrolled to the leading edge): more tabs on the RIGHT.
+        #expect(scroll.leadingFade.isHidden)
+        #expect(!scroll.trailingFade.isHidden)
+
+        // Mid-scroll: both edges hide tabs.
+        scroll.contentView.setBoundsOrigin(NSPoint(x: 50, y: 0))
+        scroll.updateOverflowAffordance()
+        #expect(!scroll.leadingFade.isHidden)
+        #expect(!scroll.trailingFade.isHidden)
+
+        // Fully right: only the LEADING edge hides tabs.
+        scroll.contentView.setBoundsOrigin(
+            NSPoint(x: strip.frame.width - 400, y: 0)
+        )
+        scroll.updateOverflowAffordance()
+        #expect(!scroll.leadingFade.isHidden)
+        #expect(scroll.trailingFade.isHidden)
+    }
+
+    @Test func cellsShowTheDeepestSectionStartFirst() {
+        // Owner round 21: "13.2 Algebraic…" — the deepest section's
+        // BEGINNING, never a head-truncated "…aic Extensions".
+        #expect(deepestBreadcrumbComponent("Ch 13 › 13.2 Algebraic Extensions")
+            == "13.2 Algebraic Extensions")
+        #expect(deepestBreadcrumbComponent("VII. Fields") == "VII. Fields")
+        #expect(deepestBreadcrumbComponent("") == nil)
+        #expect(deepestBreadcrumbComponent(nil) == nil)
+    }
+
     @Test func tinyDragIsAClickNotAReorder() {
         let h = Harness(
             frame: NSRect(x: 100, y: 300, width: 700, height: 400),

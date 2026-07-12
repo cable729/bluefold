@@ -264,8 +264,9 @@ public struct ReaderWindowView: View {
         }
         .overlay {
             if isDimmed {
-                // VERY slight: just enough for "the other pane".
-                Color.black.opacity(0.06)
+                // VERY slight: just enough for "the other pane" (owner
+                // round 21: even more subtle than the first cut).
+                Color.black.opacity(0.035)
                     .allowsHitTesting(false)
             }
         }

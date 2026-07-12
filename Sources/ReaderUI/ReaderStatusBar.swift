@@ -16,33 +16,41 @@ struct ReaderStatusBar: View {
     private var palette: DesignPalette { DesignPalette.current }
 
     var body: some View {
-        HStack(spacing: 12) {
-            // With no document, only the theme switcher remains (owner
-            // feedback: disabled PDF controls in an empty window are noise).
-            if pageCount != nil {
-                pdfControls
-            }
-
-            Spacer()
-
-            Menu {
-                Picker("Theme", selection: Bindable(ThemeManager.shared).current) {
-                    Text("Auto").tag(AppTheme.auto)
-                    Text("Light").tag(AppTheme.light)
-                    Text("Dark").tag(AppTheme.dark)
-                    Text("Sepia").tag(AppTheme.sepia)
+        // Mockup layout: layout icons LEFT, page cluster CENTERED in the
+        // window (not flowed), theme menu RIGHT.
+        ZStack {
+            HStack(spacing: 12) {
+                // With no document, only the theme switcher remains (owner
+                // feedback: disabled PDF controls in an empty window are
+                // noise).
+                if pageCount != nil {
+                    displayModeButtons
+                    fitButtons
                 }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            } label: {
-                Label(themeName, systemImage: "circle.lefthalf.filled")
+                Spacer()
+                Menu {
+                    Picker("Theme", selection: Bindable(ThemeManager.shared).current) {
+                        Text("Auto").tag(AppTheme.auto)
+                        Text("Light").tag(AppTheme.light)
+                        Text("Dark").tag(AppTheme.dark)
+                        Text("Sepia").tag(AppTheme.sepia)
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                } label: {
+                    Label(themeName, systemImage: "circle.lefthalf.filled")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .instantHint("Theme")
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .instantHint("Theme")
+            if pageCount != nil {
+                pageCluster
+            }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 5)
+        .padding(.vertical, 6)
         .foregroundStyle(palette.inkColor)
         .background(palette.chromeGradient)
         .overlay(alignment: .top) {
@@ -53,88 +61,115 @@ struct ReaderStatusBar: View {
         .onChange(of: model.activeTabID) { _, _ in syncPageField() }
     }
 
-    @ViewBuilder
-    private var pdfControls: some View {
-        HStack(spacing: 12) {
-            Group {
-                displayModePicker
-                HStack(spacing: 2) {
-                    Button {
-                        model.fitWidth()
-                    } label: {
-                        Image(systemName: "arrow.left.and.right.square")
-                    }
-                    .instantHint("Fit width")
-                    Button {
-                        model.fitHeight()
-                    } label: {
-                        Image(systemName: "arrow.up.and.down.square")
-                    }
-                    .instantHint("Fit height")
-                }
-                .buttonStyle(.borderless)
+    /// Page-layout modes as quiet icons (the mockup's rects), accent on
+    /// the active one — replaces the boxy segmented picker.
+    private var displayModeButtons: some View {
+        HStack(spacing: 11) {
+            modeButton(.singlePage, icon: "rectangle.portrait", hint: "Single page")
+            modeButton(.singlePageContinuous, icon: "rectangle.grid.1x2", hint: "Continuous scroll")
+            modeButton(.twoUp, icon: "rectangle.split.2x1", hint: "Two pages")
+            modeButton(.twoUpContinuous, icon: "rectangle.grid.2x2", hint: "Two pages, continuous")
+        }
+        .buttonStyle(.borderless)
+    }
 
-                Spacer()
+    private func modeButton(_ mode: PDFDisplayMode, icon: String, hint: String) -> some View {
+        let isOn = (model.activeTab?.displayModeRaw
+            ?? PDFDisplayMode.singlePageContinuous.rawValue) == mode.rawValue
+        return Button {
+            model.setDisplayMode(mode.rawValue)
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(isOn ? palette.accentColor : palette.inkColor.opacity(0.5))
+        }
+        .instantHint(hint)
+    }
 
-                HStack(spacing: 4) {
-                    Button {
-                        model.goToPreviousSection()
-                    } label: {
-                        Image(systemName: "chevron.left.to.line")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(!model.canGoToPreviousSection)
-                    .instantHint("Previous section")
-                    Button {
-                        model.goToPreviousPage()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(!PageArrows.canGoBack(
-                        pageIndex: currentPageIndex, pageCount: pageCount ?? 0
-                    ))
-                    .instantHint("Previous page")
-                    TextField("", text: $pageField)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12, design: .monospaced))
-                        .frame(width: 44)
-                        .multilineTextAlignment(.center)
-                        .padding(.vertical, 2)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(palette.inkColor.opacity(0.06))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 5)
-                                        .strokeBorder(palette.inkColor.opacity(0.14))
-                                )
-                        )
-                        .onSubmit(jumpToTypedPage)
-                        .instantHint("Go to page")
-                    Text("of \(pageCount ?? 0)")
-                        .foregroundStyle(palette.inkColor.opacity(0.55))
-                    Button {
-                        model.goToNextPage()
-                    } label: {
-                        Image(systemName: "chevron.right")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(!PageArrows.canGoForward(
-                        pageIndex: currentPageIndex, pageCount: pageCount ?? 0
-                    ))
-                    .instantHint("Next page")
-                    Button {
-                        model.goToNextSection()
-                    } label: {
-                        Image(systemName: "chevron.right.to.line")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(!model.canGoToNextSection)
-                    .instantHint("Next section")
-                }
-                .font(.callout)
-                .monospacedDigit()
+    private var fitButtons: some View {
+        HStack(spacing: 8) {
+            Button {
+                model.fitWidth()
+            } label: {
+                Image(systemName: "arrow.left.and.right.square")
+                    .foregroundStyle(palette.inkColor.opacity(0.5))
             }
+            .instantHint("Fit width")
+            Button {
+                model.fitHeight()
+            } label: {
+                Image(systemName: "arrow.up.and.down.square")
+                    .foregroundStyle(palette.inkColor.opacity(0.5))
+            }
+            .instantHint("Fit height")
+        }
+        .buttonStyle(.borderless)
+        .padding(.leading, 2)
+    }
+
+    /// ⇤ ‹ [477] of 738 › ⇥ — centered, mono page chip.
+    private var pageCluster: some View {
+        HStack(spacing: 9) {
+            Button {
+                model.goToPreviousSection()
+            } label: {
+                Image(systemName: "chevron.left.to.line")
+                    .foregroundStyle(palette.inkColor.opacity(0.45))
+            }
+            .buttonStyle(.borderless)
+            .disabled(!model.canGoToPreviousSection)
+            .instantHint("Previous section")
+            Button {
+                model.goToPreviousPage()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .foregroundStyle(palette.inkColor.opacity(0.6))
+            }
+            .buttonStyle(.borderless)
+            .disabled(!PageArrows.canGoBack(
+                pageIndex: currentPageIndex, pageCount: pageCount ?? 0
+            ))
+            .instantHint("Previous page")
+            TextField("", text: $pageField)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, design: .monospaced))
+                .frame(width: 44)
+                .multilineTextAlignment(.center)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(palette.inkColor.opacity(0.06))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5)
+                                .strokeBorder(palette.inkColor.opacity(0.14))
+                        )
+                )
+                .onSubmit(jumpToTypedPage)
+                .instantHint("Go to page")
+            Text("of \(pageCount ?? 0)")
+                .font(.system(size: 12))
+                .foregroundStyle(palette.inkColor.opacity(0.55))
+                .monospacedDigit()
+            Button {
+                model.goToNextPage()
+            } label: {
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(palette.inkColor.opacity(0.6))
+            }
+            .buttonStyle(.borderless)
+            .disabled(!PageArrows.canGoForward(
+                pageIndex: currentPageIndex, pageCount: pageCount ?? 0
+            ))
+            .instantHint("Next page")
+            Button {
+                model.goToNextSection()
+            } label: {
+                Image(systemName: "chevron.right.to.line")
+                    .foregroundStyle(palette.inkColor.opacity(0.45))
+            }
+            .buttonStyle(.borderless)
+            .disabled(!model.canGoToNextSection)
+            .instantHint("Next section")
         }
     }
 
@@ -149,29 +184,6 @@ struct ReaderStatusBar: View {
         case .sepia: "Sepia"
         case .auto: "Auto"
         }
-    }
-
-    private var displayModePicker: some View {
-        Picker("Layout", selection: displayModeBinding) {
-            Image(systemName: "doc").tag(PDFDisplayMode.singlePage.rawValue)
-                .help("Single page")
-            Image(systemName: "doc.text").tag(PDFDisplayMode.singlePageContinuous.rawValue)
-                .help("Continuous scroll")
-            Image(systemName: "book.closed").tag(PDFDisplayMode.twoUp.rawValue)
-                .help("Two pages")
-            Image(systemName: "book").tag(PDFDisplayMode.twoUpContinuous.rawValue)
-                .help("Two pages, continuous")
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .fixedSize()
-    }
-
-    private var displayModeBinding: Binding<Int> {
-        Binding(
-            get: { model.activeTab?.displayModeRaw ?? PDFDisplayMode.singlePageContinuous.rawValue },
-            set: { model.setDisplayMode($0) }
-        )
     }
 
     private func syncPageField() {

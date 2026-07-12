@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import PDFKit
 import ReaderCore
 
 /// Identity of one tab strip on screen: each pane of a (possibly split)
@@ -78,7 +79,9 @@ final class TabStripNSView: NSView {
     static let cornerRadius: CGFloat = 8
     static let minCellWidth: CGFloat = 44
     static let maxCellTextWidth: CGFloat = 220
-    static let maxLabelTextWidth: CGFloat = 240
+    /// The lozenge's leading cover cap (the book's first page, full
+    /// height) plus its gap to the first cell.
+    static let coverCapWidth: CGFloat = 21
     /// Overflow shrink floors: cells/labels never compress past these —
     /// past them the strip SCROLLS instead of crushing text into
     /// unreadability (owner feedback: "make it so I can actually read
@@ -252,7 +255,6 @@ final class TabStripNSView: NSView {
         var width: CGFloat { labelWidth + cellWidths.reduce(0, +) }
     }
 
-    private static let labelFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
     /// Cells are measured at SEMIBOLD: the active cell renders semibold,
     /// and measuring regular truncated it (semibold is wider).
     private static let cellFont = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
@@ -292,9 +294,9 @@ final class TabStripNSView: NSView {
             }
         }
         var runs: [RunLayout] = runRanges(of: ordered).map { range in
-            let labelText = Self.textWidth(ordered[range.lowerBound].title, font: Self.labelFont)
-            // swatch 9 + gaps + title (+ NSTextField's own padding) + padding
-            let label = 7 + 9 + 6 + min(labelText + 6, Self.maxLabelTextWidth) + 4
+            // The book is identified by its cover cap (hover enlarges it
+            // with the title) — no title text in the strip itself.
+            let label = Self.coverCapWidth + 4
             let cells = range.map { index -> CGFloat in
                 let item = ordered[index]
                 let text = min(
@@ -411,6 +413,9 @@ final class TabStripNSView: NSView {
         if frame.size != size {
             setFrameSize(size)
         }
+        // The overflow fades key off the content width — recheck them on
+        // every layout pass, not just on scrolls.
+        (enclosingScrollView as? TabStripScrollView)?.contentLayoutChanged()
     }
 
     private func layoutLozenges(
@@ -431,11 +436,12 @@ final class TabStripNSView: NSView {
             let first = ordered[run.range.lowerBound]
             let runIsActive = run.range.contains { ordered[$0].isActive }
             lozenge.apply(
-                title: labelWidths[index] > 0 ? first.title : "",
+                title: first.title,
                 labelWidth: labelWidths[index],
                 tint: first.tint,
                 isActive: runIsActive,
                 firstTabID: first.id,
+                path: first.groupKey,
                 palette: palette
             )
             setFrame(frames[index], of: lozenge, animated: animated)
@@ -541,6 +547,7 @@ final class TabStripNSView: NSView {
             return
         }
         clearMultiSelection()
+        TabCoverPreviewPanel.shared.hide()
         actions.select(item.tabID)
         let inStrip = convert(event.locationInWindow, from: nil)
         drag = DragState(
@@ -837,8 +844,9 @@ final class TabItemNSView: NSView {
         layer?.maskedCorners = []
 
         textField.font = NSFont.systemFont(ofSize: 11.5)
-        // Head truncation keeps the deepest (most useful) section visible.
-        textField.lineBreakMode = .byTruncatingHead
+        // The cell text is already the deepest section; show its START
+        // ("13.2 Algebraic…"), not its tail (owner round 21).
+        textField.lineBreakMode = .byTruncatingTail
         textField.translatesAutoresizingMaskIntoConstraints = false
         textField.setAccessibilityIdentifier("tab-breadcrumb")
 
@@ -985,16 +993,23 @@ final class TabItemNSView: NSView {
     }
 }
 
-/// The tinted rounded container of one same-book run: translucent book-tint
-/// fill, the cover swatch, and the book title. Click selects the run's
-/// first tab; right-click gets that tab's menu.
+/// The tinted rounded container of one same-book run. Its leading edge is
+/// the book's COVER CAP — the first page as a full-height, left-rounded
+/// sliver; hovering it unfolds a flat preview panel below the tab with the
+/// enlarged cover and the book title (the strip shows no title text).
+/// Click selects the run's first tab; right-click gets that tab's menu.
 @MainActor
 final class TabLozengeView: NSView {
     private unowned let owner: TabStripNSView
-    private let swatch = NSView()
-    private let titleField = NSTextField(labelWithString: "")
+    private let coverCap = NSImageView()
     private var firstTabID: UUID?
     private var labelWidth: CGFloat = 0
+    private var title = ""
+    private var path = ""
+    private var tint: NSColor = .clear
+    private var palette: DesignPalette = .light
+    private var trackingArea: NSTrackingArea?
+    private var hoverTask: Task<Void, Never>?
 
     init(owner: TabStripNSView) {
         self.owner = owner
@@ -1002,14 +1017,15 @@ final class TabLozengeView: NSView {
         wantsLayer = true
         layer?.cornerRadius = TabStripNSView.cornerRadius
 
-        swatch.wantsLayer = true
-        swatch.layer?.cornerRadius = 2
+        coverCap.wantsLayer = true
+        coverCap.layer?.cornerRadius = TabStripNSView.cornerRadius
+        coverCap.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
+        coverCap.layer?.masksToBounds = true
+        coverCap.layer?.contentsGravity = .resizeAspectFill
+        coverCap.imageScaling = .scaleNone  // the layer does the fill-crop
+        coverCap.unregisterDraggedTypes()   // clicks/drags belong to the strip
 
-        titleField.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
-        titleField.lineBreakMode = .byTruncatingTail
-
-        addSubview(swatch)
-        addSubview(titleField)
+        addSubview(coverCap)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityIdentifier("tab-group-header")
@@ -1020,14 +1036,25 @@ final class TabLozengeView: NSView {
 
     func apply(
         title: String, labelWidth: CGFloat, tint: NSColor,
-        isActive: Bool, firstTabID: UUID?, palette: DesignPalette
+        isActive: Bool, firstTabID: UUID?, path: String, palette: DesignPalette
     ) {
         self.firstTabID = firstTabID
         self.labelWidth = labelWidth
-        titleField.stringValue = title
-        titleField.textColor = palette.ink.withAlphaComponent(0.9)
-        titleField.setAccessibilityIdentifier("tab-title")
-        swatch.layer?.backgroundColor = tint.cgColor
+        self.title = title
+        self.tint = tint
+        self.palette = palette
+        if path != self.path {
+            self.path = path
+            coverCap.layer?.contents = nil
+        }
+        // Tint placeholder until (and behind) the rendered first page.
+        coverCap.layer?.backgroundColor = tint.cgColor
+        if let image = TabCoverThumbnails.image(forPath: path, onLoad: { [weak self] image in
+            guard let self, self.path == path else { return }
+            self.coverCap.layer?.contents = image
+        }) {
+            coverCap.layer?.contents = image
+        }
         // The book tint carries the lozenge; the active book's lozenge sits
         // a notch stronger, mockup-style.
         layer?.backgroundColor = tint
@@ -1038,28 +1065,78 @@ final class TabLozengeView: NSView {
 
     override func layout() {
         super.layout()
-        swatch.frame = NSRect(x: 7, y: (bounds.height - 11) / 2, width: 9, height: 11)
-        let titleX = swatch.frame.maxX + 6
-        titleField.frame = NSRect(
-            x: titleX,
-            y: (bounds.height - titleField.intrinsicContentSize.height) / 2,
-            width: max(labelWidth - titleX - 4, 0),
-            height: titleField.intrinsicContentSize.height
+        coverCap.frame = NSRect(
+            x: 0, y: 0, width: TabStripNSView.coverCapWidth, height: bounds.height
         )
-        swatch.isHidden = labelWidth <= 0
-        titleField.isHidden = labelWidth <= 0
+        coverCap.isHidden = labelWidth <= 0
+        updateTrackingAreas()
+    }
+
+    // MARK: - Cover hover preview
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        guard labelWidth > 0 else { return }
+        let area = NSTrackingArea(
+            rect: coverCap.frame,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow],
+            owner: self
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hoverTask?.cancel()
+        hoverTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(280))
+            guard !Task.isCancelled, let self else { return }
+            self.presentPreview()
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoverTask?.cancel()
+        hoverTask = nil
+        TabCoverPreviewPanel.shared.hide()
+    }
+
+    private func presentPreview() {
+        guard let window, let strip = superview as? TabStripNSView else { return }
+        // Anchor: the tab bar's bottom edge, at the lozenge's left edge —
+        // the panel reads as the tab unfolding downward.
+        let inWindow = convert(bounds, to: nil)
+        let screenRect = window.convertToScreen(inWindow)
+        let anchor = CGPoint(
+            x: screenRect.minX,
+            y: screenRect.minY - TabStripNSView.lozengeInsetY
+        )
+        TabCoverPreviewPanel.shared.show(
+            path: path, title: title, tint: tint, palette: palette,
+            belowTopLeft: anchor
+        )
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            hoverTask?.cancel()
+            TabCoverPreviewPanel.shared.hide(ifOwnedByPath: path)
+        }
     }
 
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
+        TabCoverPreviewPanel.shared.hide()
         if let firstTabID {
             owner.actions.select(firstTabID)
         }
     }
 
-    /// The label is the group's visible handle: right-click must work here
+    /// The cap is the group's visible handle: right-click must work here
     /// too (round 14 — a covered tab had no reachable menu).
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let firstTabID else { return nil }
@@ -1067,10 +1144,194 @@ final class TabLozengeView: NSView {
     }
 }
 
+/// First-page thumbnails for the strip's cover caps and hover previews,
+/// cached per canonical path for the app's lifetime. Rendering opens its
+/// OWN PDFDocument off the main thread — never the shared provider's (the
+/// LRU must not churn for a 21-point sliver).
+@MainActor
+enum TabCoverThumbnails {
+    private static var images: [String: NSImage] = [:]
+    private static var inFlight: Set<String> = []
+
+    /// The cached thumbnail, or nil while one renders — `onLoad` fires on
+    /// the main actor when a freshly rendered image lands.
+    static func image(
+        forPath path: String,
+        onLoad: @escaping @MainActor (NSImage) -> Void
+    ) -> NSImage? {
+        if let cached = images[path] { return cached }
+        guard !inFlight.contains(path) else { return nil }
+        inFlight.insert(path)
+        Task.detached(priority: .utility) {
+            let rendered = autoreleasepool { () -> NSImage? in
+                guard
+                    let document = PDFDocument(url: URL(fileURLWithPath: path)),
+                    let page = document.page(at: 0)
+                else { return nil }
+                // One render serves both the cap and the hover preview.
+                return page.thumbnail(of: CGSize(width: 320, height: 440), for: .cropBox)
+            }
+            await MainActor.run {
+                inFlight.remove(path)
+                guard let rendered else { return }
+                images[path] = rendered
+                onLoad(rendered)
+            }
+        }
+        return nil
+    }
+}
+
+/// The flat cover preview under a hovered cap: enlarged first page + book
+/// title, drawn as a downward extension of the tab (square top corners
+/// against the strip, rounded bottom, no shadow). One shared instance —
+/// one preview at a time. Mouse-transparent and non-activating.
+@MainActor
+final class TabCoverPreviewPanel: NSPanel {
+    static let shared = TabCoverPreviewPanel()
+
+    private let coverView = NSImageView()
+    private let titleField = NSTextField(wrappingLabelWithString: "")
+    private let container = NSView()
+    private(set) var shownPath: String?
+
+    private init() {
+        super.init(
+            contentRect: .zero,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: true
+        )
+        isFloatingPanel = true
+        level = .floating
+        ignoresMouseEvents = true
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = false  // flat — an extension of the tab, not a popover
+
+        container.wantsLayer = true
+        container.layer?.cornerRadius = 10
+        container.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+
+        coverView.wantsLayer = true
+        coverView.layer?.cornerRadius = 3
+        coverView.layer?.masksToBounds = true
+        coverView.layer?.contentsGravity = .resizeAspect
+        coverView.imageScaling = .scaleNone
+
+        titleField.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        titleField.alignment = .center
+        titleField.maximumNumberOfLines = 2
+        titleField.lineBreakMode = .byTruncatingTail
+
+        container.addSubview(coverView)
+        container.addSubview(titleField)
+        contentView = container
+    }
+
+    func show(
+        path: String, title: String, tint: NSColor,
+        palette: DesignPalette, belowTopLeft anchor: CGPoint
+    ) {
+        shownPath = path
+        let coverSize = CGSize(width: 150, height: 200)
+        let padding: CGFloat = 12
+        titleField.stringValue = title
+        titleField.textColor = palette.ink
+        let titleHeight = titleField.sizeThatFits(
+            NSSize(width: coverSize.width, height: 40)
+        ).height
+        let width = coverSize.width + 2 * padding
+        let height = coverSize.height + titleHeight + 2 * padding + 8
+
+        container.layer?.backgroundColor = palette.stripBackground.cgColor
+        coverView.layer?.backgroundColor = tint.cgColor
+        coverView.layer?.contents = TabCoverThumbnails.image(
+            forPath: path,
+            onLoad: { [weak self] image in
+                guard let self, self.shownPath == path else { return }
+                self.coverView.layer?.contents = image
+            }
+        )
+
+        titleField.frame = NSRect(
+            x: padding, y: padding, width: coverSize.width, height: titleHeight
+        )
+        coverView.frame = NSRect(
+            x: padding, y: padding + titleHeight + 8,
+            width: coverSize.width, height: coverSize.height
+        )
+        setFrame(
+            NSRect(x: anchor.x, y: anchor.y - height, width: width, height: height),
+            display: true
+        )
+        orderFrontRegardless()
+    }
+
+    func hide() {
+        shownPath = nil
+        orderOut(nil)
+    }
+
+    /// Hide only if the visible preview belongs to `path` (a torn-down
+    /// lozenge must not dismiss another book's preview).
+    func hide(ifOwnedByPath path: String) {
+        guard shownPath == path else { return }
+        hide()
+    }
+}
+
+/// Hosts the strip's scroll view with the overflow fades layered ON TOP as
+/// SIBLINGS — NSScrollView re-tiles its own subviews, which buried the
+/// fades when they lived inside it. This container owns the z-order.
+@MainActor
+final class TabStripContainerView: NSView {
+    let scrollView: TabStripScrollView
+
+    init(strip: TabStripNSView) {
+        scrollView = TabStripScrollView(strip: strip)
+        super.init(frame: .zero)
+        addSubview(scrollView)
+        addSubview(scrollView.leadingFade)
+        addSubview(scrollView.trailingFade)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("unused") }
+
+    var strip: TabStripNSView? { scrollView.documentView as? TabStripNSView }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: TabStripNSView.stripHeight)
+    }
+
+    override func layout() {
+        super.layout()
+        scrollView.frame = bounds
+        let width = StripEdgeFadeView.width
+        scrollView.leadingFade.frame = NSRect(
+            x: 0, y: 0, width: width, height: bounds.height
+        )
+        scrollView.trailingFade.frame = NSRect(
+            x: bounds.width - width, y: 0, width: width, height: bounds.height
+        )
+        scrollView.updateOverflowAffordance()
+    }
+}
+
 /// Horizontal scroller around the strip (Firefox/Chrome overflow behavior).
 /// A vertical wheel scrolls horizontally — the strip has no vertical axis.
+/// Edges FADE with a chevron while more tabs sit off-screen in that
+/// direction (owner round 21: overflow needs to be visible). The fade
+/// views live in `TabStripContainerView`, not here.
 @MainActor
 final class TabStripScrollView: NSScrollView {
+    let leadingFade = StripEdgeFadeView(edge: .leading)
+    let trailingFade = StripEdgeFadeView(edge: .trailing)
+    // nonisolated(unsafe): deinit must remove the observer; NotificationCenter
+    // observer tokens are thread-safe to remove.
+    nonisolated(unsafe) private var boundsObserver: NSObjectProtocol?
+
     init(strip: TabStripNSView) {
         super.init(frame: .zero)
         documentView = strip
@@ -1082,19 +1343,60 @@ final class TabStripScrollView: NSScrollView {
         drawsBackground = false
         verticalScrollElasticity = .none
         contentView.postsBoundsChangedNotifications = true
+        // EVERY scroll path (wheel override, elastic settle, programmatic
+        // scrollToVisible) moves the clip bounds; observing them is the one
+        // hook that can't miss (reflectScrolledClipView alone went stale).
+        boundsObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: contentView, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateOverflowAffordance() }
+        }
+    }
+
+    deinit {
+        if let boundsObserver {
+            NotificationCenter.default.removeObserver(boundsObserver)
+        }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("unused") }
 
-    override var intrinsicContentSize: NSSize {
-        NSSize(width: NSView.noIntrinsicMetric, height: TabStripNSView.stripHeight)
-    }
-
     override func layout() {
         super.layout()
         // Width changes re-run the shrink-then-scroll pass.
         (documentView as? TabStripNSView)?.needsLayout = true
+        updateOverflowAffordance()
+    }
+
+    override func reflectScrolledClipView(_ cView: NSClipView) {
+        super.reflectScrolledClipView(cView)
+        updateOverflowAffordance()
+        // A scrolled-away cap must not leave its preview floating.
+        TabCoverPreviewPanel.shared.hide()
+    }
+
+    /// The strip resized its content (tabs opened/closed/relaid) — the
+    /// edge affordances may have flipped without any scroll happening.
+    func contentLayoutChanged() {
+        updateOverflowAffordance()
+    }
+
+    /// Shows each edge's fade+chevron exactly while tabs extend past it.
+    /// Internal for tests.
+    func updateOverflowAffordance() {
+        guard let strip = documentView as? TabStripNSView else { return }
+        let visible = contentView.bounds
+        leadingFade.apply(palette: strip.palette)
+        trailingFade.apply(palette: strip.palette)
+        leadingFade.isHidden = visible.minX <= 1
+        trailingFade.isHidden = visible.maxX >= strip.frame.width - 1
+        TabStripNSView.dragLog(
+            "fades visible=\(visible) stripW=\(strip.frame.width) "
+            + "lead hidden=\(leadingFade.isHidden) frame=\(leadingFade.frame) super=\(leadingFade.superview.map { String(describing: type(of: $0)) } ?? "nil") "
+            + "trail hidden=\(trailingFade.isHidden) frame=\(trailingFade.frame)"
+        )
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -1112,6 +1414,66 @@ final class TabStripScrollView: NSScrollView {
         ))
         contentView.setBoundsOrigin(origin)
         reflectScrolledClipView(contentView)
+    }
+}
+
+/// One edge's overflow affordance: a strip-background fade with a small
+/// chevron pointing at the hidden tabs. Purely visual — never hit-tested.
+@MainActor
+final class StripEdgeFadeView: NSView {
+    enum Edge { case leading, trailing }
+
+    static let width: CGFloat = 44
+
+    private let edge: Edge
+    private let gradient = CAGradientLayer()
+    private let chevron = NSImageView()
+    private var appliedColor: NSColor?
+
+    init(edge: Edge) {
+        self.edge = edge
+        super.init(frame: .zero)
+        wantsLayer = true
+        gradient.startPoint = CGPoint(x: 0, y: 0.5)
+        gradient.endPoint = CGPoint(x: 1, y: 0.5)
+        layer?.addSublayer(gradient)
+        chevron.image = NSImage(
+            systemSymbolName: edge == .leading ? "chevron.left" : "chevron.right",
+            accessibilityDescription: "More tabs"
+        )
+        chevron.symbolConfiguration = .init(pointSize: 10, weight: .heavy)
+        addSubview(chevron)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("unused") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func apply(palette: DesignPalette) {
+        guard palette.stripBackground != appliedColor else { return }
+        appliedColor = palette.stripBackground
+        let solid = palette.stripBackground.cgColor
+        let clear = palette.stripBackground.withAlphaComponent(0).cgColor
+        // The outer HALF is fully solid so the chevron sits on clean strip
+        // background, never on half-washed tab text (it was unreadable).
+        gradient.colors = edge == .leading ? [solid, solid, clear] : [clear, solid, solid]
+        gradient.locations = edge == .leading ? [0, 0.45, 1] : [0, 0.55, 1]
+        chevron.contentTintColor = palette.ink.withAlphaComponent(0.7)
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradient.frame = bounds
+        CATransaction.commit()
+        let size = chevron.intrinsicContentSize
+        let x = edge == .leading ? 4 : bounds.width - size.width - 4
+        chevron.frame = NSRect(
+            x: x, y: (bounds.height - size.height) / 2,
+            width: size.width, height: size.height
+        )
     }
 }
 

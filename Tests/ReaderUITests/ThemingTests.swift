@@ -181,12 +181,15 @@ struct ThemeManagerTests {
             #expect(tan != nil && tan!.redComponent > tan!.blueComponent)
 
             // Auto: inherit (nil appearance) so the window follows the system.
+            // Pin the tracked system appearance — the real one flips with
+            // the time of day, and this test must not.
             manager.current = .auto
+            manager.overrideSystemAppearance(isDark: false)
             #expect(window.appearance == nil)
             #expect(window.titlebarAppearsTransparent == true)
             let paper = window.backgroundColor.usingColorSpace(.sRGB)
             #expect(paper != nil && paper!.redComponent > paper!.blueComponent,
-                    "auto resolves to the light warm-paper chrome here")
+                    "auto over a light system is the warm-paper chrome")
         }
     }
 

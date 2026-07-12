@@ -58,15 +58,22 @@ struct TabBarView: View {
                 title: URL(fileURLWithPath: tab.pathHint)
                     .deletingPathExtension()
                     .lastPathComponent,
-                breadcrumb: tab.breadcrumb.flatMap {
-                    $0.isEmpty ? nil : $0
-                } ?? "p.\(tab.pageIndex + 1)",
+                breadcrumb: deepestBreadcrumbComponent(tab.breadcrumb)
+                    ?? "p.\(tab.pageIndex + 1)",
                 isActive: tab.id == activeID,
                 groupKey: tab.pathHint,
                 tint: BookTint.color(forPath: tab.pathHint)
             )
         }
     }
+}
+
+/// The deepest (most specific) component of a " › " breadcrumb path — the
+/// cell shows its BEGINNING, so "13.2 Algebraic Extensions" truncates to
+/// "13.2 Algebraic…", never "…aic Extensions" (owner round 21).
+func deepestBreadcrumbComponent(_ breadcrumb: String?) -> String? {
+    guard let breadcrumb, !breadcrumb.isEmpty else { return nil }
+    return breadcrumb.components(separatedBy: " › ").last
 }
 
 private struct TabStripRepresentable: NSViewRepresentable {
@@ -76,7 +83,7 @@ private struct TabStripRepresentable: NSViewRepresentable {
     let isWindowSplit: Bool
     let openWindow: OpenWindowAction
 
-    func makeNSView(context: Context) -> TabStripScrollView {
+    func makeNSView(context: Context) -> TabStripContainerView {
         let strip = TabStripNSView(
             stripID: TabStripID(windowID: model.windowID, pane: pane),
             actions: TabStripActions(
@@ -87,11 +94,11 @@ private struct TabStripRepresentable: NSViewRepresentable {
         )
         strip.actions = actions(for: strip)
         strip.apply(items: items, palette: DesignPalette.current, isWindowSplit: isWindowSplit)
-        return TabStripScrollView(strip: strip)
+        return TabStripContainerView(strip: strip)
     }
 
-    func updateNSView(_ view: TabStripScrollView, context: Context) {
-        guard let strip = view.documentView as? TabStripNSView else { return }
+    func updateNSView(_ view: TabStripContainerView, context: Context) {
+        guard let strip = view.strip else { return }
         strip.actions = actions(for: strip)
         strip.apply(items: items, palette: DesignPalette.current, isWindowSplit: isWindowSplit)
     }

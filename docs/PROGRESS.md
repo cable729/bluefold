@@ -403,6 +403,42 @@ below is self-contained.
     light/dark/sepia via screenshots — lozenges, per-pane bars, focus
     dimming, library grid all render as designed.
 
+- [x] **UI-15** Round 21 (2026-07-11, after v0.3 tag): design-system chrome
+  round 2 + cover-cap tab experiment (owner feedback list).
+  - **Top bar**: `.windowToolbarStyle(.unifiedCompact(showsTitle: false))`
+    on the reader and library scenes — one LOW titlebar row, no window
+    title (the strip names what's open), matching the mockup band.
+  - **Bottom bar**: mockup layout — borderless layout-mode icons at left
+    (active = accent), the ⇤ ‹ [mono chip] of N › ⇥ cluster CENTERED via
+    ZStack (not flowed), theme menu right.
+  - **Tab cells** show the DEEPEST breadcrumb component, tail-truncated
+    ("13.2 Algebraic…", never "…aic Extensions") —
+    `deepestBreadcrumbComponent` in TabBarView.swift.
+  - **Pane dimming** softened 6% → 3.5%.
+  - **Overflow affordance**: edge fade + chevron exactly on the edges
+    hiding tabs. Two hard-won facts: (1) NSScrollView re-tiles its own
+    subviews — overlays added to it get buried; they live in
+    `TabStripContainerView` as SIBLINGS above the scroll view. (2) The
+    chevron must sit on a SOLID outer band (3-stop gradient), not on
+    half-faded tab text. Visibility tracks clip-bounds notifications
+    (reflectScrolledClipView alone went stale).
+  - **Cover-cap tabs** (owner experiment): the lozenge's leading edge is
+    the book's FIRST PAGE as a full-height left-rounded sliver
+    (`coverCapWidth` 21pt) instead of swatch + title text; hovering it
+    unfolds `TabCoverPreviewPanel` below the tab — flat (no shadow,
+    square top corners against the strip, rounded bottom), enlarged
+    cover + title, one shared panel, hidden on click/drag/scroll/strip
+    updates. `TabCoverThumbnails` renders page 0 via its OWN PDFDocument
+    off-main (never the provider's LRU), cached per path for the app's
+    lifetime. Book tint remains the placeholder + lozenge fill.
+  - Also: ThemingTests pinned against the live system appearance (the
+    suite failed at night when the system auto-flipped dark —
+    `overrideSystemAppearance` now pins the auto case).
+  - Tests 482 (+affordance state machine, deepest-component, fade z-order).
+    Verified: scripts/verify.sh green; hand-checked screenshots (compact
+    bar, centered cluster, cover caps + hover panel, chevrons at rest and
+    mid-scroll).
+
 ### Phase C
 - [~] **M16** iOS app: minimal tabbed reader + session restore DONE
   (simulator-verified); F-1 added library/search/theming/link-history UI.

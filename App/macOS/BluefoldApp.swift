@@ -21,12 +21,16 @@ struct BluefoldApp: App {
             )
         }
         .restorationBehavior(.disabled)  // session restore is ours, not the system's
+        // Design-system chrome: one LOW titlebar, no window title (the tab
+        // strip already names what's open).
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .commands { ReaderCommands() }
 
         Window("Library", id: "library") {
             LibraryView()
         }
         .restorationBehavior(.disabled)
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .keyboardShortcut(Self.libraryShortcut)
 
         // ⌘, — the standard Settings scene (M18). All logic lives in
