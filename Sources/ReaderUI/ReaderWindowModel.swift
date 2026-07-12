@@ -47,7 +47,7 @@ public extension ActivePDFControlling {
 
 /// Which pane of a (possibly split) reader window has focus. Ephemeral view
 /// state — not persisted; restores default to the primary pane.
-public enum ReaderPane: Sendable {
+public enum ReaderPane: Sendable, Hashable {
     case primary
     case split
 }
@@ -389,8 +389,10 @@ public final class ReaderWindowModel {
         return copy.id
     }
 
+    /// Closes the other tabs of the kept tab's OWN strip — each pane has
+    /// its own tab bar, and "Close Other Tabs" reads as that bar's verb.
     public func closeOtherTabs(keeping id: UUID) {
-        for tab in tabs where tab.id != id {
+        for tab in tabs(in: pane(ofTab: id)) where tab.id != id {
             closeTab(id: tab.id)
         }
     }

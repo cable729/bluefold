@@ -22,8 +22,16 @@ struct TabStripDragTests {
         let windowID = UUID()
 
         var reorders: [(UUID, Int)] = []
-        var moves: [(UUID, UUID, Int)] = []
+        var moves: [(UUID, TabStripID, Int)] = []
         var detaches: [(UUID, CGPoint)] = []
+
+        static func item(title: String, breadcrumb: String = "p.1", isActive: Bool = false, groupKey: String? = nil) -> TabDisplayItem {
+            TabDisplayItem(
+                id: UUID(), title: title, breadcrumb: breadcrumb,
+                isActive: isActive, groupKey: groupKey ?? "/tmp/\(title).pdf",
+                tint: BookTint.color(forPath: groupKey ?? "/tmp/\(title).pdf")
+            )
+        }
 
         init(frame: NSRect, tabs: [String]) {
             window = NSWindow(
@@ -36,22 +44,23 @@ struct TabStripDragTests {
             var actions = TabStripActions(
                 select: { _ in }, close: { _ in }, duplicate: { _ in },
                 closeOthers: { _ in }, reorder: { _, _ in },
-                moveToWindow: { _, _, _ in }, detachToNewWindow: { _, _ in }
+                moveToStrip: { _, _, _ in }, detachToNewWindow: { _, _ in }
             )
-            strip = TabStripNSView(windowID: windowID, actions: actions)
+            strip = TabStripNSView(
+                stripID: TabStripID(windowID: windowID, pane: .primary),
+                actions: actions
+            )
             actions.reorder = { [self] in reorders.append(($0, $1)) }
-            actions.moveToWindow = { [self] in moves.append(($0, $1, $2)) }
+            actions.moveToStrip = { [self] in moves.append(($0, $1, $2)) }
             actions.detachToNewWindow = { [self] in detaches.append(($0, $1)) }
             strip.actions = actions
 
-            strip.frame = NSRect(x: 0, y: frame.height - 32, width: frame.width, height: 32)
+            strip.frame = NSRect(x: 0, y: frame.height - 60, width: frame.width, height: TabStripNSView.stripHeight)
             window.contentView?.addSubview(strip)
-            strip.update(items: tabs.map {
-                TabDisplayItem(
-                    id: UUID(), title: $0, breadcrumb: "p.1",
-                    isActive: false, groupKey: "/tmp/\($0).pdf"
-                )
-            })
+            strip.apply(
+                items: tabs.map { Self.item(title: $0) },
+                palette: .light, isWindowSplit: false
+            )
             strip.layoutSubtreeIfNeeded()
             // Force layout so item frames are real.
             strip.layout()
@@ -168,45 +177,54 @@ struct TabStripDragTests {
 
         #expect(source.moves.count == 1)
         #expect(source.moves.first?.0 == betaID)
-        #expect(source.moves.first?.1 == target.windowID)
+        #expect(source.moves.first?.1 == TabStripID(windowID: target.windowID, pane: .primary))
         #expect(source.detaches.isEmpty && source.reorders.isEmpty)
     }
 
-    @Test func adjacentSameBookTabsGetASpanningGroupHeader() {
+    @Test func adjacentSameBookTabsShareOneLozenge() {
         let h = Harness(
             frame: NSRect(x: 100, y: 300, width: 800, height: 400),
             tabs: ["Alpha", "Axler", "Axler2", "Beta"]
         )
         defer { h.cleanUp() }
         // Rebuild items so the two middle tabs share a book (same groupKey).
-        h.strip.update(items: [
-            TabDisplayItem(id: UUID(), title: "Alpha", breadcrumb: "p.1",
-                           isActive: false, groupKey: "/tmp/alpha.pdf"),
-            TabDisplayItem(id: UUID(), title: "Axler", breadcrumb: "Ch 1 › 1A",
-                           isActive: true, groupKey: "/tmp/axler.pdf"),
-            TabDisplayItem(id: UUID(), title: "Axler", breadcrumb: "Ch 5 › 5B",
-                           isActive: false, groupKey: "/tmp/axler.pdf"),
-            TabDisplayItem(id: UUID(), title: "Beta", breadcrumb: "p.9",
-                           isActive: false, groupKey: "/tmp/beta.pdf"),
-        ])
+        h.strip.apply(items: [
+            Harness.item(title: "Alpha"),
+            Harness.item(title: "Axler", breadcrumb: "Ch 1 › 1A", isActive: true, groupKey: "/tmp/axler.pdf"),
+            Harness.item(title: "Axler", breadcrumb: "Ch 5 › 5B", groupKey: "/tmp/axler.pdf"),
+            Harness.item(title: "Beta", breadcrumb: "p.9"),
+        ], palette: .light, isWindowSplit: false)
         h.strip.layout()
 
-        let headers = h.strip.subviews.compactMap { $0 as? TabGroupHeaderView }
-        #expect(headers.count == 1)
+        // Three books → three lozenges; the Axler one spans BOTH its cells.
+        let lozenges = h.strip.subviews.compactMap { $0 as? TabLozengeView }
+            .sorted { $0.frame.minX < $1.frame.minX }
+        #expect(lozenges.count == 3)
 
-        // The header spans exactly the two grouped tabs' widths.
-        let grouped = h.strip.subviews.compactMap { $0 as? TabItemNSView }
-            .sorted { $0.frame.minX < $1.frame.minX }[1...2]
-        let header = headers[0]
-        #expect(abs(header.frame.minX - grouped.first!.frame.minX) < 0.5)
-        #expect(abs(header.frame.maxX - grouped.last!.frame.maxX) < 0.5)
+        let cells = h.strip.subviews.compactMap { $0 as? TabItemNSView }
+            .sorted { $0.frame.minX < $1.frame.minX }
+        let axlerCells = cells[1...2]
+        let axlerLozenge = lozenges[1]
+        #expect(axlerLozenge.frame.minX < axlerCells.first!.frame.minX,
+                "the lozenge leads with the book label, before the first cell")
+        #expect(abs(axlerLozenge.frame.maxX - axlerCells.last!.frame.maxX) < 0.5)
 
-        // Grouped tabs are shortened by the header height; singletons are not.
-        let singleton = h.strip.subviews.compactMap { $0 as? TabItemNSView }
-            .sorted { $0.frame.minX < $1.frame.minX }[0]
-        #expect(singleton.frame.height == h.strip.bounds.height)
-        #expect(grouped.first!.frame.height
-            == h.strip.bounds.height - TabStripNSView.groupHeaderHeight)
+        // Every cell sits inside its lozenge band (no spanning header row).
+        #expect(cells.allSatisfy { $0.frame.height == axlerLozenge.frame.height })
+    }
+
+    @Test func overflowGrowsContentWidthForScrolling() {
+        // Firefox/Chrome behavior: past the shrink floor the strip's content
+        // outgrows the viewport (the scroll view shows the rest) instead of
+        // squeezing tabs to nothing.
+        let h = Harness(
+            frame: NSRect(x: 100, y: 300, width: 500, height: 400),
+            tabs: (1...24).map { "Book \($0)" }
+        )
+        defer { h.cleanUp() }
+        #expect(h.strip.frame.width > 500)
+        let cells = h.strip.subviews.compactMap { $0 as? TabItemNSView }
+        #expect(cells.allSatisfy { $0.frame.width >= TabStripNSView.minCellWidth - 0.5 })
     }
 
     @Test func tinyDragIsAClickNotAReorder() {

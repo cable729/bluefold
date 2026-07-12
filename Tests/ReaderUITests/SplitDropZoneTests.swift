@@ -41,15 +41,18 @@ struct SplitDropZoneTests {
             var actions = TabStripActions(
                 select: { _ in }, close: { _ in }, duplicate: { _ in },
                 closeOthers: { _ in }, reorder: { _, _ in },
-                moveToWindow: { _, _, _ in }, detachToNewWindow: { _, _ in }
+                moveToStrip: { _, _, _ in }, detachToNewWindow: { _, _ in }
             )
-            strip = TabStripNSView(windowID: windowID, actions: actions)
+            strip = TabStripNSView(
+                stripID: TabStripID(windowID: windowID, pane: .primary),
+                actions: actions
+            )
             // Content area fills the window below the strip.
             contentView = NSView(frame: NSRect(
                 x: 0, y: 0, width: frame.width, height: frame.height - 32
             ))
             actions.reorder = { [self] in reorders.append(($0, $1)) }
-            actions.moveToWindow = { [self] in moves.append(($0, $1, $2)) }
+            actions.moveToStrip = { [self] in moves.append(($0, $1.windowID, $2)) }
             actions.detachToNewWindow = { [self] in detaches.append(($0, $1)) }
             actions.dropIntoSplit = { [self] in splitDrops.append(($0, $1, $2)) }
             strip.actions = actions
@@ -61,12 +64,13 @@ struct SplitDropZoneTests {
                 SplitDropZoneRegistry.shared.register(contentView, for: windowID)
             }
 
-            strip.update(items: tabs.map {
+            strip.apply(items: tabs.map {
                 TabDisplayItem(
                     id: UUID(), title: $0, breadcrumb: "p.1",
-                    isActive: false, groupKey: "/tmp/\($0).pdf"
+                    isActive: false, groupKey: "/tmp/\($0).pdf",
+                    tint: BookTint.color(forPath: "/tmp/\($0).pdf")
                 )
-            })
+            }, palette: .light, isWindowSplit: false)
             strip.layoutSubtreeIfNeeded()
             strip.layout()
             window.setFrameOrigin(frame.origin)

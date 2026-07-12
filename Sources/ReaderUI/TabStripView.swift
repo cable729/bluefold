@@ -2,22 +2,28 @@
 import AppKit
 import ReaderCore
 
+/// Identity of one tab strip on screen: each pane of a (possibly split)
+/// reader window carries its own bar.
+struct TabStripID: Hashable {
+    let windowID: UUID
+    let pane: ReaderPane
+}
+
 /// What the strip needs to know about one tab to draw it.
 struct TabDisplayItem: Equatable {
     let id: UUID
+    /// Book title — drawn once per lozenge (a run of same-book tabs).
     let title: String
-    /// Second row: outline breadcrumb of the tab's position (may be a plain
-    /// page label for outline-less documents).
+    /// The tab's cell text: outline breadcrumb of its position (may be a
+    /// plain page label for outline-less documents).
     let breadcrumb: String
     let isActive: Bool
-    /// Whether this tab is currently shown in the split pane.
-    var isSplit = false
-    /// Which side of the primary the split pane sits on (nil unless
-    /// `isSplit`) — the context menu's "Move Split to …" needs it.
-    var splitSide: SplitSide? = nil
-    /// Adjacent tabs with the same key render as a group: the title shown
-    /// once in a header spanning the run, breadcrumbs per tab beneath.
+    /// Adjacent tabs with the same key share one lozenge: the book swatch
+    /// and title drawn once, a chapter cell per tab.
     let groupKey: String
+    /// The book's stable tint (cover palette) — colors the swatch and the
+    /// lozenge's translucent fill.
+    let tint: NSColor
 }
 
 /// Everything the strip can ask its window model to do. Kept as closures so
@@ -31,9 +37,12 @@ struct TabStripActions {
     var closeOthers: (UUID) -> Void
     var openInSplit: (UUID, SplitSide) -> Void = { _, _ in }
     var closeSplit: () -> Void = {}
+    /// Sends a split-strip tab back to the primary strip (and vice versa).
+    var moveToOtherPane: (UUID) -> Void = { _ in }
     var reorder: (UUID, Int) -> Void
-    /// Cross-window move: (tabID, targetWindowID, insertionIndex)
-    var moveToWindow: (UUID, UUID, Int) -> Void
+    /// Cross-strip move: (tabID, targetStrip, insertionIndex) — the target
+    /// may be another window OR this window's other pane.
+    var moveToStrip: (UUID, TabStripID, Int) -> Void
     /// Tab dropped on empty desktop at a screen point.
     var detachToNewWindow: (UUID, CGPoint) -> Void
     /// Tab dropped on a reader window's content-area half:
@@ -41,36 +50,52 @@ struct TabStripActions {
     var dropIntoSplit: (UUID, UUID, SplitSide) -> Void = { _, _, _ in }
 }
 
-/// AppKit-backed, Chrome-style tab strip. SwiftUI's .draggable/.onTapGesture
-/// combination proved unreliable for tab dragging (gesture conflicts, no way
-/// to detect desktop drops), so the strip tracks the mouse itself:
+/// AppKit-backed tab strip in the Cloth & Paper design: same-book tabs share
+/// a tinted LOZENGE (book swatch + title once, a chapter cell per tab; the
+/// active cell is a quiet full-cell fill in the divider's ink). SwiftUI's
+/// .draggable/.onTapGesture combination proved unreliable for tab dragging
+/// (gesture conflicts, no way to detect desktop drops), so the strip tracks
+/// the mouse itself:
 ///   - horizontal drag inside the strip band → live reorder preview, commit
 ///     on mouse-up
 ///   - drag beyond ±`Self.tearOffDistance` vertically → tear-off: a ghost
-///     panel follows the pointer; dropping over another window's strip moves
-///     the tab there, dropping anywhere else opens a new window at the point.
-/// Cross-window hit-testing goes through `TabStripRegistry`.
+///     panel follows the pointer; dropping over another strip moves the tab
+///     there (other windows AND this window's other pane), dropping anywhere
+///     else opens a new window at the point.
+/// Cross-strip hit-testing goes through `TabStripRegistry`.
 ///
-/// Tabs render two rows — title, then the outline breadcrumb of that tab's
-/// position. Adjacent tabs of the same book render the title once in a
-/// header spanning the run (a real tab group), breadcrumbs per tab beneath.
-/// While a drag is in flight everything renders as singletons so slot math
-/// stays trivial.
+/// Cells take their natural text width; when the total overflows the strip,
+/// cells first shrink toward a floor and then the strip SCROLLS horizontally
+/// (Firefox/Chrome behavior) — it lives inside `TabStripScrollView`.
+/// While a drag is in flight everything renders as uniform singletons so
+/// slot math stays trivial.
 @MainActor
 final class TabStripNSView: NSView {
-    static let tabHeight: CGFloat = 48
-    static let groupHeaderHeight: CGFloat = 22
-    static let minTabWidth: CGFloat = 60
-    static let maxTabWidth: CGFloat = 220
+    static let stripHeight: CGFloat = 38
+    static let lozengeInsetY: CGFloat = 5
+    static let lozengeGap: CGFloat = 6
+    static let edgePadding: CGFloat = 8
+    static let cornerRadius: CGFloat = 8
+    static let minCellWidth: CGFloat = 44
+    static let maxCellTextWidth: CGFloat = 150
+    static let maxLabelTextWidth: CGFloat = 130
+    static let dragCellWidth: CGFloat = 140
     static let tearOffDistance: CGFloat = 44
 
-    let windowID: UUID
+    let stripID: TabStripID
+    var windowID: UUID { stripID.windowID }
     var actions: TabStripActions
 
     private(set) var items: [TabDisplayItem] = []
+    private(set) var palette: DesignPalette = .light
+    /// Whether the window is split — decides the context menu's verbs.
+    private var isWindowSplit = false
     private var itemViews: [TabItemNSView] = []
-    private var headerViews: [TabGroupHeaderView] = []
+    private var lozengeViews: [TabLozengeView] = []
     private var drag: DragState?
+    /// Set while THIS strip's layout runs so frame-change observation in
+    /// the scroll container can tell relayout from external resizes.
+    private(set) var contentWidth: CGFloat = 0
 
     /// Multi-selection for bulk actions (⌘-click toggles, ⇧-click extends
     /// from the active tab). Purely view state; cleared by plain clicks and
@@ -82,18 +107,19 @@ final class TabStripNSView: NSView {
         didSet { needsDisplay = (isDropTarget != oldValue) || needsDisplay }
     }
 
-    init(windowID: UUID, actions: TabStripActions) {
-        self.windowID = windowID
+    init(stripID: TabStripID, actions: TabStripActions) {
+        self.stripID = stripID
         self.actions = actions
         super.init(frame: .zero)
         wantsLayer = true
         // NSViews don't clip subviews by default; without this a mislaid
-        // header/item frame (or an in-flight animation) draws over the
-        // window titlebar (round-4/5 owner screenshots).
+        // frame (or an in-flight animation) draws over neighboring chrome.
         layer?.masksToBounds = true
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityIdentifier("tab-strip")
+        setAccessibilityIdentifier(
+            stripID.pane == .split ? "tab-strip-split" : "tab-strip"
+        )
         setAccessibilityEnabled(true)
     }
 
@@ -103,9 +129,9 @@ final class TabStripNSView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil {
-            TabStripRegistry.shared.register(self, for: windowID)
+            TabStripRegistry.shared.register(self, for: stripID)
         } else {
-            TabStripRegistry.shared.unregister(windowID: windowID)
+            TabStripRegistry.shared.unregister(stripID: stripID)
             // The strip left its window mid-drag (window closed, hierarchy
             // rebuilt): a live ghost would float forever.
             cancelDrag(reason: "left window")
@@ -114,8 +140,13 @@ final class TabStripNSView: NSView {
 
     // MARK: - Content
 
-    func update(items: [TabDisplayItem]) {
-        guard items != self.items else { return }
+    func apply(items: [TabDisplayItem], palette: DesignPalette, isWindowSplit: Bool) {
+        let paletteChanged = palette.stripBackground != self.palette.stripBackground
+        self.palette = palette
+        self.isWindowSplit = isWindowSplit
+        guard items != self.items || paletteChanged else { return }
+        let activeChanged = items.first(where: \.isActive)?.id
+            != self.items.first(where: \.isActive)?.id
         self.items = items
 
         // The dragged tab vanished from the model (closed from elsewhere,
@@ -131,7 +162,7 @@ final class TabStripNSView: NSView {
         itemViews = items.map { item in
             let view = existing.removeValue(forKey: item.id)
                 ?? TabItemNSView(tabID: item.id, owner: self)
-            view.apply(item)
+            view.apply(item, palette: palette)
             if view.superview !== self { addSubview(view) }
             return view
         }
@@ -142,6 +173,20 @@ final class TabStripNSView: NSView {
         multiSelection.formIntersection(live)
         applyMultiSelectionChrome()
         needsLayout = true
+        if activeChanged {
+            // After layout, bring the newly active cell into view
+            // (selection from the palette/⌘1–9 may target a scrolled-out tab).
+            DispatchQueue.main.async { [weak self] in self?.scrollActiveCellToVisible() }
+        }
+    }
+
+    private func scrollActiveCellToVisible() {
+        guard drag == nil,
+              let active = itemViews.first(where: { view in
+                  items.first { $0.id == view.tabID }?.isActive == true
+              })
+        else { return }
+        scrollToVisible(active.frame.insetBy(dx: -20, dy: 0))
     }
 
     // MARK: - Multi-selection
@@ -182,105 +227,202 @@ final class TabStripNSView: NSView {
         applyMultiSelectionChrome()
     }
 
-    override var intrinsicContentSize: NSSize {
-        NSSize(width: NSView.noIntrinsicMetric, height: Self.tabHeight)
-    }
+    // MARK: - Layout (variable-width lozenges; scrolls on overflow)
 
     override func layout() {
         super.layout()
         layoutItems(animated: false)
     }
 
-    /// Shrink-to-fit layout (no scrolling; browsers shrink tabs instead).
-    /// During a drag the dragged tab tracks the pointer and others make room.
-    private func layoutItems(animated: Bool) {
-        guard !itemViews.isEmpty else {
-            clearHeaders()
-            return
-        }
-        let width = tabWidth
-        let ordered = orderedViewsForLayout()
-
-        // Group runs of adjacent same-book tabs — suspended while a drag is
-        // actually MOVING (slot math must stay per-tab). A plain click also
-        // creates drag state; dissolving groups for it made titles glide in
-        // from nowhere when the group re-formed on mouse-up.
-        let grouped: [Range<Int>] = drag?.didMove == true ? [] : groupRuns(in: ordered)
-        var isGrouped = [ObjectIdentifier: Bool]()
-        for run in grouped {
-            for index in run {
-                if let item = ordered[index] as? TabItemNSView {
-                    isGrouped[ObjectIdentifier(item)] = true
-                }
-            }
-        }
-
-        for (slot, view) in ordered.enumerated() {
-            let inGroup = isGrouped[ObjectIdentifier(view)] == true
-            let height = inGroup ? bounds.height - Self.groupHeaderHeight : bounds.height
-            let target = NSRect(
-                x: CGFloat(slot) * width, y: 0,
-                width: width, height: height
-            )
-            (view as? TabItemNSView)?.setGrouped(inGroup)
-            if view === drag?.itemView, drag?.didMove == true, drag?.isTornOff == false {
-                // The dragged tab follows the pointer horizontally.
-                var f = target
-                f.origin.x = drag!.currentTabOriginX(tabWidth: width, stripWidth: bounds.width)
-                view.frame = f
-            } else {
-                setFrame(target, of: view, animated: animated)
-            }
-        }
-
-        layoutHeaders(runs: grouped, ordered: ordered, tabWidth: width, animated: animated)
+    /// Width available before the strip must scroll.
+    private var availableWidth: CGFloat {
+        enclosingScrollView?.contentView.bounds.width ?? bounds.width
     }
 
-    /// Ranges of adjacent visible tabs sharing a groupKey (length ≥ 2).
-    private func groupRuns(in ordered: [NSView]) -> [Range<Int>] {
-        let keys: [String?] = ordered.map { view in
-            guard let item = view as? TabItemNSView else { return nil }
-            return items.first { $0.id == item.tabID }?.groupKey
-        }
-        guard !keys.isEmpty else { return [] }
+    private struct RunLayout {
+        var range: Range<Int>
+        var labelWidth: CGFloat // 0 while dragging (no book labels)
+        var cellWidths: [CGFloat]
+        var width: CGFloat { labelWidth + cellWidths.reduce(0, +) }
+    }
+
+    private static let labelFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+    private static let cellFont = NSFont.systemFont(ofSize: 11.5)
+
+    private static func textWidth(_ string: String, font: NSFont) -> CGFloat {
+        (string as NSString).size(withAttributes: [.font: font]).width.rounded(.up)
+    }
+
+    /// Ranges of adjacent items sharing a groupKey (length ≥ 1: every tab
+    /// lives in a lozenge, singletons included).
+    private func runRanges(of items: [TabDisplayItem]) -> [Range<Int>] {
+        guard !items.isEmpty else { return [] }
         var runs: [Range<Int>] = []
         var start = 0
-        for index in 1...keys.count {
-            if index == keys.count || keys[index] == nil || keys[index] != keys[start] {
-                if index - start >= 2, keys[start] != nil {
-                    runs.append(start..<index)
-                }
+        for index in 1...items.count {
+            if index == items.count || items[index].groupKey != items[start].groupKey {
+                runs.append(start..<index)
                 start = index
             }
         }
         return runs
     }
 
-    private func layoutHeaders(
-        runs: [Range<Int>], ordered: [NSView], tabWidth: CGFloat, animated: Bool
-    ) {
-        // Reuse header views positionally; runs are few.
-        while headerViews.count > runs.count {
-            headerViews.removeLast().removeFromSuperview()
+    /// Natural (unshrunk) layout of the given visual order, then a shrink
+    /// pass toward `minCellWidth` when the total overflows; beyond that the
+    /// strip scrolls.
+    private func computeRuns(for ordered: [TabDisplayItem], dragging: Bool) -> [RunLayout] {
+        if dragging {
+            // Uniform singleton cells (title text) keep slot math trivial.
+            let count = max(ordered.count, 1)
+            let fit = (availableWidth
+                - 2 * Self.edgePadding
+                - CGFloat(count - 1) * Self.lozengeGap) / CGFloat(count)
+            let width = max(Self.minCellWidth, min(Self.dragCellWidth, fit))
+            return ordered.indices.map {
+                RunLayout(range: $0..<($0 + 1), labelWidth: 0, cellWidths: [width])
+            }
         }
-        while headerViews.count < runs.count {
-            let header = TabGroupHeaderView(owner: self)
-            headerViews.append(header)
-            addSubview(header)
+        var runs: [RunLayout] = runRanges(of: ordered).map { range in
+            let labelText = Self.textWidth(ordered[range.lowerBound].title, font: Self.labelFont)
+            // swatch 9 + gaps + title + padding
+            let label = 7 + 9 + 6 + min(labelText, Self.maxLabelTextWidth) + 4
+            let cells = range.map { index -> CGFloat in
+                let item = ordered[index]
+                let text = min(
+                    Self.textWidth(item.breadcrumb, font: Self.cellFont),
+                    Self.maxCellTextWidth
+                )
+                let closeRoom: CGFloat = item.isActive ? 16 : 0
+                return max(Self.minCellWidth, 9 + text + closeRoom + 9)
+            }
+            return RunLayout(range: range, labelWidth: label, cellWidths: cells)
         }
-        for (header, run) in zip(headerViews, runs) {
-            let firstTab = (ordered[run.lowerBound] as? TabItemNSView)
-            let title = firstTab.flatMap { view in
-                items.first { $0.id == view.tabID }?.title
-            } ?? ""
-            header.apply(title: title, firstTabID: firstTab?.tabID)
+
+        let chrome = 2 * Self.edgePadding + CGFloat(max(runs.count - 1, 0)) * Self.lozengeGap
+        let natural = runs.reduce(chrome) { $0 + $1.width }
+        let available = availableWidth
+        if natural > available {
+            // Shrink every cell proportionally, no further than the floor;
+            // whatever still overflows scrolls.
+            let shrinkable = runs.reduce(0) { total, run in
+                total + run.cellWidths.reduce(0) { $0 + max(0, $1 - Self.minCellWidth) }
+            }
+            let overflow = min(natural - available, shrinkable)
+            if shrinkable > 0, overflow > 0 {
+                let factor = overflow / shrinkable
+                for runIndex in runs.indices {
+                    runs[runIndex].cellWidths = runs[runIndex].cellWidths.map {
+                        $0 - max(0, $0 - Self.minCellWidth) * factor
+                    }
+                }
+            }
+        }
+        return runs
+    }
+
+    /// Shrink-then-scroll layout. During a drag the dragged tab tracks the
+    /// pointer and others make room.
+    private func layoutItems(animated: Bool) {
+        guard !itemViews.isEmpty else {
+            clearLozenges()
+            contentWidth = 0
+            resizeToContent(width: availableWidth)
+            return
+        }
+        let dragging = drag?.didMove == true
+        let orderedViews = orderedViewsForLayout()
+        let orderedItems: [TabDisplayItem] = orderedViews.compactMap { view in
+            items.first { $0.id == view.tabID }
+        }
+        let runs = computeRuns(for: orderedItems, dragging: dragging)
+
+        let lozengeHeight = Self.stripHeight - 2 * Self.lozengeInsetY
+        var lozengeFrames: [NSRect] = []
+        var labelWidths: [CGFloat] = []
+        var x = Self.edgePadding
+        for run in runs {
             let frame = NSRect(
-                x: CGFloat(run.lowerBound) * tabWidth,
-                y: bounds.height - Self.groupHeaderHeight,
-                width: CGFloat(run.count) * tabWidth,
-                height: Self.groupHeaderHeight
+                x: x, y: Self.lozengeInsetY,
+                width: run.width, height: lozengeHeight
             )
-            setFrame(frame, of: header, animated: animated)
+            lozengeFrames.append(frame)
+            labelWidths.append(run.labelWidth)
+
+            var cellX = x + run.labelWidth
+            for (offset, index) in run.range.enumerated() {
+                let view = orderedViews[index]
+                let width = run.cellWidths[offset]
+                let target = NSRect(
+                    x: cellX, y: Self.lozengeInsetY,
+                    width: width, height: lozengeHeight
+                )
+                let isLast = offset == run.range.count - 1
+                let isFirst = offset == 0 && run.labelWidth == 0
+                view.setCellShape(
+                    roundsLeft: isFirst, roundsRight: isLast,
+                    showsLeadingDivider: !(offset == 0)
+                )
+                view.setDragAppearance(dragging)
+                if view === drag?.itemView, dragging, drag?.isTornOff == false {
+                    // The dragged tab follows the pointer horizontally.
+                    var f = target
+                    f.origin.x = drag!.currentTabOriginX(
+                        tabWidth: width, stripWidth: max(contentWidth, availableWidth)
+                    )
+                    view.frame = f
+                } else {
+                    setFrame(target, of: view, animated: animated)
+                }
+                cellX += width
+            }
+            x = lozengeFrames.last!.maxX + Self.lozengeGap
+        }
+
+        layoutLozenges(
+            frames: lozengeFrames, labelWidths: labelWidths,
+            runs: runs, ordered: orderedItems, animated: animated
+        )
+
+        contentWidth = (lozengeFrames.last?.maxX ?? 0) + Self.edgePadding
+        resizeToContent(width: max(contentWidth, availableWidth))
+    }
+
+    /// Grows the strip to its content (the scroll view shows the rest).
+    private func resizeToContent(width: CGFloat) {
+        let height = enclosingScrollView?.contentView.bounds.height ?? Self.stripHeight
+        let size = NSSize(width: width, height: height)
+        if frame.size != size {
+            setFrameSize(size)
+        }
+    }
+
+    private func layoutLozenges(
+        frames: [NSRect], labelWidths: [CGFloat],
+        runs: [RunLayout], ordered: [TabDisplayItem], animated: Bool
+    ) {
+        // Reuse lozenge views positionally; runs are few.
+        while lozengeViews.count > frames.count {
+            lozengeViews.removeLast().removeFromSuperview()
+        }
+        while lozengeViews.count < frames.count {
+            let lozenge = TabLozengeView(owner: self)
+            lozengeViews.append(lozenge)
+            addSubview(lozenge, positioned: .below, relativeTo: itemViews.first)
+        }
+        for (index, lozenge) in lozengeViews.enumerated() {
+            let run = runs[index]
+            let first = ordered[run.range.lowerBound]
+            let runIsActive = run.range.contains { ordered[$0].isActive }
+            lozenge.apply(
+                title: labelWidths[index] > 0 ? first.title : "",
+                labelWidth: labelWidths[index],
+                tint: first.tint,
+                isActive: runIsActive,
+                firstTabID: first.id,
+                palette: palette
+            )
+            setFrame(frames[index], of: lozenge, animated: animated)
         }
     }
 
@@ -295,23 +437,14 @@ final class TabStripNSView: NSView {
         }
     }
 
-    private func clearHeaders() {
-        for header in headerViews { header.removeFromSuperview() }
-        headerViews.removeAll()
-    }
-
-    private var tabWidth: CGFloat {
-        // A torn-off tab leaves the flow (its slot closes) but is never
-        // hidden: hiding the view that owns the mouse-tracking session can
-        // stop mouseDragged/mouseUp delivery — the round-4/5 stuck-ghost
-        // wedge. It stays in place at alpha 0 instead.
-        let inFlow = CGFloat(max(itemViews.count - (drag?.isTornOff == true ? 1 : 0), 1))
-        return max(Self.minTabWidth, min(Self.maxTabWidth, bounds.width / inFlow))
+    private func clearLozenges() {
+        for lozenge in lozengeViews { lozenge.removeFromSuperview() }
+        lozengeViews.removeAll()
     }
 
     /// Item views in visual order: model order, adjusted by the in-flight
     /// drag preview (dragged tab occupies its provisional slot).
-    private func orderedViewsForLayout() -> [NSView] {
+    private func orderedViewsForLayout() -> [TabItemNSView] {
         guard let drag else { return itemViews }
         if drag.isTornOff {
             return itemViews.filter { $0 !== drag.itemView }
@@ -322,10 +455,23 @@ final class TabStripNSView: NSView {
         return views
     }
 
+    /// Provisional slot for the pointer while reordering. Drag mode lays
+    /// cells out uniformly (same formula as `computeRuns`), so the slot is
+    /// pure arithmetic — no dependence on in-flight animations.
+    private func slotIndex(forX x: CGFloat) -> Int {
+        let count = max(itemViews.count, 1)
+        let fit = (availableWidth
+            - 2 * Self.edgePadding
+            - CGFloat(count - 1) * Self.lozengeGap) / CGFloat(count)
+        let width = max(Self.minCellWidth, min(Self.dragCellWidth, fit))
+        let slot = Int((x - Self.edgePadding) / (width + Self.lozengeGap))
+        return max(0, min(slot, itemViews.count - 1))
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         if isDropTarget {
-            NSColor.controlAccentColor.withAlphaComponent(0.15).setFill()
+            palette.accent.withAlphaComponent(0.15).setFill()
             bounds.fill()
         }
     }
@@ -459,19 +605,11 @@ final class TabStripNSView: NSView {
             self.drag = drag
             return // below the drag threshold: still a click
         }
-        if !drag.didMove, items.first(where: { $0.id == drag.tabID })?.isSplit == true {
-            // Dragging the split tab pulls it OUT of the pane (round 15:
-            // "drag the tab to un-split") — from here it drags like any
-            // tab: reorder, tear off, or drop somewhere else. Selecting it
-            // makes the tab in hand the one on screen when the drag ends.
-            actions.closeSplit()
-            actions.select(drag.tabID)
-        }
         drag.didMove = true
 
         let inBand = abs(dy) < Self.tearOffDistance
             && inStrip.x > -Self.tearOffDistance
-            && inStrip.x < bounds.width + Self.tearOffDistance
+            && inStrip.x < max(contentWidth, availableWidth) + Self.tearOffDistance
         if inBand {
             if drag.isTornOff { // re-entered: dissolve the ghost
                 drag.ghost?.close()
@@ -479,10 +617,8 @@ final class TabStripNSView: NSView {
                 drag.isTornOff = false
                 drag.itemView.alphaValue = 1
             }
-            // Provisional slot from the tab's midpoint.
-            let midX = drag.currentTabOriginX(tabWidth: tabWidth, stripWidth: bounds.width)
-                + tabWidth / 2
-            drag.previewIndex = max(0, min(Int(midX / tabWidth), itemViews.count - 1))
+            // Provisional slot from the pointer.
+            drag.previewIndex = slotIndex(forX: inStrip.x)
             self.drag = drag
             SplitDropZoneRegistry.shared.setTarget(nil) // back in the band
             layoutItems(animated: true)
@@ -504,7 +640,7 @@ final class TabStripNSView: NSView {
             // of the content area, and a strip drop is the more deliberate
             // gesture there.
             TabStripRegistry.shared.updateDropTarget(
-                at: screen, excluding: drag.isTornOff ? nil : windowID
+                at: screen, excluding: drag.isTornOff ? nil : stripID
             )
             SplitDropZoneRegistry.shared.setTarget(splitDropZone(atScreen: screen))
         }
@@ -548,11 +684,11 @@ final class TabStripNSView: NSView {
 
         if drag.isTornOff {
             if let (targetID, targetStrip) = TabStripRegistry.shared.strip(at: screen) {
-                if targetID == windowID {
+                if targetID == stripID {
                     return // dropped back on our own strip: no-op
                 }
                 let index = targetStrip.insertionIndex(forScreenPoint: screen)
-                actions.moveToWindow(drag.tabID, targetID, index)
+                actions.moveToStrip(drag.tabID, targetID, index)
             } else if let zone = splitDropZone(atScreen: screen) {
                 // Dropped on a reader window's content-area half: open as
                 // that window's split on that side (cross-window drops move
@@ -570,8 +706,10 @@ final class TabStripNSView: NSView {
     func insertionIndex(forScreenPoint point: CGPoint) -> Int {
         guard let window else { return items.count }
         let inStrip = convert(window.convertPoint(fromScreen: point), from: nil)
-        guard tabWidth > 0 else { return items.count }
-        return max(0, min(Int((inStrip.x / tabWidth).rounded()), items.count))
+        for (index, view) in itemViews.enumerated() where inStrip.x < view.frame.midX {
+            return index
+        }
+        return items.count
     }
 
     func setDropTargetHighlight(_ on: Bool) {
@@ -590,8 +728,8 @@ final class TabStripNSView: NSView {
         menu(forTabID: item.tabID)
     }
 
-    /// Context menu for one tab — item views AND group headers route here
-    /// (round 14: right-clicking a header-covered tab produced nothing).
+    /// Context menu for one tab — item views AND lozenge labels route here
+    /// (round 14: a label-covered tab must keep its menu reachable).
     func menu(forTabID tabID: UUID) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -607,17 +745,17 @@ final class TabStripNSView: NSView {
 
         menu.addItem(withTitle: "Duplicate Tab", action: nil, keyEquivalent: "")
             .setHandler { [weak self] in self?.actions.duplicate(tabID) }
-        if let item = items.first(where: { $0.id == tabID }), item.isSplit {
-            let otherSide: SplitSide = item.splitSide == .trailing ? .leading : .trailing
+        if isWindowSplit {
             menu.addItem(
-                withTitle: otherSide == .leading ? "Move Split to Left Side" : "Move Split to Right Side",
+                withTitle: stripID.pane == .split
+                    ? "Move to Primary Pane" : "Move to Split Pane",
                 action: nil, keyEquivalent: ""
-            ).setHandler { [weak self] in self?.actions.openInSplit(tabID, otherSide) }
+            ).setHandler { [weak self] in self?.actions.moveToOtherPane(tabID) }
             menu.addItem(withTitle: "Close Split View", action: nil, keyEquivalent: "")
                 .setHandler { [weak self] in self?.actions.closeSplit() }
         } else {
-            // Also the way to move an existing split to the other side:
-            // splitting a tab re-targets the pane, side included.
+            // Splitting a tab moves it into the (new) split pane's strip,
+            // side included.
             let splitRight = menu.addItem(
                 withTitle: "Split Right", action: nil, keyEquivalent: ""
             )
@@ -652,26 +790,24 @@ final class TabStripNSView: NSView {
     }
 }
 
-/// One tab in the strip: title row + breadcrumb row. When part of a group
-/// the title row is hidden (the spanning header carries it) and the
-/// breadcrumb centers in the remaining height. Pure display + event
-/// forwarding; all decisions live in the owning strip.
+/// One chapter CELL in a lozenge: breadcrumb text + close button. The active
+/// cell fills with the palette's translucent ink; hover shows a whisper of
+/// it. Pure display + event forwarding; all decisions live in the owning
+/// strip. While a drag is in flight the cell shows the TAB TITLE instead
+/// (lozenges dissolve to uniform singletons).
 @MainActor
 final class TabItemNSView: NSView {
     let tabID: UUID
     private unowned let owner: TabStripNSView
 
-    private let titleField = NSTextField(labelWithString: "")
-    private let breadcrumbField = NSTextField(labelWithString: "")
+    private let textField = NSTextField(labelWithString: "")
     private let closeButton = NSButton()
-    private let activeBar = NSView()
-    private let textStack = NSStackView()
-    private let titleRow = NSStackView()
-    /// Marks the tab shown in the split pane (round 14: it was
-    /// indistinguishable from any inactive tab).
-    private let splitBadge = NSImageView()
-    private var isActive = false
-    private var isGrouped = false
+    private let leadingDivider = NSView()
+    private var item: TabDisplayItem?
+    private var palette: DesignPalette = .light
+    private var isDragAppearance = false
+    private var roundsLeft = false
+    private var roundsRight = false
     private var isMultiSelected = false
     private var isHovered = false { didSet { refreshChrome() } }
     private var trackingArea: NSTrackingArea?
@@ -681,38 +817,14 @@ final class TabItemNSView: NSView {
         self.owner = owner
         super.init(frame: .zero)
         wantsLayer = true
+        layer?.cornerRadius = TabStripNSView.cornerRadius
+        layer?.maskedCorners = []
 
-        titleField.font = .systemFont(ofSize: 12)
-        titleField.lineBreakMode = .byTruncatingMiddle
-        titleField.setAccessibilityIdentifier("tab-title")
-
-        breadcrumbField.font = .systemFont(ofSize: 9.5)
-        breadcrumbField.textColor = .tertiaryLabelColor
+        textField.font = NSFont.systemFont(ofSize: 11.5)
         // Head truncation keeps the deepest (most useful) section visible.
-        breadcrumbField.lineBreakMode = .byTruncatingHead
-        breadcrumbField.setAccessibilityIdentifier("tab-breadcrumb")
-
-        splitBadge.image = NSImage(
-            systemSymbolName: "rectangle.split.2x1",
-            accessibilityDescription: "Shown in split pane"
-        )
-        splitBadge.symbolConfiguration = .init(pointSize: 9, weight: .medium)
-        splitBadge.contentTintColor = .controlAccentColor
-        splitBadge.isHidden = true
-        splitBadge.setAccessibilityIdentifier("tab-split-badge")
-
-        titleRow.orientation = .horizontal
-        titleRow.alignment = .firstBaseline
-        titleRow.spacing = 3
-        titleRow.addArrangedSubview(splitBadge)
-        titleRow.addArrangedSubview(titleField)
-
-        textStack.orientation = .vertical
-        textStack.alignment = .leading
-        textStack.spacing = 1
-        textStack.addArrangedSubview(titleRow)
-        textStack.addArrangedSubview(breadcrumbField)
-        textStack.translatesAutoresizingMaskIntoConstraints = false
+        textField.lineBreakMode = .byTruncatingHead
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        textField.setAccessibilityIdentifier("tab-breadcrumb")
 
         closeButton.image = NSImage(
             systemSymbolName: "xmark", accessibilityDescription: "Close Tab"
@@ -724,26 +836,24 @@ final class TabItemNSView: NSView {
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.setAccessibilityIdentifier("tab-close")
 
-        activeBar.wantsLayer = true
-        activeBar.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
-        activeBar.translatesAutoresizingMaskIntoConstraints = false
+        leadingDivider.wantsLayer = true
+        leadingDivider.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(textStack)
+        addSubview(textField)
         addSubview(closeButton)
-        addSubview(activeBar)
+        addSubview(leadingDivider)
         NSLayoutConstraint.activate([
-            // ✕ sits on the RIGHT (round 15) — matching the split pane
-            // header and every browser.
-            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            textField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 9),
+            textField.trailingAnchor.constraint(lessThanOrEqualTo: closeButton.leadingAnchor, constant: -3),
+            textField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            // ✕ sits on the RIGHT (round 15) — matching every browser.
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -7),
             closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: 12),
-            textStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            textStack.trailingAnchor.constraint(lessThanOrEqualTo: closeButton.leadingAnchor, constant: -4),
-            textStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            activeBar.topAnchor.constraint(equalTo: topAnchor),
-            activeBar.leadingAnchor.constraint(equalTo: leadingAnchor),
-            activeBar.trailingAnchor.constraint(equalTo: trailingAnchor),
-            activeBar.heightAnchor.constraint(equalToConstant: 2),
+            leadingDivider.leadingAnchor.constraint(equalTo: leadingAnchor),
+            leadingDivider.centerYAnchor.constraint(equalTo: centerYAnchor),
+            leadingDivider.widthAnchor.constraint(equalToConstant: 1),
+            leadingDivider.heightAnchor.constraint(equalToConstant: 15),
         ])
 
         setAccessibilityElement(true)
@@ -754,23 +864,26 @@ final class TabItemNSView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("unused") }
 
-    func apply(_ item: TabDisplayItem) {
-        titleField.stringValue = item.title
-        titleField.font = .systemFont(ofSize: 12, weight: item.isActive ? .semibold : .regular)
-        breadcrumbField.stringValue = item.breadcrumb
-        breadcrumbField.isHidden = item.breadcrumb.isEmpty
-        splitBadge.isHidden = !item.isSplit
-        isActive = item.isActive
+    func apply(_ item: TabDisplayItem, palette: DesignPalette) {
+        self.item = item
+        self.palette = palette
         setAccessibilityIdentifier("tab-\(item.title)")
         setAccessibilityTitle(item.title)
         refreshChrome()
     }
 
-    /// Grouped tabs hide their title row — the group header carries it.
-    func setGrouped(_ grouped: Bool) {
-        guard grouped != isGrouped else { return }
-        isGrouped = grouped
-        titleRow.isHidden = grouped
+    /// Outer-edge rounding follows the cell's slot in its lozenge.
+    func setCellShape(roundsLeft: Bool, roundsRight: Bool, showsLeadingDivider: Bool) {
+        self.roundsLeft = roundsLeft
+        self.roundsRight = roundsRight
+        leadingDivider.isHidden = !showsLeadingDivider
+        refreshChrome()
+    }
+
+    /// While dragging, cells dissolve to title-carrying singletons.
+    func setDragAppearance(_ dragging: Bool) {
+        guard dragging != isDragAppearance else { return }
+        isDragAppearance = dragging
         refreshChrome()
     }
 
@@ -781,17 +894,33 @@ final class TabItemNSView: NSView {
     }
 
     private func refreshChrome() {
-        titleField.textColor = isActive ? .labelColor : .secondaryLabelColor
-        breadcrumbField.textColor = isActive ? .secondaryLabelColor : .tertiaryLabelColor
-        activeBar.isHidden = !isActive
-        closeButton.isHidden = !(isActive || isHovered)
+        guard let item else { return }
+        let active = item.isActive
+        textField.stringValue = isDragAppearance ? item.title : item.breadcrumb
+        textField.font = NSFont.systemFont(
+            ofSize: 11.5, weight: active ? .semibold : .regular
+        )
+        textField.textColor = active
+            ? palette.ink
+            : palette.ink.withAlphaComponent(0.62)
+        closeButton.contentTintColor = palette.ink.withAlphaComponent(0.55)
+        closeButton.isHidden = !(active || isHovered)
+        leadingDivider.layer?.backgroundColor = palette.lozengeDivider.cgColor
+
+        // AppKit's layer corner mask uses AppKit (flipped=false) geometry:
+        // MinY = bottom. Round only the outer edges the lozenge exposes.
+        var corners: CACornerMask = []
+        if roundsLeft { corners.insert([.layerMinXMinYCorner, .layerMinXMaxYCorner]) }
+        if roundsRight { corners.insert([.layerMaxXMinYCorner, .layerMaxXMaxYCorner]) }
+        layer?.maskedCorners = corners
+
         layer?.backgroundColor =
             if isMultiSelected {
-                NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
-            } else if isActive {
-                NSColor.textBackgroundColor.cgColor
+                palette.accent.withAlphaComponent(0.28).cgColor
+            } else if active {
+                palette.activeCellFill.cgColor
             } else if isHovered {
-                NSColor.quaternaryLabelColor.withAlphaComponent(0.2).cgColor
+                palette.ink.withAlphaComponent(0.05).cgColor
             } else {
                 NSColor.clear.cgColor
             }
@@ -840,34 +969,31 @@ final class TabItemNSView: NSView {
     }
 }
 
-/// Title header spanning a run of same-book tabs — the tab-group affordance
-/// (replaces the old colored dot). Click selects the group's first tab.
+/// The tinted rounded container of one same-book run: translucent book-tint
+/// fill, the cover swatch, and the book title. Click selects the run's
+/// first tab; right-click gets that tab's menu.
 @MainActor
-final class TabGroupHeaderView: NSView {
+final class TabLozengeView: NSView {
     private unowned let owner: TabStripNSView
+    private let swatch = NSView()
     private let titleField = NSTextField(labelWithString: "")
     private var firstTabID: UUID?
+    private var labelWidth: CGFloat = 0
 
     init(owner: TabStripNSView) {
         self.owner = owner
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.quaternaryLabelColor
-            .withAlphaComponent(0.18).cgColor
-        titleField.font = .systemFont(ofSize: 11, weight: .medium)
-        titleField.textColor = .secondaryLabelColor
-        titleField.lineBreakMode = .byTruncatingMiddle
-        titleField.alignment = .center
-        titleField.translatesAutoresizingMaskIntoConstraints = false
+        layer?.cornerRadius = TabStripNSView.cornerRadius
+
+        swatch.wantsLayer = true
+        swatch.layer?.cornerRadius = 2
+
+        titleField.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        titleField.lineBreakMode = .byTruncatingTail
+
+        addSubview(swatch)
         addSubview(titleField)
-        NSLayoutConstraint.activate([
-            titleField.centerXAnchor.constraint(equalTo: centerXAnchor),
-            titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
-            titleField.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 6),
-            // Without a trailing bound a long title keeps its intrinsic
-            // width and (unclipped) renders past the header's edge.
-            titleField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -6),
-        ])
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityIdentifier("tab-group-header")
@@ -876,13 +1002,40 @@ final class TabGroupHeaderView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("unused") }
 
-    func apply(title: String, firstTabID: UUID?) {
-        titleField.stringValue = title
+    func apply(
+        title: String, labelWidth: CGFloat, tint: NSColor,
+        isActive: Bool, firstTabID: UUID?, palette: DesignPalette
+    ) {
         self.firstTabID = firstTabID
+        self.labelWidth = labelWidth
+        titleField.stringValue = title
+        titleField.textColor = palette.ink.withAlphaComponent(0.9)
+        titleField.setAccessibilityIdentifier("tab-title")
+        swatch.layer?.backgroundColor = tint.cgColor
+        // The book tint carries the lozenge; the active book's lozenge sits
+        // a notch stronger, mockup-style.
+        layer?.backgroundColor = tint
+            .withAlphaComponent(isActive ? 0.30 : 0.18).cgColor
         setAccessibilityTitle(title)
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        swatch.frame = NSRect(x: 7, y: (bounds.height - 11) / 2, width: 9, height: 11)
+        let titleX = swatch.frame.maxX + 6
+        titleField.frame = NSRect(
+            x: titleX,
+            y: (bounds.height - titleField.intrinsicContentSize.height) / 2,
+            width: max(labelWidth - titleX - 4, 0),
+            height: titleField.intrinsicContentSize.height
+        )
+        swatch.isHidden = labelWidth <= 0
+        titleField.isHidden = labelWidth <= 0
     }
 
     override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
         if let firstTabID {
@@ -890,16 +1043,65 @@ final class TabGroupHeaderView: NSView {
         }
     }
 
-    /// The header is the group's visible "tab": right-click must work here
-    /// too (round 14 — a header-covered tab had no reachable menu).
+    /// The label is the group's visible handle: right-click must work here
+    /// too (round 14 — a covered tab had no reachable menu).
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let firstTabID else { return nil }
         return owner.menu(forTabID: firstTabID)
     }
 }
 
-/// Screen-level registry of live tab strips, for cross-window drop
-/// hit-testing during a tear-off drag.
+/// Horizontal scroller around the strip (Firefox/Chrome overflow behavior).
+/// A vertical wheel scrolls horizontally — the strip has no vertical axis.
+@MainActor
+final class TabStripScrollView: NSScrollView {
+    init(strip: TabStripNSView) {
+        super.init(frame: .zero)
+        documentView = strip
+        hasVerticalScroller = false
+        hasHorizontalScroller = true
+        horizontalScroller?.controlSize = .mini
+        autohidesScrollers = true
+        scrollerStyle = .overlay
+        drawsBackground = false
+        verticalScrollElasticity = .none
+        contentView.postsBoundsChangedNotifications = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("unused") }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: TabStripNSView.stripHeight)
+    }
+
+    override func layout() {
+        super.layout()
+        // Width changes re-run the shrink-then-scroll pass.
+        (documentView as? TabStripNSView)?.needsLayout = true
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard let strip = documentView as? TabStripNSView,
+              strip.frame.width > contentView.bounds.width,
+              abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX)
+        else {
+            super.scrollWheel(with: event)
+            return
+        }
+        var origin = contentView.bounds.origin
+        origin.x = max(0, min(
+            origin.x - event.scrollingDeltaY,
+            strip.frame.width - contentView.bounds.width
+        ))
+        contentView.setBoundsOrigin(origin)
+        reflectScrolledClipView(contentView)
+    }
+}
+
+/// Screen-level registry of live tab strips, for cross-strip drop
+/// hit-testing during a tear-off drag (other windows and this window's
+/// other pane alike).
 @MainActor
 final class TabStripRegistry {
     static let shared = TabStripRegistry()
@@ -908,38 +1110,40 @@ final class TabStripRegistry {
         weak var strip: TabStripNSView?
     }
 
-    private var entries: [UUID: Entry] = [:]
+    private var entries: [TabStripID: Entry] = [:]
 
-    func register(_ strip: TabStripNSView, for windowID: UUID) {
-        entries[windowID] = Entry(strip: strip)
+    func register(_ strip: TabStripNSView, for stripID: TabStripID) {
+        entries[stripID] = Entry(strip: strip)
     }
 
-    func unregister(windowID: UUID) {
-        entries[windowID] = nil
+    func unregister(stripID: TabStripID) {
+        entries[stripID] = nil
     }
 
     /// The strip whose screen rect (with a small vertical grace band)
     /// contains the point, frontmost window first.
-    func strip(at screenPoint: CGPoint) -> (UUID, TabStripNSView)? {
+    func strip(at screenPoint: CGPoint) -> (TabStripID, TabStripNSView)? {
         // Respect z-order: check windows front-to-back.
-        let ordered = NSApp.orderedWindows.compactMap { window in
-            entries.first { $0.value.strip?.window === window }
-                .flatMap { id, entry in entry.strip.map { (id, $0) } }
-        }
-        for (id, strip) in ordered {
-            guard let window = strip.window else { continue }
-            var rect = strip.convert(strip.bounds, to: nil)
-            rect = window.convertToScreen(rect)
-            let graceRect = rect.insetBy(dx: 0, dy: -TabStripNSView.tearOffDistance / 2)
-            if graceRect.contains(screenPoint) {
-                return (id, strip)
+        for window in NSApp.orderedWindows {
+            let inWindow = entries.filter { $0.value.strip?.window === window }
+            for (id, entry) in inWindow {
+                guard let strip = entry.strip, let stripWindow = strip.window else { continue }
+                // Hit-test the VISIBLE part (the clip view), not the
+                // scrolled document.
+                let container: NSView = strip.enclosingScrollView ?? strip
+                var rect = container.convert(container.bounds, to: nil)
+                rect = stripWindow.convertToScreen(rect)
+                let graceRect = rect.insetBy(dx: 0, dy: -TabStripNSView.tearOffDistance / 2)
+                if graceRect.contains(screenPoint) {
+                    return (id, strip)
+                }
             }
         }
         return nil
     }
 
     /// Highlights the strip under the pointer during a tear-off drag.
-    func updateDropTarget(at screenPoint: CGPoint?, excluding: UUID?) {
+    func updateDropTarget(at screenPoint: CGPoint?, excluding: TabStripID?) {
         let target = screenPoint.flatMap { strip(at: $0) }
         for (id, entry) in entries {
             entry.strip?.setDropTargetHighlight(target?.0 == id && id != excluding)
@@ -954,7 +1158,7 @@ final class TabGhostPanel: NSPanel {
 
     init(snapshotting view: NSView) {
         let size = view.bounds.size == .zero
-            ? CGSize(width: 160, height: TabStripNSView.tabHeight)
+            ? CGSize(width: 160, height: TabStripNSView.stripHeight)
             : view.bounds.size
         grabOffset = CGPoint(x: size.width / 2, y: size.height / 2)
         super.init(

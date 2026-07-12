@@ -64,35 +64,39 @@ final class RenderSmokeUITests: XCTestCase {
         return app
     }
 
-    func testTwoRowStripShowsBreadcrumbsAndGroupHeader() {
+    func testStripGroupsSameBookTabsIntoOneLozenge() {
         let axler = makePDF(named: "Axler")
         let other = makePDF(named: "Other")
-        // Same book twice (adjacent) + another book: expect ONE group header.
+        // Same book twice (adjacent) + another book: expect TWO lozenges —
+        // the Axler pair shares one, Other gets its own.
         let app = launch(arguments: [
             "--open", axler.path, "--open", axler.path, "--open", other.path,
         ])
         let strip = app.windows.firstMatch.groups["tab-strip"]
         XCTAssertTrue(strip.waitForExistence(timeout: 10))
 
-        let header = strip.groups["tab-group-header"]
-        XCTAssertTrue(header.waitForExistence(timeout: 5),
-                      "adjacent same-book tabs should get a spanning header")
-        XCTAssertEqual(header.title, "Axler")
-
-        // Round-5 regression: the header used to render ABOVE the strip,
-        // overlapping the window titlebar. It must lie inside the strip and
-        // be tall enough to read (round 4: "skinny and hard to see").
-        let stripFrame = strip.frame
-        let headerFrame = header.frame
-        XCTAssertTrue(
-            stripFrame.insetBy(dx: -1, dy: -1).contains(headerFrame),
-            "group header \(headerFrame) must render within the strip \(stripFrame)"
+        let lozenges = strip.groups.matching(
+            NSPredicate(format: "identifier == 'tab-group-header'")
         )
-        XCTAssertGreaterThanOrEqual(headerFrame.height, 20, "header should be readable")
+        XCTAssertTrue(lozenges.firstMatch.waitForExistence(timeout: 5),
+                      "tabs should render inside book lozenges")
+        XCTAssertEqual(lozenges.count, 2,
+                       "adjacent same-book tabs share one lozenge")
+        let titles = lozenges.allElementsBoundByIndex.map(\.title)
+        XCTAssertTrue(titles.contains("Axler"), "lozenge titles: \(titles)")
 
-        dumpScreenshot(of: app.windows.firstMatch, named: "two-row-strip")
+        // The lozenge must lie inside the strip band and be readable.
+        let stripFrame = strip.frame
+        let lozengeFrame = lozenges.firstMatch.frame
+        XCTAssertTrue(
+            stripFrame.insetBy(dx: -1, dy: -1).contains(lozengeFrame),
+            "lozenge \(lozengeFrame) must render within the strip \(stripFrame)"
+        )
+        XCTAssertGreaterThanOrEqual(lozengeFrame.height, 20, "lozenge should be readable")
 
-        // Every tab carries a second-row breadcrumb (page label for
+        dumpScreenshot(of: app.windows.firstMatch, named: "lozenge-strip")
+
+        // Every tab carries its breadcrumb cell (page label for
         // outline-less fixtures).
         let breadcrumbs = strip.staticTexts.matching(
             NSPredicate(format: "identifier == 'tab-breadcrumb'")
@@ -121,10 +125,10 @@ final class RenderSmokeUITests: XCTestCase {
         let window = app.windows.firstMatch
         XCTAssertTrue(window.groups["tab-strip"].waitForExistence(timeout: 10))
 
-        // Two live PDF panes + the split header's close button.
+        // Each pane carries its OWN tab bar (per-pane strips redesign).
         XCTAssertTrue(
-            window.buttons["close-split"].waitForExistence(timeout: 10),
-            "split pane header should render its close button"
+            window.groups["tab-strip-split"].waitForExistence(timeout: 10),
+            "the split pane should render its own tab strip"
         )
         let documents = window.groups.matching(
             NSPredicate(format: "label == 'document'")

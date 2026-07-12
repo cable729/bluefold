@@ -169,29 +169,14 @@ struct PaneFocusTests {
         #expect(restored.splitTabID == model.splitTabID)
     }
 
-    @Test func splitTabNeverJoinsAGroupAndCarriesItsSide() throws {
-        // Display-item invariants the strip relies on (a grouped split tab
-        // loses its title, menu, and drag handle behind the group header).
+    @Test func eachPaneStripShowsOnlyItsOwnTabs() {
+        // Per-pane tab bars: the split tab appears in the SPLIT strip only,
+        // so it can never hide behind another strip's grouping.
         let (model, primary, split) = makeSplitModel()
-        let items = model.tabs.map { tab in
-            TabDisplayItem(
-                id: tab.id,
-                title: "t",
-                breadcrumb: "",
-                isActive: tab.id == model.activeTab?.id,
-                isSplit: tab.id == model.splitTabID,
-                splitSide: tab.id == model.splitTabID ? model.splitSide : nil,
-                groupKey: tab.id == model.splitTabID
-                    ? "split-\(tab.id.uuidString)" : tab.pathHint
-            )
-        }
-        let splitItem = try #require(items.first { $0.id == split })
-        let primaryItem = try #require(items.first { $0.id == primary })
-        #expect(splitItem.groupKey != primaryItem.groupKey || model.tabs[0].pathHint != model.tabs[1].pathHint)
-        #expect(splitItem.isSplit)
-        #expect(splitItem.splitSide == .trailing)
-        #expect(splitItem.isActive, "split pane is focused → its tab is the highlighted one")
-        #expect(!primaryItem.isActive)
+        #expect(model.tabs(in: .primary).map(\.id) == [primary])
+        #expect(model.tabs(in: .split).map(\.id) == [split])
+        #expect(model.splitTabID == split, "the split strip's own active tab")
+        #expect(model.activeTabID == primary, "the primary strip's own active tab")
     }
 }
 #endif

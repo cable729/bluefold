@@ -37,10 +37,6 @@ public struct ReaderWindowView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            if !model.tabs.isEmpty {
-                TabBarView(model: model, onNewTab: openPanel)
-                Divider()
-            }
             HSplitView {
                 if ui.showSidebar, let document = activeDocument {
                     SidebarView(
@@ -185,9 +181,9 @@ public struct ReaderWindowView: View {
                 if let splitTab = model.splitTab,
                    let splitDocument = model.provider.document(for: model.url(for: splitTab)) {
                     // The split pane sits leading OR trailing of the primary
-                    // (Split Left / Split Right). Both panes carry a header
-                    // while split — it names the tab, shows which pane has
-                    // focus, and is the pane's right-click surface.
+                    // (Split Left / Split Right). EACH pane carries its own
+                    // tab bar; the non-focused pane dims a whisper so focus
+                    // is visible without any header chrome.
                     HSplitView {
                         if model.splitSide == .leading {
                             pane(tab: splitTab, document: splitDocument, role: .split)
@@ -201,14 +197,16 @@ public struct ReaderWindowView: View {
                         }
                     }
                 } else {
-                    // Unsplit: no header — the strip is the tab chrome.
-                    pdfView(tab: tab, document: document, role: .primary)
+                    pane(tab: tab, document: document, role: .primary)
                 }
             } else {
-                ContentUnavailableView {
-                    Label("File Not Available", systemImage: "questionmark.folder")
-                } description: {
-                    Text(tab.pathHint)
+                VStack(spacing: 0) {
+                    TabBarView(model: model, pane: .primary, onNewTab: openPanel)
+                    ContentUnavailableView {
+                        Label("File Not Available", systemImage: "questionmark.folder")
+                    } description: {
+                        Text(tab.pathHint)
+                    }
                 }
             }
         } else {
@@ -237,68 +235,24 @@ public struct ReaderWindowView: View {
         }
     }
 
-    /// One pane of a split window: a slim header (title, focus indicator,
-    /// right-click menu) over its live PDF view. Both panes render this so
-    /// focus is always visible and every pane is directly manipulable —
-    /// round 14: the split pane's tab felt unreachable.
+    /// One pane: its own tab bar over its live PDF view. Focus needs no
+    /// header or dot — the non-focused pane of a split dims a whisper
+    /// instead (the design-system redesign removed pane headers).
     private func pane(tab: TabState, document: PDFDocument, role: ReaderPane) -> some View {
-        let isFocused = model.focusedPane == role
+        let isSplit = model.splitTabID != nil
+        let isDimmed = isSplit && model.focusedPane != role
         return VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                if isFocused {
-                    Circle()
-                        .fill(Color.accentColor)
-                        .frame(width: 6, height: 6)
-                        .accessibilityLabel("Focused pane")
-                }
-                Text(URL(fileURLWithPath: tab.pathHint)
-                    .deletingPathExtension().lastPathComponent)
-                    .font(.caption)
-                    .fontWeight(isFocused ? .semibold : .regular)
-                    .foregroundStyle(isFocused ? .primary : .secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-                // Either pane can be closed (round 15): the OTHER pane takes
-                // over the whole window; every tab stays in the strip.
-                Button {
-                    model.closePane(role)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .bold))
-                }
-                .buttonStyle(.borderless)
-                .accessibilityIdentifier(role == .split ? "close-split" : "close-primary-pane")
-                .help("Close this pane — the other pane takes over (the tab stays open)")
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(isFocused ? AnyShapeStyle(Color.accentColor.opacity(0.12)) : AnyShapeStyle(.bar))
-            .contentShape(Rectangle())
-            .onTapGesture { model.focusPane(role) }
-            .contextMenu { paneMenu(tab: tab, role: role) }
-            Divider()
+            TabBarView(model: model, pane: role, onNewTab: openPanel)
             pdfView(tab: tab, document: document, role: role)
         }
-    }
-
-    /// The pane header's right-click menu — the same verbs as the tab
-    /// strip, reachable where the owner actually looks in split view.
-    @ViewBuilder
-    private func paneMenu(tab: TabState, role: ReaderPane) -> some View {
-        Button("Close Tab") { model.closeTab(id: tab.id) }
-        Button("Move to New Window") {
-            if let newID = SessionCoordinator.shared.detachTabToNewWindow(
-                tab.id, from: model.windowID
-            ) {
-                openWindow(id: "reader", value: newID)
+        .overlay {
+            if isDimmed {
+                // VERY slight: just enough for "the other pane".
+                Color.black.opacity(0.06)
+                    .allowsHitTesting(false)
             }
         }
-        Divider()
-        Button(model.splitSide == .trailing ? "Move Split to Left Side" : "Move Split to Right Side") {
-            model.moveSplitToOtherSide()
-        }
-        Button("Close Split View") { model.closeSplit() }
+        .animation(.easeOut(duration: 0.15), value: isDimmed)
     }
 
     /// The live PDF view of one pane, keyed on the RESOLVED theme too: a

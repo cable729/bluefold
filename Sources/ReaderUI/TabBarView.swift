@@ -2,21 +2,25 @@
 import ReaderCore
 import SwiftUI
 
-/// Browser-style tab strip. Rendering and drag tracking live in the
-/// AppKit-backed `TabStripNSView` (SwiftUI's .draggable/.onTapGesture pairing
-/// could not express reorder, tear-off, or reliable cross-window drops); this
-/// wrapper feeds it display state and wires its actions to the window model
-/// and session coordinator.
+/// One PANE's tab bar (each pane of a split window carries its own).
+/// Rendering and drag tracking live in the AppKit-backed `TabStripNSView`
+/// (SwiftUI's .draggable/.onTapGesture pairing could not express reorder,
+/// tear-off, or reliable cross-window drops); this wrapper feeds it display
+/// state and wires its actions to the window model and session coordinator.
 struct TabBarView: View {
     @Bindable var model: ReaderWindowModel
+    let pane: ReaderPane
     let onNewTab: () -> Void
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
+        let palette = DesignPalette.current
         HStack(spacing: 0) {
             TabStripRepresentable(
                 model: model,
+                pane: pane,
                 items: displayItems,
+                isWindowSplit: model.splitTabID != nil,
                 openWindow: openWindow
             )
             // "+" merges both ways of opening a tab (round-5 owner request:
@@ -28,6 +32,7 @@ struct TabBarView: View {
                 Button("Open File…", systemImage: "folder", action: onNewTab)
             } label: {
                 Image(systemName: "plus")
+                    .foregroundStyle(palette.inkColor.opacity(0.55))
             }
             .buttonStyle(.borderless)
             .menuIndicator(.hidden)
@@ -35,17 +40,20 @@ struct TabBarView: View {
             .padding(.horizontal, 8)
             .help("New tab — from the library (⌘O) or a file (⌘T / ⌥⌘O)")
         }
-        .frame(height: 48)
-        .background(.bar)
+        .frame(height: TabStripNSView.stripHeight)
+        .background(palette.stripBackgroundColor)
+        .overlay(alignment: .bottom) {
+            palette.chromeBorderColor.frame(height: 1)
+        }
     }
 
-    /// Reading `model.tabs` here keeps the strip inside SwiftUI's observation
-    /// tracking: any tab mutation re-evaluates this body and pushes fresh
-    /// items into the NSView.
+    /// Reading the model's tab state here keeps the strip inside SwiftUI's
+    /// observation tracking: any tab mutation re-evaluates this body and
+    /// pushes fresh items into the NSView.
     private var displayItems: [TabDisplayItem] {
-        model.tabs.map { tab in
-            let isSplit = tab.id == model.splitTabID
-            return TabDisplayItem(
+        let activeID = pane == .split ? model.splitTabID : model.activeTabID
+        return model.tabs(in: pane).map { tab in
+            TabDisplayItem(
                 id: tab.id,
                 title: URL(fileURLWithPath: tab.pathHint)
                     .deletingPathExtension()
@@ -53,16 +61,9 @@ struct TabBarView: View {
                 breadcrumb: tab.breadcrumb.flatMap {
                     $0.isEmpty ? nil : $0
                 } ?? "p.\(tab.pageIndex + 1)",
-                // The FOCUSED pane's tab is the highlighted one — the strip
-                // follows pane focus, not just the primary pane.
-                isActive: tab.id == model.activeTab?.id,
-                isSplit: isSplit,
-                splitSide: isSplit ? model.splitSide : nil,
-                // The split tab never joins a same-book group: hidden under
-                // a spanning header it lost its title, its context menu, and
-                // its drag handle (round 14 — "can't move it or get rid of
-                // it" after ⌘\ grouped the duplicate with its twin).
-                groupKey: isSplit ? "split-\(tab.id.uuidString)" : tab.pathHint
+                isActive: tab.id == activeID,
+                groupKey: tab.pathHint,
+                tint: BookTint.color(forPath: tab.pathHint)
             )
         }
     }
@@ -70,26 +71,29 @@ struct TabBarView: View {
 
 private struct TabStripRepresentable: NSViewRepresentable {
     let model: ReaderWindowModel
+    let pane: ReaderPane
     let items: [TabDisplayItem]
+    let isWindowSplit: Bool
     let openWindow: OpenWindowAction
 
-    func makeNSView(context: Context) -> TabStripNSView {
-        let view = TabStripNSView(
-            windowID: model.windowID,
+    func makeNSView(context: Context) -> TabStripScrollView {
+        let strip = TabStripNSView(
+            stripID: TabStripID(windowID: model.windowID, pane: pane),
             actions: TabStripActions(
                 select: { _ in }, close: { _ in }, duplicate: { _ in },
                 closeOthers: { _ in }, reorder: { _, _ in },
-                moveToWindow: { _, _, _ in }, detachToNewWindow: { _, _ in }
+                moveToStrip: { _, _, _ in }, detachToNewWindow: { _, _ in }
             )
         )
-        view.actions = actions(for: view)
-        view.update(items: items)
-        return view
+        strip.actions = actions(for: strip)
+        strip.apply(items: items, palette: DesignPalette.current, isWindowSplit: isWindowSplit)
+        return TabStripScrollView(strip: strip)
     }
 
-    func updateNSView(_ view: TabStripNSView, context: Context) {
-        view.actions = actions(for: view)
-        view.update(items: items)
+    func updateNSView(_ view: TabStripScrollView, context: Context) {
+        guard let strip = view.documentView as? TabStripNSView else { return }
+        strip.actions = actions(for: strip)
+        strip.apply(items: items, palette: DesignPalette.current, isWindowSplit: isWindowSplit)
     }
 
     private func actions(for view: TabStripNSView) -> TabStripActions {
@@ -103,10 +107,19 @@ private struct TabStripRepresentable: NSViewRepresentable {
             closeOthers: { model.closeOtherTabs(keeping: $0) },
             openInSplit: { model.openInSplit(tabID: $0, side: $1) },
             closeSplit: { model.closeSplit() },
+            moveToOtherPane: { [pane] tabID in
+                model.moveTab(id: tabID, toPane: pane == .split ? .primary : .split)
+            },
             reorder: { model.moveTab(id: $0, toIndex: $1) },
-            moveToWindow: { [weak view] tabID, targetWindowID, index in
+            moveToStrip: { [weak view] tabID, target, index in
+                if target.windowID == model.windowID {
+                    // This window's other pane: a membership move.
+                    model.moveTab(id: tabID, toPane: target.pane, at: index)
+                    return
+                }
                 SessionCoordinator.shared.moveTab(
-                    tabID, from: model.windowID, to: targetWindowID, at: index
+                    tabID, from: model.windowID, to: target.windowID,
+                    at: index, pane: target.pane
                 )
                 closeWindowIfEmptied(model: model, view: view)
             },

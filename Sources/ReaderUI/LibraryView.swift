@@ -443,7 +443,10 @@ public struct LibraryView: View {
                     Button("Choose Different Folder…") { model.chooseCalibreFolder() }
                 }
             } else {
-                modeContent
+                VStack(spacing: 0) {
+                    libraryHeader
+                    modeContent
+                }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         if !selection.isEmpty {
                             selectionBar
@@ -476,6 +479,37 @@ public struct LibraryView: View {
                         }
                     }
             }
+        }
+    }
+
+    /// Serif scope title + book count over the content (design-system
+    /// library header).
+    private var libraryHeader: some View {
+        let palette = DesignPalette.current
+        return HStack(alignment: .firstBaseline, spacing: 12) {
+            Text(scopeTitle)
+                .font(.system(size: 24, weight: .semibold, design: .serif))
+                .foregroundStyle(palette.inkColor)
+            Text("\(model.filteredItems.count) \(model.filteredItems.count == 1 ? "book" : "books")")
+                .font(.caption)
+                .foregroundStyle(palette.textMutedColor)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 2)
+    }
+
+    /// What the header names: the whole library or the selected scope.
+    private var scopeTitle: String {
+        switch model.filter {
+        case .all: "Library"
+        case .untagged: "Untagged"
+        case .notInAnyCollection: "Not in a Collection"
+        case .tag(let id):
+            model.allTags.first { $0.id == id }?.name ?? "Tag"
+        case .collection(let id):
+            model.collections.first { $0.id == id }?.name ?? "Collection"
         }
     }
 
