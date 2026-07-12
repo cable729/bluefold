@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Merged with the generated Info.plist (GENERATE_INFOPLIST_FILE stays
+	     YES); only keys that can't be expressed as INFOPLIST_KEY_ build
+	     settings live here. Mirrors macOS/Info.plist. Keep DeepLink.schemes
+	     (ReaderCore) in sync. -->
+
+	<!-- Registers Bluefold as a PDF opener: it appears in the share sheet
+	     and "Open in…" lists, and can be handed PDFs from Files and other
+	     apps. LSSupportsOpeningDocumentsInPlace lets it read the file where
+	     it already lives instead of importing a copy. -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>PDF Document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.adobe.pdf</string>
+			</array>
+		</dict>
+	</array>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.cable729.bluefold.deeplink</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>bluefold</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

@@ -12,6 +12,14 @@ struct BluefoldApp: App {
     var body: some Scene {
         WindowGroup {
             ReaderView(model: model, theme: theme, library: library, chrome: chrome)
+                .onOpenURL { url in
+                    // A PDF handed to us from Files, the share sheet, or
+                    // another app (we register as a PDF viewer + open-in-place
+                    // handler in Info.plist). Open it in a tab.
+                    guard url.isFileURL else { return }
+                    model.open(urls: [url])
+                    chrome.chromeHidden = false
+                }
         }
         // iPadOS menu bar / hold-⌘ HUD. NOTE: app state is App-level
         // @State, so a second scene would share it — keep the app
