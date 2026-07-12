@@ -125,6 +125,13 @@ public final class LibraryModel {
     /// Guards `indexingProgress` against a cancelled pass clobbering the
     /// progress of the pass that replaced it.
     @ObservationIgnored private var indexingGeneration = 0
+    /// Candidate set the current pass was started for; reloads whose
+    /// candidates are unchanged keep the pass instead of restarting it.
+    @ObservationIgnored private var indexingCandidateSignature:
+        [IndexingCandidateFingerprint]?
+    /// Number of passes actually started (test hook: reloads that keep the
+    /// running pass don't bump it).
+    @ObservationIgnored private(set) var indexingPassesStarted = 0
 
     /// User preferences gating the background indexing pass. Injected for
     /// tests; the app uses the shared instance.
@@ -520,19 +527,65 @@ public final class LibraryModel {
 
     // MARK: - Full-text indexing (M13)
 
-    /// Cancels any in-flight indexing pass and starts a fresh one in the
-    /// background. Called after every successful reload(). No-op while the
-    /// user has background indexing turned off (Settings > Search index).
-    /// Internal so tests can drive the settings gate directly.
+    /// Identity of one indexing candidate: which file, and the size/mtime
+    /// pair that changes whenever its content does. Compared across reloads
+    /// so filesystem churn that doesn't touch the books themselves (iCloud
+    /// sync metadata, Calibre cover regeneration) keeps the in-flight pass
+    /// instead of restarting it — restarts throw away the current book's
+    /// OCR work, and a busy folder used to livelock indexing at 0 done.
+    struct IndexingCandidateFingerprint: Equatable {
+        var path: String
+        var size: Int
+        var mtimeMS: Int64
+    }
+
+    private func indexingCandidateFingerprints() -> [IndexingCandidateFingerprint] {
+        items.filter { FileAvailability.isLocal($0.fileURL) }.map { item in
+            let values = try? item.fileURL.resourceValues(
+                forKeys: [.contentModificationDateKey, .fileSizeKey]
+            )
+            return IndexingCandidateFingerprint(
+                path: item.fileURL.path,
+                size: values?.fileSize ?? 0,
+                mtimeMS: Int64(
+                    (values?.contentModificationDate?.timeIntervalSince1970 ?? 0) * 1000
+                )
+            )
+        }
+    }
+
+    /// Starts a background indexing pass, or keeps the running one when
+    /// nothing it depends on has changed. Called after every successful
+    /// reload(). No-op while the user has background indexing turned off
+    /// (Settings > Search index). Internal so tests can drive the settings
+    /// gate directly.
     func startBackgroundIndexing() {
-        indexingTask?.cancel()
-        indexingTask = nil
-        guard settings.backgroundIndexingEnabled, let indexStore else { return }
+        guard settings.backgroundIndexingEnabled, let indexStore else {
+            indexingTask?.cancel()
+            indexingTask = nil
+            indexingCandidateSignature = nil
+            return
+        }
+        let signature = indexingCandidateFingerprints()
+        if indexingTask != nil,
+            signature == indexingCandidateSignature,
+            settings.ocrIndexingEnabled == indexingService?.ocrEnabled
+        {
+            return
+        }
+        let superseded = indexingTask
+        superseded?.cancel()
+        indexingCandidateSignature = signature
         // Recreate the service so an OCR toggle applies to this pass.
         indexingService = IndexingService(
             store: indexStore, ocrEnabled: settings.ocrIndexingEnabled
         )
+        indexingPassesStarted += 1
         indexingTask = Task(priority: .utility) { [weak self] in
+            // Drain the superseded pass first — brief now that cancellation
+            // stops it within a page — so two passes never run Vision OCR
+            // concurrently (restarts used to stack whole-book OCR loops).
+            await superseded?.value
             await self?.indexLibrary()
         }
     }
@@ -552,6 +605,7 @@ public final class LibraryModel {
         } else {
             indexingTask?.cancel()
             indexingTask = nil
+            indexingCandidateSignature = nil
             // Invalidate the cancelled pass's progress writes (it may run a
             // few more loop iterations before it sees the cancellation).
             indexingGeneration += 1
@@ -562,14 +616,48 @@ public final class LibraryModel {
     /// Indexes every local book sequentially, recording content hashes as it
     /// goes. Skips iCloud-evicted files (indexing must never trigger
     /// downloads). Internal so tests can await a full pass directly.
+    ///
+    /// Order: books whose current content is already indexed come first —
+    /// each is a single lookup, so progress ticks through them immediately —
+    /// then the rest smallest-first, so a giant scanned textbook whose OCR
+    /// runs for an hour can't pin the counter at zero ahead of quick wins.
     func indexLibrary() async {
-        guard let indexingService else { return }
+        guard let indexingService, let indexStore else { return }
         indexingGeneration += 1
         let generation = indexingGeneration
         // Snapshot: reload() replaces `items` wholesale; a stale pass keeps
         // its own list and the restart takes care of the rest.
         let candidates = items.filter { FileAvailability.isLocal($0.fileURL) }
-        indexingProgress = (done: 0, total: candidates.count)
+
+        // Hashing reads only the file head, so it's cheap to do up front.
+        let work = candidates.map { item in
+            (
+                item: item,
+                hash: try? ContentHash.compute(for: item.fileURL),
+                size: (try? item.fileURL.resourceValues(forKeys: [.fileSizeKey]))?
+                    .fileSize ?? 0
+            )
+        }
+        var alreadyIndexed: [(item: LibraryItem, hash: String?, size: Int)] = []
+        var pending: [(item: LibraryItem, hash: String?, size: Int)] = []
+        for entry in work {
+            let isIndexed =
+                entry.hash.flatMap {
+                    try? indexStore.isIndexed(
+                        contentHash: $0,
+                        extractorVersion: IndexingService.extractorVersion
+                    )
+                } ?? false
+            if isIndexed {
+                alreadyIndexed.append(entry)
+            } else {
+                pending.append(entry)
+            }
+        }
+        pending.sort { $0.size < $1.size }
+        let ordered = alreadyIndexed + pending
+
+        indexingProgress = (done: 0, total: ordered.count)
         defer {
             if generation == indexingGeneration {
                 indexingProgress = nil
@@ -577,19 +665,26 @@ public final class LibraryModel {
         }
 
         var done = 0
-        for item in candidates {
+        for entry in ordered {
             if Task.isCancelled { return }
-            do {
-                let hash = try ContentHash.compute(for: item.fileURL)
-                _ = try await indexingService.indexDocument(at: item.fileURL, contentHash: hash)
-                contentHashByItemID[item.id] = hash
-            } catch {
-                // Unreadable/corrupt PDFs are skipped; search simply won't
-                // cover them.
+            if let hash = entry.hash {
+                do {
+                    _ = try await indexingService.indexDocument(
+                        at: entry.item.fileURL, contentHash: hash
+                    )
+                    contentHashByItemID[entry.item.id] = hash
+                } catch is CancellationError {
+                    // Superseded mid-book: stop here; the replacement pass
+                    // owns the progress display now.
+                    return
+                } catch {
+                    // Unreadable/corrupt PDFs are skipped; search simply
+                    // won't cover them.
+                }
             }
             done += 1
             if generation == indexingGeneration {
-                indexingProgress = (done: done, total: candidates.count)
+                indexingProgress = (done: done, total: ordered.count)
             }
         }
     }

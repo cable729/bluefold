@@ -228,6 +228,36 @@ private let standardPageTexts = [
     #expect(try store.search("xyzzy", limit: 10).count == 1)
 }
 
+@Test func cancelledIndexingStopsWithoutWriting() async throws {
+    let dir = try TempDir()
+    let file = dir.file("doc.pdf")
+    try makePDF(at: file, pageTexts: standardPageTexts)
+    let hash = try ContentHash.compute(for: file)
+
+    let store = try IndexStore.inMemory()
+    let service = IndexingService(store: store)
+
+    let task = Task { () throws -> IndexResult in
+        // Spin until the cancel below has landed, so indexDocument's
+        // per-page check is guaranteed to observe it.
+        while !Task.isCancelled { await Task.yield() }
+        return try await service.indexDocument(at: file, contentHash: hash)
+    }
+    task.cancel()
+    do {
+        _ = try await task.value
+        Issue.record("expected CancellationError")
+    } catch is CancellationError {
+        // expected: cancellation surfaces before any page is extracted
+    } catch {
+        Issue.record("unexpected error: \(error)")
+    }
+    #expect(
+        !(try store.isIndexed(
+            contentHash: hash, extractorVersion: IndexingService.extractorVersion))
+    )
+}
+
 @Test func allBlankPDFIsNotSearchable() async throws {
     let dir = try TempDir()
     let file = dir.file("blank.pdf")

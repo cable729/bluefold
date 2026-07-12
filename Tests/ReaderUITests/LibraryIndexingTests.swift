@@ -108,6 +108,63 @@ struct LibraryIndexingTests {
         #expect(model.fullTextHits().count == 1)
     }
 
+    @Test func unchangedCandidatesKeepTheRunningPass() async throws {
+        let settings = AppSettings(defaults: nil)
+        let model = LibraryModel(
+            store: try .inMemory(), indexStore: try IndexStore.inMemory(),
+            settings: settings
+        )
+
+        let book = try makeTextPDF(pageTexts: ["alpha bravo"])
+        defer { try? FileManager.default.removeItem(at: book) }
+        model.importPDFs(at: [book])
+
+        model.startBackgroundIndexing()
+        #expect(model.indexingPassesStarted == 1)
+        #expect(model.isBackgroundIndexingScheduled)
+
+        // A reload that didn't change any book (iCloud sync churn firing the
+        // folder watcher) must not restart the pass.
+        model.startBackgroundIndexing()
+        #expect(model.indexingPassesStarted == 1)
+
+        // A new book changes the candidate set: the pass restarts.
+        let second = try makeTextPDF(pageTexts: ["charlie delta"])
+        defer { try? FileManager.default.removeItem(at: second) }
+        model.importPDFs(at: [second])
+        model.startBackgroundIndexing()
+        #expect(model.indexingPassesStarted == 2)
+    }
+
+    @Test func settingsChangesRestartOrStopThePass() async throws {
+        let settings = AppSettings(defaults: nil)
+        let model = LibraryModel(
+            store: try .inMemory(), indexStore: try IndexStore.inMemory(),
+            settings: settings
+        )
+
+        let book = try makeTextPDF(pageTexts: ["alpha bravo"])
+        defer { try? FileManager.default.removeItem(at: book) }
+        model.importPDFs(at: [book])
+
+        model.startBackgroundIndexing()
+        #expect(model.indexingPassesStarted == 1)
+
+        // Toggling OCR restarts the pass even though candidates are the same.
+        settings.ocrIndexingEnabled = false
+        model.indexingSettingsChanged()
+        #expect(model.indexingPassesStarted == 2)
+        #expect(model.indexingServiceOCREnabled == false)
+
+        // Disabling stops it; re-enabling starts fresh.
+        settings.backgroundIndexingEnabled = false
+        model.indexingSettingsChanged()
+        #expect(!model.isBackgroundIndexingScheduled)
+        settings.backgroundIndexingEnabled = true
+        model.indexingSettingsChanged()
+        #expect(model.indexingPassesStarted == 3)
+    }
+
     @Test func indexingSkipsMissingFiles() async throws {
         let indexStore = try IndexStore.inMemory()
         let model = LibraryModel(store: try .inMemory(), indexStore: indexStore)
