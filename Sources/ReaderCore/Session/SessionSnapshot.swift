@@ -16,13 +16,18 @@ public struct WindowState: Codable, Equatable, Identifiable, Sendable {
     public var frame: CGRect?
     public var tabs: [TabState]
     public var activeTabID: UUID?
-    /// Tab shown in the secondary split pane, when the window is split.
+    /// ACTIVE tab of the secondary split pane, when the window is split.
     /// Optional, so schema-1 files written before splits keep decoding.
     public var splitTabID: UUID?
     /// Side the split pane sits on. Optional so files written before sided
     /// splits keep decoding; readers treat nil as `.trailing` (the only
     /// behavior that existed when those files were written).
     public var splitSide: SplitSide?
+    /// Every tab living in the split pane's own tab strip, in strip order.
+    /// Optional so files written before per-pane strips keep decoding;
+    /// readers treat nil as `[splitTabID]` (the single tab those files
+    /// could show in the pane).
+    public var splitTabIDs: [UUID]?
 
     public init(
         id: UUID = UUID(),
@@ -30,7 +35,8 @@ public struct WindowState: Codable, Equatable, Identifiable, Sendable {
         tabs: [TabState] = [],
         activeTabID: UUID? = nil,
         splitTabID: UUID? = nil,
-        splitSide: SplitSide? = nil
+        splitSide: SplitSide? = nil,
+        splitTabIDs: [UUID]? = nil
     ) {
         self.id = id
         self.frame = frame
@@ -38,6 +44,7 @@ public struct WindowState: Codable, Equatable, Identifiable, Sendable {
         self.activeTabID = activeTabID
         self.splitTabID = splitTabID
         self.splitSide = splitSide
+        self.splitTabIDs = splitTabIDs
     }
 }
 

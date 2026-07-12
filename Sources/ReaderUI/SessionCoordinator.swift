@@ -395,7 +395,8 @@ public final class SessionCoordinator {
         _ tabID: UUID,
         from sourceWindowID: UUID,
         to targetWindowID: UUID,
-        at index: Int? = nil
+        at index: Int? = nil,
+        pane: ReaderPane = .primary
     ) {
         guard
             sourceWindowID != targetWindowID,
@@ -403,7 +404,7 @@ public final class SessionCoordinator {
             let target = models[targetWindowID],
             let tab = source.detachTab(id: tabID)
         else { return }
-        target.adoptTab(tab, at: index)
+        target.adoptTab(tab, at: index, pane: pane)
         scheduleSave()
     }
 

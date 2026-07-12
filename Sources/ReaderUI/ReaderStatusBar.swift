@@ -13,6 +13,8 @@ struct ReaderStatusBar: View {
 
     @State private var pageField = ""
 
+    private var palette: DesignPalette { DesignPalette.current }
+
     var body: some View {
         HStack(spacing: 12) {
             // With no document, only the theme switcher remains (owner
@@ -41,7 +43,11 @@ struct ReaderStatusBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
-        .background(.bar)
+        .foregroundStyle(palette.inkColor)
+        .background(palette.chromeGradient)
+        .overlay(alignment: .top) {
+            palette.chromeBorderColor.frame(height: 1)
+        }
         .onAppear(perform: syncPageField)
         .onChange(of: model.activeTab?.pageIndex) { _, _ in syncPageField() }
         .onChange(of: model.activeTabID) { _, _ in syncPageField() }
@@ -90,13 +96,23 @@ struct ReaderStatusBar: View {
                     ))
                     .instantHint("Previous page")
                     TextField("", text: $pageField)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 52)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12, design: .monospaced))
+                        .frame(width: 44)
                         .multilineTextAlignment(.center)
+                        .padding(.vertical, 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(palette.inkColor.opacity(0.06))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 5)
+                                        .strokeBorder(palette.inkColor.opacity(0.14))
+                                )
+                        )
                         .onSubmit(jumpToTypedPage)
                         .instantHint("Go to page")
                     Text("of \(pageCount ?? 0)")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.inkColor.opacity(0.55))
                     Button {
                         model.goToNextPage()
                     } label: {

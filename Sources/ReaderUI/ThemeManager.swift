@@ -85,13 +85,10 @@ public final class ThemeManager {
         }
     }
 
-    /// PDFView letterbox background per theme.
+    /// PDFView letterbox background per theme (the design system's content
+    /// background, so the letterbox reads as the page's paper mat).
     public var pdfBackground: NSColor {
-        switch resolvedTheme {
-        case .light, .auto: .windowBackgroundColor
-        case .dark: NSColor(calibratedWhite: 0.12, alpha: 1)
-        case .sepia: NSColor(cgColor: Theme.sepiaPaper) ?? .white
-        }
+        DesignPalette.palette(for: resolvedTheme).contentBackground
     }
 
     /// Starts tinting `window`'s chrome with the theme (weakly held).
@@ -147,14 +144,12 @@ public final class ThemeManager {
 
     private func applyChrome(to window: NSWindow) {
         window.appearance = forcedAppearanceName.flatMap(NSAppearance.init(named:))
-        switch resolvedTheme {
-        case .sepia:
-            window.titlebarAppearsTransparent = true
-            window.backgroundColor = NSColor(cgColor: Theme.sepiaPaper) ?? .windowBackgroundColor
-        case .light, .dark, .auto:
-            window.titlebarAppearsTransparent = false
-            window.backgroundColor = .windowBackgroundColor
-        }
+        // Cloth & Paper chrome: every theme paints the titlebar band with
+        // its warm paper (or navy) chrome color; the window background is
+        // what shows through the transparent titlebar.
+        let palette = DesignPalette.palette(for: resolvedTheme)
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = palette.chromeTop
     }
 }
 

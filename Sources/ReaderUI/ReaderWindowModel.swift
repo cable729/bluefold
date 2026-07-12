@@ -117,10 +117,25 @@ public final class ReaderWindowModel {
         self.store = store
         if let state {
             tabs = state.tabs
-            activeTabID = state.activeTabID ?? state.tabs.first?.id
+            let live = Set(state.tabs.map(\.id))
+            // Files written before per-pane strips carry only splitTabID:
+            // the pane's strip held exactly that one tab.
+            let members = state.splitTabIDs ?? state.splitTabID.map { [$0] } ?? []
+            splitTabIDs = members.filter { live.contains($0) }
             splitTabID = state.splitTabID.flatMap { id in
-                state.tabs.contains { $0.id == id } ? id : nil
+                splitTabIDs.contains(id) ? id : splitTabIDs.first
+            } ?? splitTabIDs.first
+            if splitTabIDs.isEmpty { splitTabID = nil }
+            // The primary pane must own at least one tab; a snapshot where
+            // every tab sat in the split pane collapses back to one strip.
+            if splitTabIDs.count == state.tabs.count {
+                splitTabIDs = []
+                splitTabID = nil
             }
+            let primaryIDs = live.subtracting(splitTabIDs)
+            activeTabID = state.activeTabID.flatMap {
+                primaryIDs.contains($0) ? $0 : nil
+            } ?? state.tabs.first { primaryIDs.contains($0.id) }?.id
             // Files written before sided splits carry no side: trailing
             // (right) is what those files meant.
             splitSide = state.splitSide ?? .trailing
@@ -135,7 +150,8 @@ public final class ReaderWindowModel {
         WindowState(
             id: windowID, frame: windowFrame, tabs: tabs,
             activeTabID: activeTabID, splitTabID: splitTabID,
-            splitSide: splitTabID == nil ? nil : splitSide
+            splitSide: splitTabID == nil ? nil : splitSide,
+            splitTabIDs: splitTabIDs.isEmpty ? nil : splitTabIDs
         )
     }
 
@@ -190,8 +206,13 @@ public final class ReaderWindowModel {
 
     // MARK: - Split view
 
-    /// Tab shown in the secondary pane; nil = not split.
+    /// ACTIVE tab of the secondary pane; nil = not split.
     public private(set) var splitTabID: UUID?
+
+    /// Every tab living in the split pane's own strip, in that strip's
+    /// order. Empty = not split. Each pane carries its own tab bar; a tab
+    /// is a member of exactly one pane.
+    public private(set) var splitTabIDs: [UUID] = []
 
     /// Side of the primary pane the split pane sits on. Only meaningful
     /// while `splitTabID` is non-nil; kept across closeSplit so a reopened
@@ -203,18 +224,45 @@ public final class ReaderWindowModel {
         return tabs.first { $0.id == splitTabID }
     }
 
-    /// Shows a tab in the secondary pane, on `side` of the primary, and
-    /// focuses it. Splitting the primary tab first moves the primary pane to
-    /// another tab so the two panes never show the same tab (two live views
-    /// over one TabState would fight over its position).
+    /// The primary pane's strip: every tab not living in the split pane,
+    /// in `tabs` order.
+    public var primaryTabs: [TabState] {
+        guard !splitTabIDs.isEmpty else { return tabs }
+        let members = Set(splitTabIDs)
+        return tabs.filter { !members.contains($0.id) }
+    }
+
+    /// The split pane's strip, in its own order.
+    public var splitTabs: [TabState] {
+        splitTabIDs.compactMap { id in tabs.first { $0.id == id } }
+    }
+
+    /// The strip of one pane.
+    public func tabs(in pane: ReaderPane) -> [TabState] {
+        pane == .split ? splitTabs : primaryTabs
+    }
+
+    /// Which pane's strip a tab lives in.
+    public func pane(ofTab id: UUID) -> ReaderPane {
+        splitTabIDs.contains(id) ? .split : .primary
+    }
+
+    /// Moves a tab into the secondary pane's strip (on `side` of the
+    /// primary), activates it there, and focuses the pane. Moving the
+    /// primary pane's active tab first moves that pane's activation to
+    /// another of its tabs — the primary strip must never end up empty
+    /// (two live views over one TabState would fight over its position).
     public func openInSplit(tabID: UUID, side: SplitSide = .trailing) {
         guard tabs.contains(where: { $0.id == tabID }) else { return }
-        if tabID == activeTabID {
-            if let other = tabs.first(where: { $0.id != tabID }) {
-                activeTabID = other.id
-            } else {
-                return // only tab in the window: nothing to split against
+        if !splitTabIDs.contains(tabID) {
+            if tabID == activeTabID {
+                if let other = primaryTabs.first(where: { $0.id != tabID }) {
+                    activeTabID = other.id
+                } else {
+                    return // only primary tab: nothing to split against
+                }
             }
+            splitTabIDs.append(tabID)
         }
         splitTabID = tabID
         splitSide = side
@@ -238,6 +286,7 @@ public final class ReaderWindowModel {
         var copy = tabs[index]
         copy.id = UUID()
         tabs.insert(copy, at: index + 1)
+        splitTabIDs.append(copy.id)
         splitTabID = copy.id
         splitSide = side
         focusedPane = .split
@@ -247,8 +296,11 @@ public final class ReaderWindowModel {
         return copy.id
     }
 
+    /// Ends the split: the pane's tabs return to the primary strip (their
+    /// relative `tabs` order decides where), nothing closes.
     public func closeSplit() {
-        guard splitTabID != nil else { return }
+        guard splitTabID != nil || !splitTabIDs.isEmpty else { return }
+        splitTabIDs = []
         splitTabID = nil
         focusedPane = .primary
         refreshPins()
@@ -263,9 +315,9 @@ public final class ReaderWindowModel {
         onMutation?()
     }
 
-    /// Closes one PANE of a split — every tab stays open in the strip; the
-    /// other pane takes over the whole window (round 15: either pane's ✕
-    /// works, closing the primary promotes the split tab to primary).
+    /// Closes one PANE of a split — every tab stays open; the two strips
+    /// merge into one (round 15: closing the primary promotes the split
+    /// pane's active tab to primary).
     public func closePane(_ pane: ReaderPane) {
         guard let splitID = splitTabID else { return }
         switch pane {
@@ -273,6 +325,7 @@ public final class ReaderWindowModel {
             closeSplit()
         case .primary:
             activeTabID = splitID
+            splitTabIDs = []
             splitTabID = nil
             focusedPane = .primary
             currentSectionNodeID = nil
@@ -303,6 +356,11 @@ public final class ReaderWindowModel {
         }
         if let siblingID, let index = tabs.firstIndex(where: { $0.id == siblingID }) {
             tabs.insert(tab, at: index + 1)
+            // A tab opened from a split-pane sibling (⌘-clicked reference)
+            // belongs in that pane's strip, right after its source.
+            if let memberIndex = splitTabIDs.firstIndex(of: siblingID) {
+                splitTabIDs.insert(tab.id, at: memberIndex + 1)
+            }
         } else {
             tabs.append(tab)
         }
@@ -353,11 +411,16 @@ public final class ReaderWindowModel {
 
     public func selectTab(id: UUID) {
         guard tabs.contains(where: { $0.id == id }) else { return }
-        if id == splitTabID {
-            // The tab is already on screen in the split pane: focus it there
-            // instead of also making it the primary (one TabState rendered by
-            // two live views fights over its position — round-14 owner bug).
-            focusPane(.split)
+        if splitTabIDs.contains(id) {
+            // The tab lives in the split pane's strip: activate it THERE
+            // and focus the pane — it must never also become the primary
+            // (one TabState rendered by two live views fights over its
+            // position — round-14 owner bug).
+            if splitTabID != id {
+                splitTabID = id
+                currentSectionNodeID = nil
+            }
+            focusedPane = .split
         } else {
             activeTabID = id
             focusedPane = .primary
@@ -383,11 +446,13 @@ public final class ReaderWindowModel {
 
     /// Direct tab selection, browser-style: 1-based; 9 always means the
     /// LAST tab (⌘9 in Safari/Chrome). Out-of-range numbers no-op.
+    /// Numbers address the FOCUSED pane's strip — each pane has its own.
     public func selectTab(number: Int) {
-        guard !tabs.isEmpty else { return }
-        let index = number >= 9 ? tabs.count - 1 : number - 1
-        guard tabs.indices.contains(index) else { return }
-        selectTab(id: tabs[index].id)
+        let strip = tabs(in: focusedPane)
+        guard !strip.isEmpty else { return }
+        let index = number >= 9 ? strip.count - 1 : number - 1
+        guard strip.indices.contains(index) else { return }
+        selectTab(id: strip[index].id)
     }
 
     private func cycleTab(by offset: Int) {
@@ -417,10 +482,7 @@ public final class ReaderWindowModel {
             tabs[index].apply(entry)
         }
         let closed = tabs.remove(at: index)
-        if splitTabID == id {
-            splitTabID = nil
-            focusedPane = .primary
-        }
+        removeFromSplitStrip(id)
 
         if activeTabID == id {
             promotePrimarySuccessor(closing: index)
@@ -935,13 +997,65 @@ public final class ReaderWindowModel {
 
     // MARK: - Tab reordering & cross-window transfer
 
-    /// Moves a tab to a new position in the strip (drag reorder).
+    /// Moves a tab to a new position within ITS pane's strip (drag
+    /// reorder). `toIndex` is a slot in that strip's visible order.
     public func moveTab(id: UUID, toIndex: Int) {
+        if let from = splitTabIDs.firstIndex(of: id) {
+            let to = max(0, min(toIndex, splitTabIDs.count - 1))
+            guard from != to else { return }
+            splitTabIDs.remove(at: from)
+            splitTabIDs.insert(id, at: to)
+            onMutation?()
+            return
+        }
+        // Primary strip: slots index the VISIBLE (non-split) sequence;
+        // split members keep their positions in `tabs`.
         guard let from = tabs.firstIndex(where: { $0.id == id }) else { return }
-        let to = max(0, min(toIndex, tabs.count - 1))
-        guard from != to else { return }
         let tab = tabs.remove(at: from)
-        tabs.insert(tab, at: to)
+        tabs.insert(tab, at: primaryInsertionIndex(forSlot: toIndex))
+        onMutation?()
+    }
+
+    /// Global `tabs` index where a tab dropped at primary-strip slot
+    /// `slot` belongs (computed AFTER any removal).
+    private func primaryInsertionIndex(forSlot slot: Int) -> Int {
+        let members = Set(splitTabIDs)
+        let visible = tabs.enumerated().filter { !members.contains($0.element.id) }
+        let clamped = max(0, min(slot, visible.count))
+        return clamped < visible.count
+            ? visible[clamped].offset
+            : (visible.last.map { $0.offset + 1 } ?? tabs.count)
+    }
+
+    /// Moves a tab into the OTHER pane's strip at `index` (drag between
+    /// the two strips), activating it there. No-op when it would empty the
+    /// primary strip (a pane must always have a tab to show).
+    public func moveTab(id: UUID, toPane pane: ReaderPane, at index: Int? = nil) {
+        guard tabs.contains(where: { $0.id == id }) else { return }
+        switch pane {
+        case .split:
+            guard !splitTabIDs.isEmpty else { return }  // no split open
+            if splitTabIDs.contains(id) { return }      // reorders use moveTab(toIndex:)
+            guard primaryTabs.count > 1 else { return }
+            if activeTabID == id {
+                activeTabID = primaryTabs.first { $0.id != id }?.id
+            }
+            let slot = max(0, min(index ?? splitTabIDs.count, splitTabIDs.count))
+            splitTabIDs.insert(id, at: slot)
+            splitTabID = id
+            focusedPane = .split
+        case .primary:
+            guard splitTabIDs.contains(id) else { return }
+            removeFromSplitStrip(id)
+            if let index {
+                moveTab(id: id, toIndex: index)
+            }
+            activeTabID = id
+            focusedPane = .primary
+        }
+        currentSectionNodeID = nil
+        refreshPins()
+        refreshBookmarks()
         onMutation?()
     }
 
@@ -950,10 +1064,7 @@ public final class ReaderWindowModel {
     func detachTab(id: UUID) -> TabState? {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return nil }
         let tab = tabs.remove(at: index)
-        if splitTabID == id {
-            splitTabID = nil
-            focusedPane = .primary
-        }
+        removeFromSplitStrip(id)
         if activeTabID == id {
             promotePrimarySuccessor(closing: index)
         }
@@ -963,19 +1074,39 @@ public final class ReaderWindowModel {
         return tab
     }
 
+    /// Removes a tab (already gone from `tabs`, or about to move panes)
+    /// from the split pane's strip, promoting that strip's own successor
+    /// when its active tab left. An emptied split pane ends the split.
+    private func removeFromSplitStrip(_ id: UUID) {
+        guard let memberIndex = splitTabIDs.firstIndex(of: id) else { return }
+        splitTabIDs.remove(at: memberIndex)
+        if splitTabID == id {
+            // Same slot, else the strip's last tab — browser behavior.
+            splitTabID = splitTabIDs.indices.contains(memberIndex)
+                ? splitTabIDs[memberIndex] : splitTabIDs.last
+        }
+        if splitTabIDs.isEmpty {
+            splitTabID = nil
+            if focusedPane == .split { focusedPane = .primary }
+        }
+    }
+
     /// Picks the primary pane's next tab after its current one left the
     /// strip: the tab that took the vacated slot, else the last tab —
-    /// skipping the split pane's tab (it is already on screen; showing it in
-    /// both panes would double-render one TabState). When the split tab is
-    /// all that remains, it collapses back into the primary pane.
+    /// skipping the split pane's tabs (they are on screen in the other
+    /// strip; showing one in both panes would double-render one TabState).
+    /// When only split-pane tabs remain, that pane becomes the window:
+    /// its strip merges into the primary, unsplit.
     private func promotePrimarySuccessor(closing index: Int) {
+        let members = Set(splitTabIDs)
         let slotTab = tabs.indices.contains(index) ? tabs[index] : tabs.last
-        if let slotTab, slotTab.id != splitTabID {
+        if let slotTab, !members.contains(slotTab.id) {
             activeTabID = slotTab.id
-        } else if let fallback = tabs.last(where: { $0.id != splitTabID }) {
+        } else if let fallback = tabs.last(where: { !members.contains($0.id) }) {
             activeTabID = fallback.id
         } else if let splitID = splitTabID {
             activeTabID = splitID
+            splitTabIDs = []
             splitTabID = nil
             focusedPane = .primary
         } else {
@@ -984,11 +1115,17 @@ public final class ReaderWindowModel {
     }
 
     /// Adopts a tab detached from another window, keeping its position,
-    /// zoom, and history intact. `index` is the strip insertion point
-    /// (append when nil or out of range).
-    func adoptTab(_ tab: TabState, at index: Int? = nil) {
-        if let index, (0...tabs.count).contains(index) {
-            tabs.insert(tab, at: index)
+    /// zoom, and history intact. `index` is the insertion slot in the
+    /// TARGET PANE's strip (append when nil or out of range); `pane`
+    /// picks which strip receives it (split falls back to primary when
+    /// the window isn't split).
+    func adoptTab(_ tab: TabState, at index: Int? = nil, pane: ReaderPane = .primary) {
+        if pane == .split, !splitTabIDs.isEmpty {
+            tabs.append(tab)
+            let slot = max(0, min(index ?? splitTabIDs.count, splitTabIDs.count))
+            splitTabIDs.insert(tab.id, at: slot)
+        } else if let index, (0...primaryTabs.count).contains(index) {
+            tabs.insert(tab, at: primaryInsertionIndex(forSlot: index))
         } else {
             tabs.append(tab)
         }

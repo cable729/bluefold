@@ -165,9 +165,14 @@ struct ThemeManagerTests {
             )
             manager.register(window)
 
+            // Cloth & Paper chrome: EVERY theme paints the titlebar band
+            // (transparent titlebar over the theme's chrome color).
             manager.current = .dark
             #expect(window.appearance?.name == .darkAqua)
-            #expect(window.titlebarAppearsTransparent == false)
+            #expect(window.titlebarAppearsTransparent == true)
+            let navy = window.backgroundColor.usingColorSpace(.sRGB)
+            #expect(navy != nil && navy!.blueComponent > navy!.redComponent,
+                    "dark chrome is the design system's navy band")
 
             manager.current = .sepia
             #expect(window.appearance?.name == .aqua)
@@ -178,7 +183,10 @@ struct ThemeManagerTests {
             // Auto: inherit (nil appearance) so the window follows the system.
             manager.current = .auto
             #expect(window.appearance == nil)
-            #expect(window.titlebarAppearsTransparent == false)
+            #expect(window.titlebarAppearsTransparent == true)
+            let paper = window.backgroundColor.usingColorSpace(.sRGB)
+            #expect(paper != nil && paper!.redComponent > paper!.blueComponent,
+                    "auto resolves to the light warm-paper chrome here")
         }
     }
 
