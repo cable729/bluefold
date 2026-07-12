@@ -213,6 +213,57 @@ struct TabStripDragTests {
         #expect(cells.allSatisfy { $0.frame.height == axlerLozenge.frame.height })
     }
 
+    @Test func fewTabsGetTheirFullTextWidth() {
+        // Round-20 owner feedback: with only a couple of books open,
+        // titles and chapters must be fully readable — no truncation caps
+        // while free space remains.
+        let h = Harness(
+            frame: NSRect(x: 100, y: 300, width: 1100, height: 400),
+            tabs: ["placeholder"]
+        )
+        defer { h.cleanUp() }
+        h.strip.apply(items: [
+            Harness.item(title: "Algebra Chapter Zero", breadcrumb: "VII. Fields",
+                         groupKey: "/tmp/aluffi.pdf"),
+            Harness.item(title: "Algebra Chapter Zero", breadcrumb: "6. Galois theory",
+                         isActive: true, groupKey: "/tmp/aluffi.pdf"),
+            Harness.item(title: "Linear Algebra Done Right", breadcrumb: "3C Matrices"),
+        ], palette: .light, isWindowSplit: false)
+        h.strip.layout()
+
+        // Every cell is wide enough for its whole breadcrumb: text width
+        // at the semibold measuring font + the cell's fixed chrome (31pt).
+        let font = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
+        let cells = h.strip.subviews.compactMap { $0 as? TabItemNSView }
+            .sorted { $0.frame.minX < $1.frame.minX }
+        for (cell, crumb) in zip(cells, ["VII. Fields", "6. Galois theory", "3C Matrices"]) {
+            let text = (crumb as NSString).size(withAttributes: [.font: font]).width
+            #expect(cell.frame.width >= text + 31, "\(crumb) cell must not truncate")
+        }
+        #expect(h.strip.frame.width <= 1100, "no scrolling needed at this width")
+    }
+
+    @Test func overflowShrinksOnlyToReadableWidthThenScrolls() {
+        // Long chapters in a narrow strip: cells stop shrinking at the
+        // readable floor and the strip scrolls for the rest.
+        let h = Harness(
+            frame: NSRect(x: 100, y: 300, width: 420, height: 400),
+            tabs: ["placeholder"]
+        )
+        defer { h.cleanUp() }
+        h.strip.apply(items: (1...4).map {
+            Harness.item(title: "Book \($0) With a Long Title",
+                         breadcrumb: "Chapter \($0): The Fundamental Theorem",
+                         groupKey: "/tmp/book\($0).pdf")
+        }, palette: .light, isWindowSplit: false)
+        h.strip.layout()
+
+        let cells = h.strip.subviews.compactMap { $0 as? TabItemNSView }
+        #expect(cells.allSatisfy { $0.frame.width >= TabStripNSView.readableCellWidth - 0.5 },
+                "cells never compress past the readable floor")
+        #expect(h.strip.frame.width > 420, "the remainder overflows into scrolling")
+    }
+
     @Test func overflowGrowsContentWidthForScrolling() {
         // Firefox/Chrome behavior: past the shrink floor the strip's content
         // outgrows the viewport (the scroll view shows the rest) instead of

@@ -37,6 +37,12 @@ public struct ReaderWindowView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
+            // Unsplit, the one tab bar spans the FULL window width (over
+            // the sidebar too — more room for lozenges). Split panes carry
+            // their own bars inside the content area instead.
+            if !model.tabs.isEmpty, !isSplitRendering {
+                TabBarView(model: model, pane: .primary, onNewTab: openPanel)
+            }
             HSplitView {
                 if ui.showSidebar, let document = activeDocument {
                     SidebarView(
@@ -174,6 +180,19 @@ public struct ReaderWindowView: View {
         return model.provider.document(for: model.url(for: tab))
     }
 
+    /// Whether `content` will render the two-pane split (both documents
+    /// resident). The window-level tab bar shows exactly when it won't —
+    /// so tabs stay reachable even when a split pane's file went missing.
+    private var isSplitRendering: Bool {
+        guard
+            let tab = model.primaryTab,
+            model.provider.document(for: model.url(for: tab)) != nil,
+            let splitTab = model.splitTab,
+            model.provider.document(for: model.url(for: splitTab)) != nil
+        else { return false }
+        return true
+    }
+
     @ViewBuilder
     private var content: some View {
         if let tab = model.primaryTab {
@@ -197,16 +216,14 @@ public struct ReaderWindowView: View {
                         }
                     }
                 } else {
-                    pane(tab: tab, document: document, role: .primary)
+                    // Unsplit: the window-level bar is the tab chrome.
+                    pdfView(tab: tab, document: document, role: .primary)
                 }
             } else {
-                VStack(spacing: 0) {
-                    TabBarView(model: model, pane: .primary, onNewTab: openPanel)
-                    ContentUnavailableView {
-                        Label("File Not Available", systemImage: "questionmark.folder")
-                    } description: {
-                        Text(tab.pathHint)
-                    }
+                ContentUnavailableView {
+                    Label("File Not Available", systemImage: "questionmark.folder")
+                } description: {
+                    Text(tab.pathHint)
                 }
             }
         } else {

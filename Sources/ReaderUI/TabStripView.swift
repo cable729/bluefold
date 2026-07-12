@@ -77,8 +77,14 @@ final class TabStripNSView: NSView {
     static let edgePadding: CGFloat = 8
     static let cornerRadius: CGFloat = 8
     static let minCellWidth: CGFloat = 44
-    static let maxCellTextWidth: CGFloat = 150
-    static let maxLabelTextWidth: CGFloat = 130
+    static let maxCellTextWidth: CGFloat = 220
+    static let maxLabelTextWidth: CGFloat = 240
+    /// Overflow shrink floors: cells/labels never compress past these —
+    /// past them the strip SCROLLS instead of crushing text into
+    /// unreadability (owner feedback: "make it so I can actually read
+    /// the name of the book and chapters").
+    static let readableCellWidth: CGFloat = 100
+    static let readableLabelWidth: CGFloat = 110
     static let dragCellWidth: CGFloat = 140
     static let tearOffDistance: CGFloat = 44
 
@@ -307,17 +313,23 @@ final class TabStripNSView: NSView {
         let natural = runs.reduce(chrome) { $0 + $1.width }
         let available = availableWidth
         if natural > available {
-            // Shrink every cell proportionally, no further than the floor;
-            // whatever still overflows scrolls.
-            let shrinkable = runs.reduce(0) { total, run in
-                total + run.cellWidths.reduce(0) { $0 + max(0, $1 - Self.minCellWidth) }
+            // Shrink labels and cells together, proportionally to how far
+            // each sits above its READABLE floor; whatever still overflows
+            // scrolls. (Never crush to the bare minimum — round-20 owner
+            // feedback: names and chapters must stay legible.)
+            func cellFloor(_ width: CGFloat) -> CGFloat { min(width, Self.readableCellWidth) }
+            func labelFloor(_ width: CGFloat) -> CGFloat { min(width, Self.readableLabelWidth) }
+            let slack = runs.reduce(0) { total, run in
+                total + (run.labelWidth - labelFloor(run.labelWidth))
+                    + run.cellWidths.reduce(0) { $0 + ($1 - cellFloor($1)) }
             }
-            let overflow = min(natural - available, shrinkable)
-            if shrinkable > 0, overflow > 0 {
-                let factor = overflow / shrinkable
+            if slack > 0 {
+                let factor = min(1, (natural - available) / slack)
                 for runIndex in runs.indices {
+                    let label = runs[runIndex].labelWidth
+                    runs[runIndex].labelWidth = label - (label - labelFloor(label)) * factor
                     runs[runIndex].cellWidths = runs[runIndex].cellWidths.map {
-                        $0 - max(0, $0 - Self.minCellWidth) * factor
+                        $0 - ($0 - cellFloor($0)) * factor
                     }
                 }
             }
