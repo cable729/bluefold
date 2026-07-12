@@ -397,6 +397,21 @@ public final class ReaderWindowModel {
         }
     }
 
+    /// Closes every tab BEFORE this one in its own strip's order — same
+    /// per-strip scope as `closeOtherTabs`.
+    public func closeTabsToLeft(of id: UUID) {
+        let strip = tabs(in: pane(ofTab: id))
+        guard let index = strip.firstIndex(where: { $0.id == id }) else { return }
+        closeTabs(ids: strip[..<index].map(\.id))
+    }
+
+    /// Closes every tab AFTER this one in its own strip's order.
+    public func closeTabsToRight(of id: UUID) {
+        let strip = tabs(in: pane(ofTab: id))
+        guard let index = strip.firstIndex(where: { $0.id == id }) else { return }
+        closeTabs(ids: strip[(index + 1)...].map(\.id))
+    }
+
     /// Closes several tabs at once (strip multi-selection).
     public func closeTabs(ids: [UUID]) {
         for id in ids {

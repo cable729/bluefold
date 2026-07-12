@@ -36,6 +36,8 @@ struct TabStripActions {
     var closeMany: ([UUID]) -> Void = { _ in }
     var duplicate: (UUID) -> Void
     var closeOthers: (UUID) -> Void
+    var closeToLeft: (UUID) -> Void = { _ in }
+    var closeToRight: (UUID) -> Void = { _ in }
     var openInSplit: (UUID, SplitSide) -> Void = { _, _ in }
     var closeSplit: () -> Void = {}
     /// Sends a split-strip tab back to the primary strip (and vice versa).
@@ -889,6 +891,17 @@ final class TabStripNSView: NSView {
         )
         closeOthers.setHandler { [weak self] in self?.actions.closeOthers(tabID) }
         closeOthers.isEnabled = items.count > 1
+        let itemIndex = items.firstIndex { $0.id == tabID }
+        let closeToLeft = menu.addItem(
+            withTitle: "Close Tabs to the Left", action: nil, keyEquivalent: ""
+        )
+        closeToLeft.setHandler { [weak self] in self?.actions.closeToLeft(tabID) }
+        closeToLeft.isEnabled = (itemIndex ?? 0) > 0
+        let closeToRight = menu.addItem(
+            withTitle: "Close Tabs to the Right", action: nil, keyEquivalent: ""
+        )
+        closeToRight.setHandler { [weak self] in self?.actions.closeToRight(tabID) }
+        closeToRight.isEnabled = itemIndex.map { $0 < items.count - 1 } ?? false
         menu.addItem(.separator())
         menu.addItem(withTitle: "Move to New Window", action: nil, keyEquivalent: "")
             .setHandler { [weak self] in

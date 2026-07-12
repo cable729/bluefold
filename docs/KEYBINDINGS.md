@@ -172,6 +172,7 @@ entries claiming the same chord, the alphabetically-first command id wins.
 | `tabs.next` / `tabs.previous` | Next / Previous tab (`shift+cmd+]`+`ctrl+tab` / `shift+cmd+[`+`ctrl+shift+tab`) |
 | `tabs.select.1` … `tabs.select.9` | Go to tab N / last (`cmd+1` … `cmd+9`) |
 | `tabs.duplicate` / `tabs.closeOthers` | Duplicate Tab / Close Other Tabs (unbound) |
+| `tabs.closeToLeft` / `tabs.closeToRight` | Close Tabs to the Left / Right (unbound) |
 | `tabs.reopenClosed` | Reopen Closed Tab (`shift+cmd+t`) |
 | `view.toggleSidebar` | Show Sidebar (`cmd+b`) |
 | `view.layout.singlePage` / `.continuous` / `.twoUp` / `.twoUpContinuous` | Page layouts (`opt+cmd+1`…`opt+cmd+4`) |

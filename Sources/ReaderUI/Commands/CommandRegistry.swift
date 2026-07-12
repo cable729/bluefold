@@ -341,6 +341,22 @@ public enum CommandRegistry {
                 model.closeOtherTabs(keeping: active.id)
             }
         ))
+        commands.append(ReaderCommand(
+            id: "tabs.closeToLeft", title: "Close Tabs to the Left", category: .tabs,
+            isAvailable: { ($0.model?.tabs.count ?? 0) > 1 },
+            run: { context in
+                guard let model = context.model, let active = model.activeTab else { return }
+                model.closeTabsToLeft(of: active.id)
+            }
+        ))
+        commands.append(ReaderCommand(
+            id: "tabs.closeToRight", title: "Close Tabs to the Right", category: .tabs,
+            isAvailable: { ($0.model?.tabs.count ?? 0) > 1 },
+            run: { context in
+                guard let model = context.model, let active = model.activeTab else { return }
+                model.closeTabsToRight(of: active.id)
+            }
+        ))
 
         // MARK: View
 

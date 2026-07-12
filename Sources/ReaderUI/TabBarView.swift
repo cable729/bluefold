@@ -112,6 +112,8 @@ private struct TabStripRepresentable: NSViewRepresentable {
             closeMany: { model.closeTabs(ids: $0) },
             duplicate: { model.duplicateTab(id: $0) },
             closeOthers: { model.closeOtherTabs(keeping: $0) },
+            closeToLeft: { model.closeTabsToLeft(of: $0) },
+            closeToRight: { model.closeTabsToRight(of: $0) },
             openInSplit: { model.openInSplit(tabID: $0, side: $1) },
             closeSplit: { model.closeSplit() },
             moveToOtherPane: { [pane] tabID in
