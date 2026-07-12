@@ -50,6 +50,71 @@ enum DragPayload {
     }
 }
 
+/// One tab cell's horizontal midpoint in strip-content space.
+struct TabMid: Equatable {
+    let id: UUID
+    let midX: CGFloat
+}
+
+/// Collects every tab cell's midpoint so the strip can place the insertion
+/// bar and compute a drop's landing index.
+struct TabMidKey: PreferenceKey {
+    static let defaultValue: [TabMid] = []
+    static func reduce(value: inout [TabMid], nextValue: () -> [TabMid]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+/// Strip-level drop handling: a dragged tab shows an insertion bar at the
+/// nearest gap and reorders there on release; a dragged sidebar section
+/// opens a new tab at that gap.
+struct TabStripDropDelegate: DropDelegate {
+    let mids: [TabMid]
+    @Binding var insertionX: CGFloat?
+    let onReorder: (UUID, Int) -> Void
+    let onSection: (NavEntry, Int) -> Void
+
+    func dropEntered(info: DropInfo) { insertionX = barX(for: index(at: info.location.x)) }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        insertionX = barX(for: index(at: info.location.x))
+        return DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) { insertionX = nil }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let landing = index(at: info.location.x)
+        insertionX = nil
+        guard let provider = info.itemProviders(for: [.text]).first else { return false }
+        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let payload = object as? String else { return }
+            Task { @MainActor in
+                if let id = DragPayload.decodeTab(payload) {
+                    onReorder(id, landing)
+                } else if let entry = DragPayload.decodeSection(payload) {
+                    onSection(entry, landing)
+                }
+            }
+        }
+        return true
+    }
+
+    /// Insertion index = how many cells sit left of the finger.
+    private func index(at x: CGFloat) -> Int {
+        mids.filter { $0.midX < x }.count
+    }
+
+    /// X of the insertion bar for a landing index — the gap between
+    /// neighbours, or just past the ends.
+    private func barX(for index: Int) -> CGFloat {
+        guard !mids.isEmpty else { return 12 }
+        if index <= 0 { return max(mids[0].midX - 46, 4) }
+        if index >= mids.count { return mids[mids.count - 1].midX + 46 }
+        return (mids[index - 1].midX + mids[index].midX) / 2
+    }
+}
+
 /// Page-0 cover thumbnails for tab caps and the tab preview panel — the
 /// iOS twin of macOS TabCoverThumbnails: rendered off-main on a private
 /// PDFDocument (never the shared LRU's), cached by path.
@@ -96,6 +161,12 @@ struct TabStripIOS: View {
     let model: ReaderSessionModel
     let palette: DesignPalette
 
+    /// Per-tab cell midpoints (in strip-content space), for computing where
+    /// a dragged tab would land and drawing the insertion bar.
+    @State private var tabMids: [TabMid] = []
+    /// X of the insertion bar while a tab drag hovers the strip; nil = none.
+    @State private var insertionX: CGFloat?
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -105,6 +176,29 @@ struct TabStripIOS: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
+            .coordinateSpace(name: "strip")
+            // Insertion indicator — a small accent bar showing where the
+            // dragged tab will land (owner: "hard to tell what will happen").
+            .overlay(alignment: .leading) {
+                if let insertionX {
+                    Capsule()
+                        .fill(Color(platformColor: palette.accent))
+                        .frame(width: 3, height: 34)
+                        .position(x: insertionX, y: 22)
+                }
+            }
+            .onPreferenceChange(TabMidKey.self) { mids in
+                tabMids = mids.sorted { $0.midX < $1.midX }
+            }
+            .onDrop(of: [.text], delegate: TabStripDropDelegate(
+                mids: tabMids,
+                insertionX: $insertionX,
+                onReorder: { model.moveTab(id: $0, toIndex: $1) },
+                onSection: { entry, index in
+                    guard let url = model.activeURL else { return }
+                    model.openTab(url: url, at: entry, insertAt: index, activate: false)
+                }
+            ))
         }
         // Color subviews (dividers, cover placeholders) have no intrinsic
         // height — without a hard cap the horizontal scroller goes greedy
@@ -115,15 +209,6 @@ struct TabStripIOS: View {
         // parity), so a partially-scrolled tab looks clipped, not cut.
         .overlay(alignment: .leading) { edgeFade(leading: true) }
         .overlay(alignment: .trailing) { edgeFade(leading: false) }
-        // A sidebar section dropped on strip whitespace opens a new tab.
-        .dropDestination(for: String.self) { items, _ in
-            guard let payload = items.first,
-                  let entry = DragPayload.decodeSection(payload),
-                  let url = model.activeURL
-            else { return false }
-            model.openTab(url: url, at: entry, activate: false)
-            return true
-        }
     }
 
     private func edgeFade(leading: Bool) -> some View {
@@ -322,24 +407,17 @@ private struct TabGroupIOS: View {
             }
         }
         .draggable(DragPayload.tab(tab.id))
-        // Dropping another tab on this cell reorders it here; dropping a
-        // sidebar section opens an adjacent tab.
-        .dropDestination(for: String.self) { items, _ in
-            guard let payload = items.first else { return false }
-            if let draggedID = DragPayload.decodeTab(payload) {
-                model.move(tabID: draggedID, before: tab.id)
-                return true
+        // Report this cell's midpoint so the strip can place the insertion
+        // bar and compute a drop's landing index (reorder is handled at the
+        // strip level, not per cell — the group lozenge clips overlays).
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: TabMidKey.self,
+                    value: [TabMid(id: tab.id, midX: proxy.frame(in: .named("strip")).midX)]
+                )
             }
-            if let entry = DragPayload.decodeSection(payload),
-               let url = model.activeURL {
-                let index = model.tabs.firstIndex { $0.id == tab.id }
-                model.openTab(
-                    url: url, at: entry,
-                    insertAt: index.map { $0 + 1 }, activate: false)
-                return true
-            }
-            return false
-        }
+        )
     }
 
     /// Section breadcrumb (deepest component), falling back to the page.

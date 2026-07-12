@@ -338,15 +338,19 @@ final class ReaderSessionModel {
     /// Axis the split divides along: `.horizontal` = side-by-side (iPad),
     /// `.vertical` = stacked top/bottom (iPhone, and iPad by choice).
     private(set) var splitAxis: SplitAxis = .horizontal
+    /// Which side the SPLIT (secondary) pane sits on: `.trailing` = right
+    /// or bottom (default), `.leading` = left or top.
+    private(set) var splitSide: SplitSide = .trailing
 
     /// ⌘\ toggle: no split → duplicate the active tab into a split on
     /// `axis`; split open → close it (macOS Split Right semantics).
-    func toggleSplit(axis: SplitAxis = .horizontal) {
+    func toggleSplit(axis: SplitAxis = .horizontal, side: SplitSide = .trailing) {
         if splitTabID != nil {
             closeSplit()
         } else {
             // iPhone can't show two pages side by side — always stack.
             splitAxis = UIDevice.current.userInterfaceIdiom == .phone ? .vertical : axis
+            splitSide = side
             duplicateActiveTabToSplit()
         }
     }
@@ -355,6 +359,18 @@ final class ReaderSessionModel {
     func setSplitAxis(_ axis: SplitAxis) {
         guard splitAxis != axis else { return }
         splitAxis = axis
+    }
+
+    /// Persists the active view's exact scroll position into its tab BEFORE
+    /// a split is created — the panes rebuild during the layout change, and
+    /// without this both restore to the top of the page (owner-reported).
+    private func captureActivePosition() {
+        guard let activeTabID,
+              let index = tabs.firstIndex(where: { $0.id == activeTabID }),
+              let live = activeController?.liveNavEntry
+        else { return }
+        tabs[index].apply(live)
+        livePosition = live
     }
 
     /// iPhone: closing the PRIMARY (top) pane, or dragging the divider all
@@ -369,18 +385,22 @@ final class ReaderSessionModel {
         guard let activeTabID,
               let index = tabs.firstIndex(where: { $0.id == activeTabID })
         else { return }
+        captureActivePosition()
         var copy = tabs[index]
         copy.id = UUID()
         tabs.insert(copy, at: index + 1)
         openInSplit(tabID: copy.id)
     }
 
-    /// Shows an existing tab in the trailing split pane. The active tab
-    /// keeps the primary pane; splitting the active tab itself first
-    /// activates a neighbor (a pane can't show the primary's tab).
-    func openInSplit(tabID: UUID, axis: SplitAxis? = nil) {
+    /// Shows an existing tab in the split pane. The active tab keeps the
+    /// primary pane; splitting the active tab itself first activates a
+    /// neighbor (a pane can't show the primary's tab). `axis`/`side` place
+    /// the split pane (left/right/top/bottom).
+    func openInSplit(tabID: UUID, axis: SplitAxis? = nil, side: SplitSide? = nil) {
         guard tabs.contains(where: { $0.id == tabID }) else { return }
+        captureActivePosition()
         if let axis { splitAxis = axis }
+        if let side { splitSide = side }
         if tabID == activeTabID {
             guard let other = tabs.first(where: { $0.id != tabID }) else { return }
             activate(other.id)
@@ -394,10 +414,12 @@ final class ReaderSessionModel {
 
     /// Opens a new tab on `url` (default: the active document) at `entry`,
     /// directly into the split pane (sidebar section drag / long-press).
-    func openEntryInSplit(_ entry: NavEntry, url: URL? = nil, axis: SplitAxis? = nil) {
+    func openEntryInSplit(
+        _ entry: NavEntry, url: URL? = nil, axis: SplitAxis? = nil, side: SplitSide? = nil
+    ) {
         guard let url = url ?? activeURL else { return }
         let id = openTab(url: url, at: entry, activate: false)
-        openInSplit(tabID: id, axis: axis)
+        openInSplit(tabID: id, axis: axis, side: side)
     }
 
     /// Closes the pane; the tab stays in the strip (macOS semantics).
@@ -661,6 +683,15 @@ final class ReaderSessionModel {
         tabs.move(fromOffsets: source, toOffset: destination)
     }
 
+    /// Strip drag-reorder: moves `id` to `index` (a gap position counted in
+    /// original tab order), correcting for the removal shift.
+    func moveTab(id: UUID, toIndex index: Int) {
+        guard let from = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let tab = tabs.remove(at: from)
+        let target = index > from ? index - 1 : index
+        tabs.insert(tab, at: min(max(target, 0), tabs.count))
+    }
+
     /// Drop-based reorder: places `tabID` immediately before `targetID`.
     func move(tabID: UUID, before targetID: UUID) {
         guard tabID != targetID,
@@ -750,7 +781,7 @@ final class ReaderSessionModel {
         let window = WindowState(
             id: windowID, frame: nil, tabs: tabs, activeTabID: activeTabID,
             splitTabID: splitTabID,
-            splitSide: splitTabID != nil ? .trailing : nil,
+            splitSide: splitTabID != nil ? splitSide : nil,
             splitAxis: splitTabID != nil ? splitAxis : nil
         )
         let snapshot = SessionSnapshot(windows: [window])
@@ -774,6 +805,7 @@ final class ReaderSessionModel {
         activeTabID = nil  // force activate() to resolve
         activate(target)
         splitAxis = window.splitAxis ?? .horizontal
+        splitSide = window.splitSide ?? .trailing
         if let restoredSplit = window.splitTabID, restoredSplit != activeTabID {
             openInSplit(tabID: restoredSplit)
         }

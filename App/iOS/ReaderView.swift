@@ -98,6 +98,7 @@ struct ReaderView: View {
         if let splitTab = model.splitTab, let splitDocument = model.splitDocument {
             SplitContainerIOS(
                 axis: model.splitAxis,
+                side: model.splitSide,
                 fraction: $splitFraction,
                 palette: palette,
                 primary: { content },
@@ -152,12 +153,15 @@ struct ReaderView: View {
                 }
             } else if let document = model.activeDocument {
                 pdfView(tab: tab, document: document, pane: .primary)
-                    // Drop a tab chip, sidebar section, or link on the edge
-                    // to open it in a split: right on iPad (side-by-side),
-                    // bottom on iPhone (top/bottom).
-                    .overlay(alignment: sizeClass == .regular ? .trailing : .bottom) {
+                    // Drag a tab, sidebar section, or link onto a HALF of the
+                    // page to split there: left/right (iPad) or top/bottom.
+                    .overlay {
                         if model.splitTabID == nil {
-                            splitDropZone(axis: sizeClass == .regular ? .horizontal : .vertical)
+                            SplitZoneDropView(
+                                allowSides: sizeClass == .regular,
+                                palette: palette,
+                                onDrop: handleSplitDrop
+                            )
                         }
                     }
             } else if let error = model.downloadError {
@@ -193,19 +197,12 @@ struct ReaderView: View {
         .onChromeGestures(pane: pane, sizeClass: sizeClass, chrome: chrome)
     }
 
-    /// Invisible edge strip that lights up when a tab chip, sidebar
-    /// section, or link is dragged over it — drop opens the split on `axis`.
-    private func splitDropZone(axis: SplitAxis) -> some View {
-        SplitDropTargetIOS(axis: axis, palette: palette) { payload in
-            if let tabID = DragPayload.decodeTab(payload) {
-                model.openInSplit(tabID: tabID, axis: axis)
-                return true
-            }
-            if let entry = DragPayload.decodeSection(payload) {
-                model.openEntryInSplit(entry, axis: axis)
-                return true
-            }
-            return false
+    /// Creates a split from a payload dropped on a page half.
+    private func handleSplitDrop(_ payload: String, axis: SplitAxis, side: SplitSide) {
+        if let tabID = DragPayload.decodeTab(payload) {
+            model.openInSplit(tabID: tabID, axis: axis, side: side)
+        } else if let entry = DragPayload.decodeSection(payload) {
+            model.openEntryInSplit(entry, axis: axis, side: side)
         }
     }
 
@@ -232,6 +229,10 @@ struct ReaderView: View {
 /// close affordance in its top-trailing corner.
 private struct SplitContainerIOS<Primary: View, Secondary: View>: View {
     let axis: SplitAxis
+    /// Which side the SPLIT (secondary) pane occupies: `.trailing` puts the
+    /// primary (active) pane first (left/top); `.leading` puts the split
+    /// pane first (left/top).
+    var side: SplitSide = .trailing
     @Binding var fraction: CGFloat
     let palette: DesignPalette
     @ViewBuilder let primary: () -> Primary
@@ -257,15 +258,15 @@ private struct SplitContainerIOS<Primary: View, Secondary: View>: View {
             Group {
                 if axis == .vertical {
                     VStack(spacing: 0) {
-                        pane(primary, onClose: onClosePrimary).frame(height: primaryExtent)
+                        firstPane.frame(height: primaryExtent)
                         divider(total: total)
-                        pane(secondary, onClose: onCloseSecondary)
+                        secondPane
                     }
                 } else {
                     HStack(spacing: 0) {
-                        pane(primary, onClose: onClosePrimary).frame(width: primaryExtent)
+                        firstPane.frame(width: primaryExtent)
                         divider(total: total)
-                        pane(secondary, onClose: onCloseSecondary)
+                        secondPane
                     }
                 }
             }
@@ -274,6 +275,26 @@ private struct SplitContainerIOS<Primary: View, Secondary: View>: View {
                     ghostLine(boundary: primaryExtent, total: total)
                 }
             }
+        }
+    }
+
+    /// The pane at the leading edge (left/top). `.leading` side = the split
+    /// pane lives there; otherwise the primary (active) pane does.
+    @ViewBuilder
+    private var firstPane: some View {
+        if side == .leading {
+            pane(secondary, onClose: onCloseSecondary)
+        } else {
+            pane(primary, onClose: onClosePrimary)
+        }
+    }
+
+    @ViewBuilder
+    private var secondPane: some View {
+        if side == .leading {
+            pane(primary, onClose: onClosePrimary)
+        } else {
+            pane(secondary, onClose: onCloseSecondary)
         }
     }
 
@@ -355,10 +376,12 @@ private struct SplitContainerIOS<Primary: View, Secondary: View>: View {
                 let end = min(max(fraction + dragTranslation / max(total, 1), 0), 1)
                 isDragging = false
                 dragTranslation = 0
+                // Collapsing a pane to nothing closes it; which pane is
+                // "first" depends on the side.
                 if end <= minFraction {
-                    onClosePrimary()
+                    side == .leading ? onCloseSecondary() : onClosePrimary()
                 } else if end >= maxFraction {
-                    onCloseSecondary()
+                    side == .leading ? onClosePrimary() : onCloseSecondary()
                 } else {
                     fraction = end
                 }
@@ -366,41 +389,106 @@ private struct SplitContainerIOS<Primary: View, Secondary: View>: View {
     }
 }
 
-/// Edge drop target for opening a split — a narrow strip on the trailing
-/// edge (horizontal split) or bottom edge (vertical split), lighting up
-/// only while a drag hovers it so it never blocks reading.
-private struct SplitDropTargetIOS: View {
-    let axis: SplitAxis
-    let palette: DesignPalette
-    let onDrop: (String) -> Bool
+/// Which half of the page a drag is hovering (the split it would create).
+enum SplitZone {
+    case left, right, top, bottom
+    var axis: SplitAxis { self == .left || self == .right ? .horizontal : .vertical }
+    /// The split (secondary) pane takes the hovered half.
+    var side: SplitSide { self == .left || self == .top ? .leading : .trailing }
+}
 
-    @State private var isTargeted = false
+/// Full-page drop target: dragging a tab/section/link over a half of the
+/// page highlights that half and, on drop, splits there. iPad allows
+/// left/right + top/bottom; compact widths allow only top/bottom.
+private struct SplitZoneDropView: View {
+    let allowSides: Bool
+    let palette: DesignPalette
+    let onDrop: (String, SplitAxis, SplitSide) -> Void
+
+    @State private var zone: SplitZone?
 
     var body: some View {
-        Rectangle()
-            .fill(isTargeted
-                ? Color(platformColor: palette.accent).opacity(0.18)
-                : Color.clear)
-            .overlay {
-                if isTargeted {
-                    Image(systemName: axis == .vertical
-                        ? "rectangle.split.1x2" : "rectangle.split.2x1")
-                        .font(.title2)
-                        .foregroundStyle(Color(platformColor: palette.accent))
+        GeometryReader { geo in
+            ZStack {
+                if let zone {
+                    highlight(zone, in: geo.size)
                 }
             }
-            .frame(
-                width: axis == .horizontal ? 56 : nil,
-                height: axis == .vertical ? 56 : nil
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onDrop(
+                of: [.text],
+                delegate: SplitDropDelegate(
+                    size: geo.size, allowSides: allowSides,
+                    zone: $zone, onDrop: onDrop
+                )
             )
-            .contentShape(Rectangle())
-            .dropDestination(for: String.self) { items, _ in
-                guard let payload = items.first else { return false }
-                return onDrop(payload)
-            } isTargeted: {
-                isTargeted = $0
+        }
+    }
+
+    private func highlight(_ zone: SplitZone, in size: CGSize) -> some View {
+        let rect: CGRect
+        switch zone {
+        case .left: rect = CGRect(x: 0, y: 0, width: size.width / 2, height: size.height)
+        case .right: rect = CGRect(x: size.width / 2, y: 0, width: size.width / 2, height: size.height)
+        case .top: rect = CGRect(x: 0, y: 0, width: size.width, height: size.height / 2)
+        case .bottom: rect = CGRect(x: 0, y: size.height / 2, width: size.width, height: size.height / 2)
+        }
+        return RoundedRectangle(cornerRadius: 8)
+            .fill(Color(platformColor: palette.accent).opacity(0.18))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(Color(platformColor: palette.accent), lineWidth: 2)
+            )
+            .overlay(
+                Image(systemName: zone.axis == .vertical
+                    ? "rectangle.split.1x2" : "rectangle.split.2x1")
+                    .font(.largeTitle)
+                    .foregroundStyle(Color(platformColor: palette.accent))
+            )
+            .frame(width: rect.width, height: rect.height)
+            .position(x: rect.midX, y: rect.midY)
+            .padding(4)
+    }
+}
+
+private struct SplitDropDelegate: DropDelegate {
+    let size: CGSize
+    let allowSides: Bool
+    @Binding var zone: SplitZone?
+    let onDrop: (String, SplitAxis, SplitSide) -> Void
+
+    func dropEntered(info: DropInfo) { zone = compute(info.location) }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        zone = compute(info.location)
+        return DropProposal(operation: .copy)
+    }
+
+    func dropExited(info: DropInfo) { zone = nil }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let target = compute(info.location)
+        zone = nil
+        guard let provider = info.itemProviders(for: [.text]).first else { return false }
+        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let payload = object as? String else { return }
+            Task { @MainActor in
+                onDrop(payload, target.axis, target.side)
             }
-            .allowsHitTesting(true)
+        }
+        return true
+    }
+
+    /// Nearest edge wins — the page's diagonals cut it into four triangles,
+    /// the standard "which half" for window-snap-style splitting.
+    private func compute(_ point: CGPoint) -> SplitZone {
+        let nx = point.x / max(size.width, 1)
+        let ny = point.y / max(size.height, 1)
+        var candidates: [(SplitZone, CGFloat)] = [(.top, ny), (.bottom, 1 - ny)]
+        if allowSides {
+            candidates.append(contentsOf: [(.left, nx), (.right, 1 - nx)])
+        }
+        return candidates.min(by: { $0.1 < $1.1 })?.0 ?? .bottom
     }
 }
 
