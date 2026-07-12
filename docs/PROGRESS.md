@@ -611,3 +611,30 @@ destinations/crops before theorizing.
 4. Then M18 v0.1 remainder: mint Developer ID cert + notary
    credentials (steps in scripts/release.sh output), README screenshots
    (use Axler), make the repo public, tag v0.1. App icon DONE (round 20).
+
+- [x] **UI-16** Round 22 (2026-07-11): cover-colored tabs + richer preview
+  (owner feedback on the live round-21 build).
+  - **CoverPalette**: 1–3 dominant colors from the page-0 render —
+    24×32 downsample, 4-bit/channel histogram, page-white AND text-ink
+    pixels skipped, greedy distinct-color pick (RGB distance > 0.25),
+    empty result for text pages (< 1/8 art pixels) so the hash tint
+    remains the fallback. Lozenge fill is now a horizontal
+    CAGradientLayer of those colors (alpha .2 / .32 active), blending
+    the tab into its own cover. Unit-tested with synthetic banded
+    covers (CoverPaletteTests).
+  - **Hover anywhere** on a tab previews its book: TabItemNSView hovers
+    route through the strip's preview hub (per-tab CHAPTER shown);
+    the panel is cover over a [title | chapter] row with a vertical
+    hairline; title wraps up to 3 lines. NSTextField trap:
+    byTruncatingTail on a wrapping label silently disables wrapping —
+    byWordWrapping + cell.truncatesLastVisibleLine is the multi-line
+    truncation recipe.
+  - **Active-cell width priority**: the selected tab is exempt from the
+    overflow shrink pass (its floor = natural width) — neighbors give
+    way first, then the strip scrolls.
+  - **Sidebar follow-mode highlight**: leading 3pt accent bar + accent
+    text on the current section (the accentSoft fill alone was
+    invisible on sepia).
+  - Tests 490 (+CoverPalette suite, active-width priority). Verified:
+    verify.sh green; hand-checked hover-anywhere, wrapped titles,
+    per-cell chapters, and real gradient washes on cover fixtures.
