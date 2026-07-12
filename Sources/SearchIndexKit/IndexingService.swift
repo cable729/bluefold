@@ -55,6 +55,10 @@ public actor IndexingService {
     /// Indexes the PDF at `url`, keyed by its content hash (computed when not
     /// supplied). Empty/whitespace-only pages are skipped but still counted in
     /// the document's page count.
+    ///
+    /// Checks cooperative cancellation before every page (throwing
+    /// `CancellationError`): OCR on a scanned textbook runs for many minutes,
+    /// and a superseded pass must stop within a page, not a book.
     public func indexDocument(at url: URL, contentHash: String? = nil) async throws -> IndexResult {
         let hash = try contentHash ?? ContentHash.compute(for: url)
         if try store.isIndexed(contentHash: hash, extractorVersion: Self.extractorVersion) {
@@ -69,6 +73,7 @@ public actor IndexingService {
         var pages: [(page: Int, text: String)] = []
         var ocrPages = 0
         for index in 0..<pageCount {
+            try Task.checkCancellation()
             guard let page = document.page(at: index) else { continue }
             var text = page.string ?? ""
             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, ocrEnabled {
