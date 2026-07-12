@@ -4,6 +4,7 @@ import PDFKit
 import ReaderCore
 import ReaderPersistence
 import ReaderUI
+import UIKit
 
 /// What the session model needs from the live PDF view (implemented by
 /// PDFKitView's coordinator). The iOS analog of ReaderUI's
@@ -156,6 +157,31 @@ final class ReaderSessionModel {
             startDownloadIfNeeded(tabID: id, url: url)
         }
         refreshBookmarks()
+        if let id {
+            refreshBreadcrumb(forTabWithID: id)
+        }
+    }
+
+    /// Fills in a tab's outline breadcrumb from its resident document — so a
+    /// freshly opened or restored tab shows its SECTION, not "p.N", before
+    /// the first scroll tick lands (the macOS app does this on view attach).
+    /// No-op if the document isn't on screen yet (evicted / downloading);
+    /// re-run when it becomes available.
+    func refreshBreadcrumb(forTabWithID id: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let nodes: [OutlineNode]
+        if id == activeTabID, let outline = outline() {
+            nodes = outline.nodes
+        } else if id == splitTabID, let document = splitDocument {
+            nodes = OutlineNode.tree(from: document)
+        } else {
+            return
+        }
+        let path = OutlineNode.deepestPath(in: nodes, atOrBefore: tabs[index].pageIndex)
+        let crumb = path.joined(separator: " › ")
+        if !crumb.isEmpty, tabs[index].breadcrumb != crumb {
+            tabs[index].breadcrumb = crumb
+        }
     }
 
     /// Pins every on-screen document (active + split pane) in the LRU.
@@ -187,6 +213,8 @@ final class ReaderSessionModel {
             }
             if downloadingTabID == tabID {
                 downloadingTabID = nil
+                // Document just became readable — fill in its breadcrumb.
+                refreshBreadcrumb(forTabWithID: tabID)
             }
         }
     }
@@ -294,14 +322,34 @@ final class ReaderSessionModel {
         return provider.document(for: splitURL)
     }
 
-    /// ⌘\ toggle: no split → duplicate the active tab into a trailing
-    /// split; split open → close it (macOS Split Right semantics).
-    func toggleSplit() {
+    /// Axis the split divides along: `.horizontal` = side-by-side (iPad),
+    /// `.vertical` = stacked top/bottom (iPhone, and iPad by choice).
+    private(set) var splitAxis: SplitAxis = .horizontal
+
+    /// ⌘\ toggle: no split → duplicate the active tab into a split on
+    /// `axis`; split open → close it (macOS Split Right semantics).
+    func toggleSplit(axis: SplitAxis = .horizontal) {
         if splitTabID != nil {
             closeSplit()
         } else {
+            // iPhone can't show two pages side by side — always stack.
+            splitAxis = UIDevice.current.userInterfaceIdiom == .phone ? .vertical : axis
             duplicateActiveTabToSplit()
         }
+    }
+
+    /// Changes the orientation of an open split in place.
+    func setSplitAxis(_ axis: SplitAxis) {
+        guard splitAxis != axis else { return }
+        splitAxis = axis
+    }
+
+    /// iPhone: closing the PRIMARY (top) pane, or dragging the divider all
+    /// the way up — the split (bottom) tab becomes the sole primary view.
+    func promoteSplitToPrimary() {
+        guard let target = splitTabID else { return }
+        closeSplit()
+        activate(target)
     }
 
     func duplicateActiveTabToSplit() {
@@ -327,6 +375,7 @@ final class ReaderSessionModel {
         splitTabID = tabID
         splitURL = resolveURL(for: tab)
         repin()
+        refreshBreadcrumb(forTabWithID: tabID)
     }
 
     /// Opens a new tab on `url` (default: the active document) at `entry`,
@@ -673,7 +722,9 @@ final class ReaderSessionModel {
     func save() {
         let window = WindowState(
             id: windowID, frame: nil, tabs: tabs, activeTabID: activeTabID,
-            splitTabID: splitTabID, splitSide: splitTabID != nil ? .trailing : nil
+            splitTabID: splitTabID,
+            splitSide: splitTabID != nil ? .trailing : nil,
+            splitAxis: splitTabID != nil ? splitAxis : nil
         )
         let snapshot = SessionSnapshot(windows: [window])
         do {
@@ -695,6 +746,7 @@ final class ReaderSessionModel {
         let target = window.activeTabID ?? tabs.first?.id
         activeTabID = nil  // force activate() to resolve
         activate(target)
+        splitAxis = window.splitAxis ?? .horizontal
         if let restoredSplit = window.splitTabID, restoredSplit != activeTabID {
             openInSplit(tabID: restoredSplit)
         }

@@ -23,6 +23,13 @@ final class ReaderChromeModel {
     var sidebarMode: SidebarMode = .contents
     /// iPhone reading mode: chrome fades while scrolling; tap toggles.
     var chromeHidden = false
+    /// When locked (iPhone lock button), chrome stays visible: scrolling
+    /// never auto-hides it and the tap toggle is inert.
+    var chromeLocked = false {
+        didSet {
+            if chromeLocked { chromeHidden = false }
+        }
+    }
 
     /// The top-bar magnifier and ⌘F: find lives in the sidebar with
     /// Contents/Bookmarks (owner feedback), not a separate surface.

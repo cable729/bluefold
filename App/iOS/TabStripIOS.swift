@@ -92,7 +92,7 @@ struct TabStripIOS: View {
                     TabGroupIOS(model: model, group: group, palette: palette)
                 }
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 10)
             .padding(.vertical, 5)
         }
         // Color subviews (dividers, cover placeholders) have no intrinsic
@@ -100,6 +100,10 @@ struct TabStripIOS: View {
         // and the strip fills the screen.
         .frame(height: 50)
         .background(Color(platformColor: palette.stripBackground))
+        // Tabs fade out under the edges when the strip overflows (desktop
+        // parity), so a partially-scrolled tab looks clipped, not cut.
+        .overlay(alignment: .leading) { edgeFade(leading: true) }
+        .overlay(alignment: .trailing) { edgeFade(leading: false) }
         // A sidebar section dropped on strip whitespace opens a new tab.
         .dropDestination(for: String.self) { items, _ in
             guard let payload = items.first,
@@ -109,6 +113,17 @@ struct TabStripIOS: View {
             model.openTab(url: url, at: entry, activate: false)
             return true
         }
+    }
+
+    private func edgeFade(leading: Bool) -> some View {
+        let strip = Color(platformColor: palette.stripBackground)
+        return LinearGradient(
+            colors: [strip, strip.opacity(0)],
+            startPoint: leading ? .leading : .trailing,
+            endPoint: leading ? .trailing : .leading
+        )
+        .frame(width: 14)
+        .allowsHitTesting(false)
     }
 
     /// Adjacent same-book runs, macOS round-20 grouping.
@@ -138,11 +153,17 @@ private struct TabGroupIOS: View {
     let palette: DesignPalette
 
     @State private var cover: UIImage?
-    /// Tab whose cover preview panel is up (tap on the active cell).
-    @State private var previewTabID: UUID?
+    /// Whether the book cover-preview popover is up (tapping the cover cap).
+    @State private var showingPreview = false
 
     private var tint: Color {
         Color(platformColor: BookTint.color(forPath: group.path))
+    }
+
+    /// The tab the preview panel represents: the group's active tab if one
+    /// is active here, else its first — the panel is about the BOOK.
+    private var previewTab: TabState {
+        group.tabs.first { $0.id == model.activeTabID } ?? group.tabs[0]
     }
 
     var body: some View {
@@ -172,19 +193,32 @@ private struct TabGroupIOS: View {
     }
 
     /// Book page-0 as a full-height rounded left cap (macOS round 21).
-    @ViewBuilder
+    /// Tapping the cover — the "book part" — shows the preview panel for
+    /// the book WITHOUT selecting the tab (the macOS hover panel); this is
+    /// also where the book's name lives, since the cells show sections.
     private var coverCap: some View {
-        Group {
-            if let cover {
-                Image(uiImage: cover)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                tint.opacity(0.6)
+        Button {
+            showingPreview = true
+        } label: {
+            Group {
+                if let cover {
+                    Image(uiImage: cover)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    tint.opacity(0.6)
+                }
             }
+            .frame(width: 26, height: 40)
+            .clipped()
+            .contentShape(Rectangle())
         }
-        .frame(width: 26, height: 40)
-        .clipped()
+        .buttonStyle(.plain)
+        .accessibilityLabel("Preview book")
+        .popover(isPresented: $showingPreview, attachmentAnchor: .rect(.bounds)) {
+            TabCoverPreviewIOS(path: group.path, tab: previewTab, palette: palette)
+                .presentationCompactAdaptation(.popover)
+        }
     }
 
     private func cell(for tab: TabState) -> some View {
@@ -225,23 +259,8 @@ private struct TabGroupIOS: View {
         .contentShape(Rectangle())
         .hoverEffect(.highlight)
         .onTapGesture {
-            if isActive {
-                // Tap the current tab = the macOS hover preview (the cells
-                // show sections, so this is where the book's name lives).
-                previewTabID = tab.id
-            } else {
-                model.activate(tab.id)
-            }
-        }
-        .popover(
-            isPresented: Binding(
-                get: { previewTabID == tab.id },
-                set: { if !$0 { previewTabID = nil } }
-            ),
-            attachmentAnchor: .rect(.bounds)
-        ) {
-            TabCoverPreviewIOS(path: group.path, tab: tab, palette: palette)
-                .presentationCompactAdaptation(.popover)
+            // The text cell selects; the book cover cap shows the preview.
+            model.activate(tab.id)
         }
         .contextMenu {
             Button {

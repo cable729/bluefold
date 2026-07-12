@@ -11,6 +11,8 @@ struct ReaderTopBarIOS: View {
     @Bindable var chrome: ReaderChromeModel
     let palette: DesignPalette
 
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
     var body: some View {
         HStack(spacing: 16) {
             Button {
@@ -39,6 +41,17 @@ struct ReaderTopBarIOS: View {
 
             Spacer()
 
+            // iPhone reading mode: lock the chrome visible (auto-hide off).
+            if sizeClass == .compact {
+                Button {
+                    chrome.chromeLocked.toggle()
+                } label: {
+                    Image(systemName: chrome.chromeLocked ? "lock.fill" : "lock.open")
+                }
+                .accessibilityLabel(chrome.chromeLocked ? "Unlock toolbars" : "Lock toolbars visible")
+                .hoverEffect(.highlight)
+            }
+
             if model.activeTabID != nil {
                 Button {
                     chrome.showFind()
@@ -48,17 +61,7 @@ struct ReaderTopBarIOS: View {
                 .accessibilityLabel("Find in document")
                 .hoverEffect(.highlight)
 
-                if UIDevice.current.userInterfaceIdiom == .pad {
-                    Button {
-                        model.toggleSplit()
-                    } label: {
-                        Image(systemName: model.splitTabID == nil
-                            ? "rectangle.split.2x1" : "rectangle")
-                    }
-                    .accessibilityLabel(
-                        model.splitTabID == nil ? "Split right" : "Close split")
-                    .hoverEffect(.highlight)
-                }
+                splitControl
             }
 
             Button {
@@ -84,6 +87,60 @@ struct ReaderTopBarIOS: View {
         .background(palette.chromeGradient)
         .overlay(alignment: .bottom) {
             Color(platformColor: palette.chromeBorder).frame(height: 1)
+        }
+    }
+
+    /// Split control: iPhone toggles a top/bottom split; iPad offers a
+    /// menu to split right or bottom and to re-orient / close an open one.
+    @ViewBuilder
+    private var splitControl: some View {
+        if sizeClass == .compact {
+            Button {
+                model.toggleSplit(axis: .vertical)
+            } label: {
+                Image(systemName: model.splitTabID == nil
+                    ? "rectangle.split.1x2" : "rectangle")
+            }
+            .accessibilityLabel(
+                model.splitTabID == nil ? "Split top and bottom" : "Close split")
+            .hoverEffect(.highlight)
+        } else {
+            Menu {
+                if model.splitTabID == nil {
+                    Button {
+                        model.toggleSplit(axis: .horizontal)
+                    } label: {
+                        Label("Split Right", systemImage: "rectangle.split.2x1")
+                    }
+                    Button {
+                        model.toggleSplit(axis: .vertical)
+                    } label: {
+                        Label("Split Bottom", systemImage: "rectangle.split.1x2")
+                    }
+                } else {
+                    Button {
+                        model.setSplitAxis(.horizontal)
+                    } label: {
+                        Label("Side by Side", systemImage: "rectangle.split.2x1")
+                    }
+                    Button {
+                        model.setSplitAxis(.vertical)
+                    } label: {
+                        Label("Top and Bottom", systemImage: "rectangle.split.1x2")
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        model.closeSplit()
+                    } label: {
+                        Label("Close Split", systemImage: "xmark")
+                    }
+                }
+            } label: {
+                Image(systemName: model.splitTabID == nil
+                    ? "rectangle.split.2x1" : "rectangle.split.2x1.fill")
+            }
+            .accessibilityLabel("Split")
+            .hoverEffect(.highlight)
         }
     }
 

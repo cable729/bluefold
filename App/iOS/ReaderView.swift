@@ -18,6 +18,8 @@ struct ReaderView: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var sizeClass
+    /// Primary pane's share of the split (0…1); the divider drives it.
+    @State private var splitFraction: CGFloat = 0.5
 
     private var palette: DesignPalette {
         DesignPalette.palette(for: theme.resolvedTheme)
@@ -46,14 +48,8 @@ struct ReaderView: View {
                     Divider()
                         .overlay(Color(platformColor: palette.sidebarBorder))
                 }
-                content
+                splitArea
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if let splitTab = model.splitTab,
-                   let splitDocument = model.splitDocument {
-                    Divider()
-                    splitPane(tab: splitTab, document: splitDocument)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
             }
             if !chromeHidden {
                 ReaderBottomBarIOS(model: model, theme: theme, palette: palette)
@@ -86,6 +82,30 @@ struct ReaderView: View {
             // Never carry hidden chrome across a tab switch/close — the
             // toggle affordance (tap the page) may not be obvious yet.
             chrome.chromeHidden = false
+        }
+        .onChange(of: model.splitTabID) { _, id in
+            if id != nil { splitFraction = 0.5 }
+        }
+    }
+
+    /// The reading area: primary pane alone, or primary + split laid out
+    /// along the split axis with a draggable divider.
+    @ViewBuilder
+    private var splitArea: some View {
+        if let splitTab = model.splitTab, let splitDocument = model.splitDocument {
+            SplitContainerIOS(
+                axis: model.splitAxis,
+                fraction: $splitFraction,
+                palette: palette,
+                primary: { content },
+                secondary: {
+                    pdfView(tab: splitTab, document: splitDocument, pane: .split)
+                },
+                onClosePrimary: { model.promoteSplitToPrimary() },
+                onCloseSecondary: { model.closeSplit() }
+            )
+        } else {
+            content
         }
     }
 
@@ -170,31 +190,6 @@ struct ReaderView: View {
         .onChromeGestures(pane: pane, sizeClass: sizeClass, chrome: chrome)
     }
 
-    private func splitPane(tab: TabState, document: PDFDocument) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text(title(for: tab))
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-                Spacer()
-                Button {
-                    model.closeSplit()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.caption2.weight(.semibold))
-                }
-                .accessibilityLabel("Close split")
-                .hoverEffect(.highlight)
-            }
-            .foregroundStyle(Color(platformColor: palette.ink))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(palette.chromeGradient)
-            Divider()
-            pdfView(tab: tab, document: document, pane: .split)
-        }
-    }
-
     /// Invisible trailing strip that lights up when a tab chip or sidebar
     /// section is dragged over it — drop opens the split.
     private var splitDropZone: some View {
@@ -225,6 +220,116 @@ struct ReaderView: View {
                 chrome.showingImporter = true
             }
         }
+    }
+}
+
+/// Lays out the primary and split panes along `axis` with a draggable
+/// divider. Dragging the divider to either extreme closes the pane being
+/// shrunk (the surviving tab returns to a single pane); each pane has a
+/// close affordance in its top-trailing corner.
+private struct SplitContainerIOS<Primary: View, Secondary: View>: View {
+    let axis: SplitAxis
+    @Binding var fraction: CGFloat
+    let palette: DesignPalette
+    @ViewBuilder let primary: () -> Primary
+    @ViewBuilder let secondary: () -> Secondary
+    let onClosePrimary: () -> Void
+    let onCloseSecondary: () -> Void
+
+    /// Live fraction while dragging; nil when settled.
+    @State private var dragFraction: CGFloat?
+
+    private let minFraction: CGFloat = 0.14
+    private let maxFraction: CGFloat = 0.86
+    private let grabThickness: CGFloat = 22
+
+    var body: some View {
+        GeometryReader { geo in
+            let total = axis == .vertical ? geo.size.height : geo.size.width
+            let f = min(max(dragFraction ?? fraction, minFraction), maxFraction)
+            let primaryExtent = max(0, total * f)
+            if axis == .vertical {
+                VStack(spacing: 0) {
+                    pane(primary, onClose: onClosePrimary).frame(height: primaryExtent)
+                    divider(total: total)
+                    pane(secondary, onClose: onCloseSecondary)
+                }
+            } else {
+                HStack(spacing: 0) {
+                    pane(primary, onClose: onClosePrimary).frame(width: primaryExtent)
+                    divider(total: total)
+                    pane(secondary, onClose: onCloseSecondary)
+                }
+            }
+        }
+    }
+
+    private func pane<Content: View>(
+        _ content: () -> Content, onClose: @escaping () -> Void
+    ) -> some View {
+        content()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .topTrailing) {
+                Button(action: onClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.secondary)
+                        .padding(7)
+                }
+                .accessibilityLabel("Close pane")
+                .hoverEffect(.highlight)
+            }
+            .clipped()
+    }
+
+    private func divider(total: CGFloat) -> some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(
+                width: axis == .horizontal ? grabThickness : nil,
+                height: axis == .vertical ? grabThickness : nil
+            )
+            .frame(
+                maxWidth: axis == .vertical ? .infinity : nil,
+                maxHeight: axis == .horizontal ? .infinity : nil
+            )
+            .overlay {
+                ZStack {
+                    Color(platformColor: palette.chromeBorder)
+                        .frame(
+                            width: axis == .horizontal ? 1 : nil,
+                            height: axis == .vertical ? 1 : nil
+                        )
+                    Capsule()
+                        .fill(.secondary)
+                        .frame(
+                            width: axis == .vertical ? 36 : 4,
+                            height: axis == .vertical ? 4 : 36
+                        )
+                }
+            }
+            .contentShape(Rectangle())
+            .hoverEffect(.highlight)
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        let delta = axis == .vertical
+                            ? value.translation.height : value.translation.width
+                        dragFraction = min(max(fraction + delta / max(total, 1), 0), 1)
+                    }
+                    .onEnded { _ in
+                        let end = dragFraction ?? fraction
+                        dragFraction = nil
+                        if end <= minFraction {
+                            onClosePrimary()
+                        } else if end >= maxFraction {
+                            onCloseSecondary()
+                        } else {
+                            fraction = end
+                        }
+                    }
+            )
     }
 }
 
@@ -300,12 +405,14 @@ private struct ChromeGestureBinder: UIViewRepresentable {
             guard let pdfView = Self.findPDFView(from: uiView) else { return }
             if enabled {
                 pdfView.onScrollInteraction = { [weak chrome] in
-                    if chrome?.chromeHidden == false {
-                        chrome?.chromeHidden = true
+                    guard let chrome, !chrome.chromeLocked else { return }
+                    if chrome.chromeHidden == false {
+                        chrome.chromeHidden = true
                     }
                 }
                 pdfView.onContentTap = { [weak chrome] in
-                    chrome?.chromeHidden.toggle()
+                    guard let chrome, !chrome.chromeLocked else { return }
+                    chrome.chromeHidden.toggle()
                 }
             } else {
                 pdfView.onScrollInteraction = nil

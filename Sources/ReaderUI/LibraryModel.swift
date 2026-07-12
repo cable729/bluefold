@@ -627,35 +627,19 @@ public final class LibraryModel {
         let generation = indexingGeneration
         // Snapshot: reload() replaces `items` wholesale; a stale pass keeps
         // its own list and the restart takes care of the rest.
-        let candidates = items.filter { FileAvailability.isLocal($0.fileURL) }
+        let snapshot = items
 
-        // Hashing reads only the file head, so it's cheap to do up front.
-        let work = candidates.map { item in
-            (
-                item: item,
-                hash: try? ContentHash.compute(for: item.fileURL),
-                size: (try? item.fileURL.resourceValues(forKeys: [.fileSizeKey]))?
-                    .fileSize ?? 0
-            )
-        }
-        var alreadyIndexed: [(item: LibraryItem, hash: String?, size: Int)] = []
-        var pending: [(item: LibraryItem, hash: String?, size: Int)] = []
-        for entry in work {
-            let isIndexed =
-                entry.hash.flatMap {
-                    try? indexStore.isIndexed(
-                        contentHash: $0,
-                        extractorVersion: IndexingService.extractorVersion
-                    )
-                } ?? false
-            if isIndexed {
-                alreadyIndexed.append(entry)
-            } else {
-                pending.append(entry)
-            }
-        }
-        pending.sort { $0.size < $1.size }
-        let ordered = alreadyIndexed + pending
+        // Preparing candidates touches disk for EVERY book — a local-file
+        // stat, a 128 KiB read + SHA-256 content hash, and an `isIndexed`
+        // lookup. This method is @MainActor (the whole class is), so doing
+        // that inline froze the UI for seconds when the library opened
+        // against a large iCloud Calibre folder. Run it in a detached task;
+        // the per-book indexing loop below stays here but yields on every
+        // `await`, so the main actor is free between books.
+        let ordered = await Task.detached(priority: .utility) {
+            Self.prepareIndexingCandidates(items: snapshot, indexStore: indexStore)
+        }.value
+        if Task.isCancelled { return }
 
         indexingProgress = (done: 0, total: ordered.count)
         defer {
@@ -670,9 +654,9 @@ public final class LibraryModel {
             if let hash = entry.hash {
                 do {
                     _ = try await indexingService.indexDocument(
-                        at: entry.item.fileURL, contentHash: hash
+                        at: entry.fileURL, contentHash: hash
                     )
-                    contentHashByItemID[entry.item.id] = hash
+                    contentHashByItemID[entry.itemID] = hash
                 } catch is CancellationError {
                     // Superseded mid-book: stop here; the replacement pass
                     // owns the progress display now.
@@ -687,6 +671,46 @@ public final class LibraryModel {
                 indexingProgress = (done: done, total: ordered.count)
             }
         }
+    }
+
+    /// One prepared indexing candidate: file, item id, precomputed hash.
+    private struct IndexCandidate: Sendable {
+        let itemID: String
+        let fileURL: URL
+        let hash: String?
+    }
+
+    /// Off-main preparation for an indexing pass: filters to local files,
+    /// hashes each (128 KiB read + SHA-256), checks which are already
+    /// indexed, and orders them already-indexed-first (each a single
+    /// lookup, so progress ticks past them immediately) then
+    /// smallest-pending-first (a giant scanned textbook whose OCR runs for
+    /// an hour can't pin the counter at zero ahead of quick wins).
+    /// `nonisolated` + Sendable in/out so it runs in a detached task.
+    private nonisolated static func prepareIndexingCandidates(
+        items: [LibraryItem], indexStore: IndexStore
+    ) -> [IndexCandidate] {
+        let local = items.filter { FileAvailability.isLocal($0.fileURL) }
+        let work = local.map { item -> (candidate: IndexCandidate, size: Int, indexed: Bool) in
+            let hash = try? ContentHash.compute(for: item.fileURL)
+            let size = (try? item.fileURL.resourceValues(forKeys: [.fileSizeKey]))?
+                .fileSize ?? 0
+            let indexed = hash.flatMap {
+                try? indexStore.isIndexed(
+                    contentHash: $0,
+                    extractorVersion: IndexingService.extractorVersion
+                )
+            } ?? false
+            return (
+                IndexCandidate(itemID: item.id, fileURL: item.fileURL, hash: hash),
+                size, indexed
+            )
+        }
+        let alreadyIndexed = work.filter { $0.indexed }.map { $0.candidate }
+        let pending = work.filter { !$0.indexed }
+            .sorted { $0.size < $1.size }
+            .map { $0.candidate }
+        return alreadyIndexed + pending
     }
 
     /// Full-text matches for the current search text, mapped back to library
