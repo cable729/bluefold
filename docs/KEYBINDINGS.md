@@ -53,6 +53,7 @@ Conventions borrowed from VS Code (palettes, quick-open), Safari/Chrome
 | ⌥⌘1 / ⌥⌘2 / ⌥⌘3 / ⌥⌘4 | Single Page / Continuous Scroll / Two Pages / Two Pages Continuous | Moved from plain ⌘digits, which now switch tabs (browser convention won). |
 | ⌘\ | Split Right (toggle) | VS Code convention. No split → duplicates the active tab into a right split; any split open → closes it. |
 | — | Split Left / Close Split | Menu (checkmarked by side), tab context menu, or command palette. Dragging a tab over a window's PDF area also drops into a left/right split. |
+| — | Split Down / Toggle Split Orientation | Split Down stacks the panes top/bottom (primary on top); the toggle flips an open split between side-by-side and top/bottom in place. Menu, tab context menu (Split Down), or command palette. |
 | — | Fit Width / Fit Height | Bottom bar or command palette. |
 | — | Light / Dark / Sepia theme | Menu (checkmarked), bottom bar, or command palette. |
 
@@ -178,6 +179,7 @@ entries claiming the same chord, the alphabetically-first command id wins.
 | `view.layout.singlePage` / `.continuous` / `.twoUp` / `.twoUpContinuous` | Page layouts (`opt+cmd+1`…`opt+cmd+4`) |
 | `view.splitRight` | Split Right — toggle (`cmd+\`) |
 | `view.splitLeft` / `view.closeSplit` | Split Left / Close Split (unbound) |
+| `view.splitDown` / `view.splitOrientationToggle` | Split Down / Toggle Split Orientation (unbound) |
 | `view.fitWidth` / `view.fitHeight` | Fit Width / Height (unbound) |
 | `view.theme.light` / `.dark` / `.sepia` / `.auto` | Themes (unbound) |
 | `search.find` | Find in Document (`cmd+f`) |

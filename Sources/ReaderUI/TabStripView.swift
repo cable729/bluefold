@@ -39,6 +39,8 @@ struct TabStripActions {
     var closeToLeft: (UUID) -> Void = { _ in }
     var closeToRight: (UUID) -> Void = { _ in }
     var openInSplit: (UUID, SplitSide) -> Void = { _, _ in }
+    /// Opens the tab in a top/bottom (vertical) split.
+    var openInSplitDown: (UUID) -> Void = { _ in }
     var closeSplit: () -> Void = {}
     /// Sends a split-strip tab back to the primary strip (and vice versa).
     var moveToOtherPane: (UUID) -> Void = { _ in }
@@ -882,6 +884,13 @@ final class TabStripNSView: NSView {
                 self?.actions.openInSplit(tabID, .leading)
             }
             splitLeft.isEnabled = items.count > 1
+            let splitDown = menu.addItem(
+                withTitle: "Split Down", action: nil, keyEquivalent: ""
+            )
+            splitDown.setHandler { [weak self] in
+                self?.actions.openInSplitDown(tabID)
+            }
+            splitDown.isEnabled = items.count > 1
         }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Close Tab", action: nil, keyEquivalent: "")

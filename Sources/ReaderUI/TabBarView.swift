@@ -115,6 +115,7 @@ private struct TabStripRepresentable: NSViewRepresentable {
             closeToLeft: { model.closeTabsToLeft(of: $0) },
             closeToRight: { model.closeTabsToRight(of: $0) },
             openInSplit: { model.openInSplit(tabID: $0, side: $1) },
+            openInSplitDown: { model.openInSplit(tabID: $0, axis: .vertical) },
             closeSplit: { model.closeSplit() },
             moveToOtherPane: { [pane] tabID in
                 model.moveTab(id: tabID, toPane: pane == .split ? .primary : .split)

@@ -224,6 +224,136 @@ struct SplitViewTests {
         #expect(model.splitTabID == nil)
     }
 
+    // MARK: - Split axis (top/bottom vs side-by-side)
+
+    @Test func splitAxisDefaultsToHorizontal() {
+        let model = makeModel()
+        let a = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        _ = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/b.pdf"))
+        #expect(model.splitAxis == .horizontal, "default before any split")
+
+        model.openInSplit(tabID: a)
+        #expect(model.splitAxis == .horizontal, "a plain split stays side-by-side")
+    }
+
+    @Test func openingAVerticalSplitSetsTheAxis() {
+        let model = makeModel()
+        let a = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        _ = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/b.pdf"))
+
+        model.openInSplit(tabID: a, axis: .vertical)
+        #expect(model.splitTabID == a)
+        #expect(model.splitAxis == .vertical)
+    }
+
+    @Test func duplicateIntoVerticalSplitSetsTheAxis() {
+        let model = makeModel()
+        _ = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+
+        let copy = model.duplicateActiveTabIntoSplit(axis: .vertical)
+        #expect(copy != nil)
+        #expect(model.splitAxis == .vertical)
+    }
+
+    @Test func setSplitAxisReorientsAnOpenSplit() {
+        let model = makeModel()
+        let a = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        _ = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/b.pdf"))
+        model.openInSplit(tabID: a)
+        #expect(model.splitAxis == .horizontal)
+
+        model.setSplitAxis(.vertical)
+        #expect(model.splitAxis == .vertical)
+        model.setSplitAxis(.horizontal)
+        #expect(model.splitAxis == .horizontal)
+    }
+
+    @Test func setSplitAxisIsANoOpWithoutASplit() {
+        let model = makeModel()
+        _ = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        model.setSplitAxis(.vertical)
+        #expect(model.splitAxis == .horizontal, "no split to re-orient")
+    }
+
+    @Test func splitAxisSurvivesSnapshotRoundTrip() throws {
+        let model = makeModel()
+        let a = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        _ = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/b.pdf"))
+        model.openInSplit(tabID: a, axis: .vertical)
+
+        let data = try SessionCodec.encode(SessionSnapshot(windows: [model.stateSnapshot]))
+        let decoded = try SessionCodec.decode(data)
+        let restored = ReaderWindowModel(
+            windowID: model.windowID,
+            restoring: decoded.windows[0],
+            store: nil
+        )
+        #expect(restored.splitTabID == a)
+        #expect(restored.splitAxis == .vertical)
+    }
+
+    @Test func snapshotOmitsAxisWhenNotSplit() {
+        let model = makeModel()
+        _ = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        #expect(model.stateSnapshot.splitAxis == nil)
+    }
+
+    @Test func filesWithSplitButNoAxisDecodeAndDefaultToHorizontal() throws {
+        // Session files written between sided splits and vertical splits
+        // carry splitTabID/splitSide but no splitAxis: they must keep
+        // decoding and restore as a side-by-side (horizontal) split.
+        let model = makeModel()
+        let a = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        _ = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/b.pdf"))
+        model.openInSplit(tabID: a, axis: .vertical)
+
+        var state = model.stateSnapshot
+        state.splitAxis = nil // as an older writer would have produced
+        let data = try SessionCodec.encode(SessionSnapshot(windows: [state]))
+        #expect(!String(decoding: data, as: UTF8.self).contains("splitAxis"))
+
+        let decoded = try SessionCodec.decode(data)
+        let restored = ReaderWindowModel(
+            windowID: model.windowID,
+            restoring: decoded.windows[0],
+            store: nil
+        )
+        #expect(restored.splitTabID == a)
+        #expect(restored.splitAxis == .horizontal)
+    }
+
+    @Test func splitDownAndOrientationToggleThroughTheTable() {
+        let model = makeModel()
+        _ = model.openTab(fileURL: URL(fileURLWithPath: "/tmp/a.pdf"))
+        let context = CommandContext(model: model)
+        let down = CommandRegistry.command(id: "view.splitDown")
+        let right = CommandRegistry.command(id: "view.splitRight")
+        let toggle = CommandRegistry.command(id: "view.splitOrientationToggle")
+
+        #expect(down?.chords.isEmpty == true, "Split Down is unbound")
+        #expect(toggle?.chords.isEmpty == true, "orientation toggle is unbound")
+        #expect(toggle?.isAvailable(context) == false, "nothing to re-orient")
+
+        // No split: Split Down duplicates the active tab into a vertical split.
+        down?.run(context)
+        #expect(model.splitTabID != nil)
+        #expect(model.splitAxis == .vertical)
+        #expect(model.tabs.count == 2)
+        #expect(down?.isOn?(context) == true)
+        #expect(right?.isOn?(context) == false, "a vertical split is not Split Right")
+        #expect(toggle?.isAvailable(context) == true)
+
+        // Toggle flips it to horizontal in place (no tab moves).
+        toggle?.run(context)
+        #expect(model.splitAxis == .horizontal)
+        #expect(model.tabs.count == 2)
+        #expect(down?.isOn?(context) == false)
+
+        // Split Down again, with a split open, closes it.
+        down?.run(context)
+        #expect(model.splitTabID == nil)
+    }
+
     // MARK: - Cross-window move-then-split
 
     private func makeCoordinator() -> SessionCoordinator {
