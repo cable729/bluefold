@@ -1,0 +1,354 @@
+{
+  "foldblue": {
+    "name": "Foldblue",
+    "isDark": false,
+    "pageFilter": "multiply #F1E3CC",
+    "colors": {
+      "chromeTop": "#EADFC8",
+      "chromeBottom": "#E0D2B6",
+      "chromeBorder": "#D3C0A0",
+      "stripBackground": "#E6DAC1",
+      "ink": "#14385F",
+      "contentBackground": "#F1E3CC",
+      "sidebarBackground": "#EADFC8",
+      "sidebarBorder": "#D3C0A0",
+      "textPrimary": "#33291B",
+      "textSecondary": "#5A4A34",
+      "textMuted": "#A5906E",
+      "accent": "#1E6FDA",
+      "accentSoft": {
+        "hex": "#1E6FDA",
+        "alpha": 0.15
+      },
+      "linkBox": "#1E6FDA",
+      "activeCellFill": {
+        "hex": "#5A3C1E",
+        "alpha": 0.18
+      },
+      "lozengeDivider": {
+        "hex": "#5A3C1E",
+        "alpha": 0.22
+      }
+    }
+  },
+  "light": {
+    "name": "Light",
+    "isDark": false,
+    "pageFilter": "none",
+    "colors": {
+      "chromeTop": "#F2EBE2",
+      "chromeBottom": "#E8E0D5",
+      "chromeBorder": "#D9D0C4",
+      "stripBackground": "#EDE6DC",
+      "ink": "#0E2849",
+      "contentBackground": "#FEFEFD",
+      "sidebarBackground": "#F2EBE2",
+      "sidebarBorder": "#E2D9CD",
+      "textPrimary": "#2A2620",
+      "textSecondary": "#4A4034",
+      "textMuted": "#A89A86",
+      "accent": "#1E6FDA",
+      "accentSoft": {
+        "hex": "#1E6FDA",
+        "alpha": 0.13
+      },
+      "linkBox": "#1E6FDA",
+      "activeCellFill": {
+        "hex": "#0E2849",
+        "alpha": 0.14
+      },
+      "lozengeDivider": {
+        "hex": "#0E2849",
+        "alpha": 0.14
+      }
+    }
+  },
+  "sepia": {
+    "name": "Sepia",
+    "isDark": false,
+    "pageFilter": "multiply #F5EDE1",
+    "colors": {
+      "chromeTop": "#EEE1CE",
+      "chromeBottom": "#E5D6BD",
+      "chromeBorder": "#DBC9AC",
+      "stripBackground": "#EBDDC8",
+      "ink": "#4A3A24",
+      "contentBackground": "#F5EDE1",
+      "sidebarBackground": "#EEE1CE",
+      "sidebarBorder": "#DBC9AC",
+      "textPrimary": "#3A2F24",
+      "textSecondary": "#4A3A24",
+      "textMuted": "#A08A6A",
+      "accent": "#1E6FDA",
+      "accentSoft": {
+        "hex": "#1E6FDA",
+        "alpha": 0.15
+      },
+      "linkBox": "#1E6FDA",
+      "activeCellFill": {
+        "hex": "#5A3C1E",
+        "alpha": 0.2
+      },
+      "lozengeDivider": {
+        "hex": "#5A3C1E",
+        "alpha": 0.24
+      }
+    }
+  },
+  "solarizedLight": {
+    "name": "Solarized Light",
+    "isDark": false,
+    "pageFilter": "multiply #FDF6E3",
+    "colors": {
+      "chromeTop": "#EEE8D5",
+      "chromeBottom": "#E3DCC4",
+      "chromeBorder": "#D5CDB4",
+      "stripBackground": "#E9E2CE",
+      "ink": "#586E75",
+      "contentBackground": "#FDF6E3",
+      "sidebarBackground": "#EEE8D5",
+      "sidebarBorder": "#D5CDB4",
+      "textPrimary": "#073642",
+      "textSecondary": "#586E75",
+      "textMuted": "#93A1A1",
+      "accent": "#268BD2",
+      "accentSoft": {
+        "hex": "#268BD2",
+        "alpha": 0.15
+      },
+      "linkBox": "#268BD2",
+      "activeCellFill": {
+        "hex": "#586E75",
+        "alpha": 0.16
+      },
+      "lozengeDivider": {
+        "hex": "#586E75",
+        "alpha": 0.18
+      }
+    }
+  },
+  "gruvboxLight": {
+    "name": "Gruvbox Light",
+    "isDark": false,
+    "pageFilter": "multiply #FBF1C7",
+    "colors": {
+      "chromeTop": "#EBDBB2",
+      "chromeBottom": "#E3D3A7",
+      "chromeBorder": "#D5C4A1",
+      "stripBackground": "#E8D8AE",
+      "ink": "#3C3836",
+      "contentBackground": "#FBF1C7",
+      "sidebarBackground": "#EBDBB2",
+      "sidebarBorder": "#D5C4A1",
+      "textPrimary": "#3C3836",
+      "textSecondary": "#504945",
+      "textMuted": "#928374",
+      "accent": "#076678",
+      "accentSoft": {
+        "hex": "#076678",
+        "alpha": 0.14
+      },
+      "linkBox": "#076678",
+      "activeCellFill": {
+        "hex": "#504945",
+        "alpha": 0.16
+      },
+      "lozengeDivider": {
+        "hex": "#504945",
+        "alpha": 0.18
+      }
+    }
+  },
+  "bluefold": {
+    "name": "Bluefold",
+    "isDark": true,
+    "pageFilter": "invertTinted #0E2849",
+    "colors": {
+      "chromeTop": "#14294A",
+      "chromeBottom": "#0E2038",
+      "chromeBorder": "#081524",
+      "stripBackground": "#11233E",
+      "ink": "#E3DEDA",
+      "contentBackground": "#0E2849",
+      "sidebarBackground": "#11233E",
+      "sidebarBorder": "#1B3A5E",
+      "textPrimary": "#EDE9E3",
+      "textSecondary": "#CBD6E4",
+      "textMuted": "#6E86A6",
+      "accent": "#4A90F0",
+      "accentSoft": {
+        "hex": "#4A90F0",
+        "alpha": 0.24
+      },
+      "linkBox": "#D2B090",
+      "activeCellFill": {
+        "hex": "#FFFFFF",
+        "alpha": 0.13
+      },
+      "lozengeDivider": {
+        "hex": "#FFFFFF",
+        "alpha": 0.15
+      }
+    }
+  },
+  "dark": {
+    "name": "Dark",
+    "isDark": true,
+    "pageFilter": "invert",
+    "colors": {
+      "chromeTop": "#1A2C47",
+      "chromeBottom": "#132037",
+      "chromeBorder": "#0A1626",
+      "stripBackground": "#15233B",
+      "ink": "#E3DEDA",
+      "contentBackground": "#1B1A18",
+      "sidebarBackground": "#201E1B",
+      "sidebarBorder": "#2C2926",
+      "textPrimary": "#D8D2C8",
+      "textSecondary": "#CBC3B8",
+      "textMuted": "#7D7364",
+      "accent": "#7FB0F2",
+      "accentSoft": {
+        "hex": "#2E7FE5",
+        "alpha": 0.22
+      },
+      "linkBox": "#7FB0F2",
+      "activeCellFill": {
+        "hex": "#FFFFFF",
+        "alpha": 0.14
+      },
+      "lozengeDivider": {
+        "hex": "#FFFFFF",
+        "alpha": 0.16
+      }
+    }
+  },
+  "gruvbox": {
+    "name": "Gruvbox",
+    "isDark": true,
+    "pageFilter": "invertTinted #282828",
+    "colors": {
+      "chromeTop": "#3C3836",
+      "chromeBottom": "#32302F",
+      "chromeBorder": "#282828",
+      "stripBackground": "#393433",
+      "ink": "#EBDBB2",
+      "contentBackground": "#282828",
+      "sidebarBackground": "#3C3836",
+      "sidebarBorder": "#504945",
+      "textPrimary": "#EBDBB2",
+      "textSecondary": "#D5C4A1",
+      "textMuted": "#928374",
+      "accent": "#FE8019",
+      "accentSoft": {
+        "hex": "#FE8019",
+        "alpha": 0.2
+      },
+      "linkBox": "#FE8019",
+      "activeCellFill": {
+        "hex": "#FFFFFF",
+        "alpha": 0.1
+      },
+      "lozengeDivider": {
+        "hex": "#FFFFFF",
+        "alpha": 0.12
+      }
+    }
+  },
+  "solarizedDark": {
+    "name": "Solarized Dark",
+    "isDark": true,
+    "pageFilter": "invertTinted #002B36",
+    "colors": {
+      "chromeTop": "#073642",
+      "chromeBottom": "#042A34",
+      "chromeBorder": "#00212B",
+      "stripBackground": "#052E38",
+      "ink": "#93A1A1",
+      "contentBackground": "#002B36",
+      "sidebarBackground": "#073642",
+      "sidebarBorder": "#0A3D49",
+      "textPrimary": "#93A1A1",
+      "textSecondary": "#839496",
+      "textMuted": "#586E75",
+      "accent": "#268BD2",
+      "accentSoft": {
+        "hex": "#268BD2",
+        "alpha": 0.24
+      },
+      "linkBox": "#268BD2",
+      "activeCellFill": {
+        "hex": "#FFFFFF",
+        "alpha": 0.12
+      },
+      "lozengeDivider": {
+        "hex": "#FFFFFF",
+        "alpha": 0.14
+      }
+    }
+  },
+  "dracula": {
+    "name": "Dracula",
+    "isDark": true,
+    "pageFilter": "invertTinted #282A36",
+    "colors": {
+      "chromeTop": "#44475A",
+      "chromeBottom": "#383A4A",
+      "chromeBorder": "#282A36",
+      "stripBackground": "#3E4152",
+      "ink": "#F8F8F2",
+      "contentBackground": "#282A36",
+      "sidebarBackground": "#343746",
+      "sidebarBorder": "#44475A",
+      "textPrimary": "#F8F8F2",
+      "textSecondary": "#E0E0DC",
+      "textMuted": "#7A85B0",
+      "accent": "#BD93F9",
+      "accentSoft": {
+        "hex": "#BD93F9",
+        "alpha": 0.24
+      },
+      "linkBox": "#BD93F9",
+      "activeCellFill": {
+        "hex": "#FFFFFF",
+        "alpha": 0.12
+      },
+      "lozengeDivider": {
+        "hex": "#FFFFFF",
+        "alpha": 0.14
+      }
+    }
+  },
+  "nord": {
+    "name": "Nord",
+    "isDark": true,
+    "pageFilter": "invertTinted #2E3440",
+    "colors": {
+      "chromeTop": "#3B4252",
+      "chromeBottom": "#333A48",
+      "chromeBorder": "#2B303B",
+      "stripBackground": "#373E4C",
+      "ink": "#D8DEE9",
+      "contentBackground": "#2E3440",
+      "sidebarBackground": "#3B4252",
+      "sidebarBorder": "#434C5E",
+      "textPrimary": "#ECEFF4",
+      "textSecondary": "#D8DEE9",
+      "textMuted": "#7B8494",
+      "accent": "#88C0D0",
+      "accentSoft": {
+        "hex": "#88C0D0",
+        "alpha": 0.22
+      },
+      "linkBox": "#88C0D0",
+      "activeCellFill": {
+        "hex": "#FFFFFF",
+        "alpha": 0.12
+      },
+      "lozengeDivider": {
+        "hex": "#FFFFFF",
+        "alpha": 0.14
+      }
+    }
+  }
+}

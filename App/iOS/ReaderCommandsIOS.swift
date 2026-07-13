@@ -185,15 +185,23 @@ struct ReaderCommandsIOS: Commands {
 
     @ViewBuilder
     private var themePicker: some View {
-        ForEach(AppTheme.allCases, id: \.self) { option in
-            Button {
-                theme.current = option
-            } label: {
-                if theme.current == option {
-                    Label(ThemeStore.label(for: option), systemImage: "checkmark")
-                } else {
-                    Text(ThemeStore.label(for: option))
-                }
+        themeButton(.auto)
+        Section("Light") {
+            ForEach(AppTheme.lightFamily, id: \.self, content: themeButton)
+        }
+        Section("Dark") {
+            ForEach(AppTheme.darkFamily, id: \.self, content: themeButton)
+        }
+    }
+
+    private func themeButton(_ option: AppTheme) -> some View {
+        Button {
+            theme.current = option
+        } label: {
+            if theme.current == option {
+                Label(ThemeStore.label(for: option), systemImage: "checkmark")
+            } else {
+                Text(ThemeStore.label(for: option))
             }
         }
     }

@@ -100,12 +100,68 @@ struct ThemingTests {
             cleanup()
             PageFilterStore.current = .none
         }
-        PageFilterStore.current = .warmPaper
+        PageFilterStore.current = AppTheme.sepia.pageRenderFilter
         let color = meanColor(of: page)
         // The Claude-tan paper: warm, red > green > blue, still light.
         #expect(abs(color.red - 0.961) < 0.05)
         #expect(abs(color.blue - 0.882) < 0.05)
         #expect(color.red > color.blue)
+    }
+
+    @Test func solarizedLightWarmsWhiteToCream() throws {
+        let (page, cleanup) = try loadThemedPage()
+        defer {
+            cleanup()
+            PageFilterStore.current = .none
+        }
+        PageFilterStore.current = AppTheme.solarizedLight.pageRenderFilter
+        let color = meanColor(of: page)
+        // base3 #FDF6E3: light warm cream, red > green > blue.
+        #expect(color.red > 0.95 && color.blue > 0.85)
+        #expect(color.red > color.green && color.green > color.blue)
+    }
+
+    @Test func foldblueWarmsWhiteToBrownPaper() throws {
+        let (page, cleanup) = try loadThemedPage()
+        defer {
+            cleanup()
+            PageFilterStore.current = .none
+        }
+        PageFilterStore.current = AppTheme.foldblue.pageRenderFilter
+        let color = meanColor(of: page)
+        // #F1E3CC: warm aussie-brown paper — browner than sepia (lower blue),
+        // still a light readable surface, red > green > blue.
+        #expect(color.red > 0.9 && color.blue > 0.75)
+        #expect(color.red > color.green && color.green > color.blue)
+        #expect(color.blue < 0.85, "browner than sepia's #F5EDE1 (blue ~0.88)")
+    }
+
+    /// invertTinted turns a white page into the theme's dark paper: low luma,
+    /// with the tint's hue preserved. Spot-checks the three families.
+    @Test func invertTintedProducesDarkTintedPaper() throws {
+        let (page, cleanup) = try loadThemedPage()
+        defer {
+            cleanup()
+            PageFilterStore.current = .none
+        }
+
+        // Solarized Dark #002B36 — deep teal: blue ≳ green ≫ red≈0, dark.
+        PageFilterStore.current = AppTheme.solarizedDark.pageRenderFilter
+        var color = meanColor(of: page)
+        #expect(color.red < 0.15 && color.green < 0.3 && color.blue < 0.35)
+        #expect(color.blue > color.red && color.green > color.red)
+
+        // Nord #2E3440 — cool slate: blue > green > red, still dark.
+        PageFilterStore.current = AppTheme.nord.pageRenderFilter
+        color = meanColor(of: page)
+        #expect(color.red < 0.3 && color.green < 0.3 && color.blue < 0.35)
+        #expect(color.blue > color.red)
+
+        // Bluefold #0E2849 — brand navy: blue clearly the strongest channel.
+        PageFilterStore.current = AppTheme.bluefold.pageRenderFilter
+        color = meanColor(of: page)
+        #expect(color.blue < 0.4 && color.red < 0.2)
+        #expect(color.blue > color.green && color.green > color.red)
     }
 }
 
@@ -114,13 +170,18 @@ struct ThemingTests {
 @Suite("Theme manager", .serialized)
 @MainActor
 struct ThemeManagerTests {
-    /// Fresh manager with the persisted key and page filter cleared afterwards.
+    private static let themeKeys = [
+        "BluefoldTheme", "BluefoldLastLightTheme", "BluefoldLastDarkTheme",
+    ]
+
+    /// Fresh manager with the persisted keys and page filter cleared afterwards.
     private func withManager(_ body: (ThemeManager) throws -> Void) rethrows {
+        func clear() { Self.themeKeys.forEach(UserDefaults.standard.removeObject) }
         defer {
-            UserDefaults.standard.removeObject(forKey: "BluefoldTheme")
+            clear()
             PageFilterStore.current = .none
         }
-        UserDefaults.standard.removeObject(forKey: "BluefoldTheme")
+        clear()
         try body(ThemeManager())
     }
 
@@ -137,12 +198,44 @@ struct ThemeManagerTests {
         }
     }
 
+    /// `.auto` follows the last light-family and dark-family picks: choose
+    /// Sepia (light) then Nord (dark), switch to Auto, and day shows Sepia
+    /// while night shows Nord — not the plain light/dark defaults.
+    @Test func autoRemembersLastLightAndDarkPicks() {
+        withManager { manager in
+            manager.current = .sepia
+            manager.current = .nord
+            #expect(manager.lastLightTheme == .sepia)
+            #expect(manager.lastDarkTheme == .nord)
+
+            manager.current = .auto
+            manager.overrideSystemAppearance(isDark: false)
+            #expect(manager.resolvedTheme == .sepia)
+            #expect(PageFilterStore.current == AppTheme.sepia.pageRenderFilter)
+
+            manager.overrideSystemAppearance(isDark: true)
+            #expect(manager.resolvedTheme == .nord)
+            #expect(PageFilterStore.current == AppTheme.nord.pageRenderFilter)
+        }
+    }
+
+    /// The remembered picks persist across manager instances (relaunch).
+    @Test func rememberedPicksPersistAcrossInstances() {
+        withManager { _ in
+            ThemeManager().current = .foldblue
+            ThemeManager().current = .dracula
+            let fresh = ThemeManager()
+            #expect(fresh.lastLightTheme == .foldblue)
+            #expect(fresh.lastDarkTheme == .dracula)
+        }
+    }
+
     @Test func concreteThemeIgnoresSystemFlips() {
         withManager { manager in
             manager.current = .sepia
             manager.overrideSystemAppearance(isDark: true)
             #expect(manager.resolvedTheme == .sepia)
-            #expect(PageFilterStore.current == .warmPaper)
+            #expect(PageFilterStore.current == AppTheme.sepia.pageRenderFilter)
         }
     }
 
@@ -235,6 +328,79 @@ struct ThemeManagerTests {
             app.appearance = NSAppearance(named: .aqua)
             #expect(manager.systemIsDark == false)
         }
+    }
+}
+
+/// Recoloring the PDF's own hyperref link boxes to the theme secondary.
+@Suite("Link box colorizer")
+@MainActor
+struct LinkBoxColorizerTests {
+    /// A one-page document with one bordered Link annotation (red) and one
+    /// borderless Link annotation.
+    private func makeDocument() -> (PDFDocument, bordered: PDFAnnotation, borderless: PDFAnnotation) {
+        let page = PDFPage()
+
+        let bordered = PDFAnnotation(
+            bounds: CGRect(x: 10, y: 10, width: 60, height: 16),
+            forType: .link, withProperties: nil
+        )
+        let border = PDFBorder()
+        border.lineWidth = 1
+        bordered.border = border
+        bordered.color = .red
+        page.addAnnotation(bordered)
+
+        let borderless = PDFAnnotation(
+            bounds: CGRect(x: 10, y: 40, width: 60, height: 16),
+            forType: .link, withProperties: nil
+        )
+        borderless.color = .red
+        page.addAnnotation(borderless)
+
+        let document = PDFDocument()
+        document.insert(page, at: 0)
+        return (document, bordered, borderless)
+    }
+
+    private func rgb(_ color: NSColor?) -> (r: CGFloat, g: CGFloat, b: CGFloat) {
+        let c = color?.usingColorSpace(.sRGB) ?? .clear
+        return (c.redComponent, c.greenComponent, c.blueComponent)
+    }
+
+    @Test func recolorsBorderedLinksToThemeHighlight() {
+        let (document, bordered, _) = makeDocument()
+        LinkBoxColorizer.apply(DesignPalette.dracula.linkBox, to: document)
+        // Dracula's highlight is its purple accent #BD93F9 — blue highest,
+        // red mid, green lowest.
+        let (r, g, b) = rgb(bordered.color)
+        #expect(b > 0.9 && r > 0.6 && g < r && g < b)
+    }
+
+    @Test func leavesBorderlessLinksUntouched() {
+        let (document, _, borderless) = makeDocument()
+        LinkBoxColorizer.apply(DesignPalette.dracula.linkBox, to: document)
+        // Still the original red (no border → not an author-drawn box).
+        let (r, g, b) = rgb(borderless.color)
+        #expect(r > 0.9 && g < 0.2 && b < 0.2)
+    }
+
+    /// The per-color marker makes a repeat apply a no-op, so a plain tab
+    /// switch (same theme) never re-walks — but a new color does re-apply.
+    @Test func idempotentPerColorButReappliesOnChange() {
+        let (document, bordered, _) = makeDocument()
+        LinkBoxColorizer.apply(DesignPalette.bluefold.linkBox, to: document)
+
+        // Same color again is a no-op: our out-of-band change survives.
+        bordered.color = .green
+        LinkBoxColorizer.apply(DesignPalette.bluefold.linkBox, to: document)
+        let (r, g, b) = rgb(bordered.color)
+        #expect(g > 0.9 && r < 0.2 && b < 0.2)
+
+        // A different theme color re-walks and recolors (Nord frost #88C0D0:
+        // its accent/highlight — blue ≈ green, both above red).
+        LinkBoxColorizer.apply(DesignPalette.nord.linkBox, to: document)
+        let (r2, g2, b2) = rgb(bordered.color)
+        #expect(b2 > 0.7 && g2 > 0.6 && r2 < g2, "recolored to Nord frost #88C0D0")
     }
 }
 #endif

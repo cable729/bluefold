@@ -32,6 +32,7 @@ import Testing
     @Test func themePageFilters() {
         #expect(AppTheme.light.pageRenderFilter == .none)
         #expect(AppTheme.dark.pageRenderFilter == .invert)
-        #expect(AppTheme.sepia.pageRenderFilter == .warmPaper)
+        #expect(AppTheme.sepia.pageRenderFilter == .multiply(PageTint(hex: 0xF5EDE1)))
+        #expect(AppTheme.bluefold.pageRenderFilter == .invertTinted(PageTint(hex: 0x0E2849)))
     }
 }

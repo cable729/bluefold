@@ -30,12 +30,27 @@ public final class ThemeManager {
     public static let shared = ThemeManager()
 
     private static let defaultsKey = "BluefoldTheme"
+    private static let lastLightKey = "BluefoldLastLightTheme"
+    private static let lastDarkKey = "BluefoldLastDarkTheme"
 
     public var current: AppTheme {
         didSet {
             UserDefaults.standard.set(current.rawValue, forKey: Self.defaultsKey)
+            rememberFamilyChoice(current)
             applyResolvedTheme()
         }
+    }
+
+    /// The last concrete LIGHT- and DARK-family themes the user picked. `.auto`
+    /// resolves to these (light one by day, dark one by night) instead of the
+    /// plain `.light`/`.dark` defaults — so choosing Sepia then Nord then Auto
+    /// gives Sepia days and Nord nights. Persisted; seeded from the two
+    /// built-in defaults on first run.
+    public private(set) var lastLightTheme: AppTheme {
+        didSet { UserDefaults.standard.set(lastLightTheme.rawValue, forKey: Self.lastLightKey) }
+    }
+    public private(set) var lastDarkTheme: AppTheme {
+        didSet { UserDefaults.standard.set(lastDarkTheme.rawValue, forKey: Self.lastDarkKey) }
     }
 
     /// Whether the SYSTEM appearance is dark — tracked independently of any
@@ -44,11 +59,25 @@ public final class ThemeManager {
         didSet { applyResolvedTheme() }
     }
 
-    /// `current` with `.auto` resolved against the live system appearance.
-    /// Everything that renders (page filter, PDF background, chrome tint,
-    /// the `.id()` keying that rebuilds PDFViews) keys off this.
+    /// `current` with `.auto` resolved against the live system appearance and
+    /// the remembered per-family choices. Everything that renders (page
+    /// filter, PDF background, chrome tint, the `.id()` keying that rebuilds
+    /// PDFViews) keys off this.
     public var resolvedTheme: AppTheme {
-        current.resolved(systemIsDark: systemIsDark)
+        current.resolved(
+            systemIsDark: systemIsDark, lastLight: lastLightTheme, lastDark: lastDarkTheme
+        )
+    }
+
+    /// Records a concrete pick as its family's remembered theme (so `.auto`
+    /// tracks it). `.auto` itself is not a family choice.
+    private func rememberFamilyChoice(_ theme: AppTheme) {
+        guard theme != .auto else { return }
+        if theme.isDark {
+            if lastDarkTheme != theme { lastDarkTheme = theme }
+        } else if lastLightTheme != theme {
+            lastLightTheme = theme
+        }
     }
 
     /// Windows whose chrome this manager tints (reader + library).
@@ -61,10 +90,22 @@ public final class ThemeManager {
     @ObservationIgnored private var systemAppearanceObservation: NSKeyValueObservation?
 
     public init() {
-        let stored = UserDefaults.standard.string(forKey: Self.defaultsKey)
-        current = stored.flatMap(AppTheme.init(rawValue:)) ?? .light
+        let defaults = UserDefaults.standard
+        let stored = defaults.string(forKey: Self.defaultsKey)
+        let initial = stored.flatMap(AppTheme.init(rawValue:)) ?? .light
+        current = initial
+        // Remembered per-family choices; fall back to the built-in defaults,
+        // and to the stored theme itself when it's concrete (so first-run
+        // Auto after a fresh install still follows a real prior pick).
+        let storedLight = defaults.string(forKey: Self.lastLightKey).flatMap(AppTheme.init(rawValue:))
+        let storedDark = defaults.string(forKey: Self.lastDarkKey).flatMap(AppTheme.init(rawValue:))
+        lastLightTheme = storedLight ?? (!initial.isDark && initial != .auto ? initial : .light)
+        lastDarkTheme = storedDark ?? (initial.isDark ? initial : .dark)
         systemIsDark = Self.systemAppearanceIsDark()
-        PageFilterStore.current = current.resolved(systemIsDark: systemIsDark).pageRenderFilter
+        PageFilterStore.current = initial.resolved(
+            systemIsDark: Self.systemAppearanceIsDark(),
+            lastLight: lastLightTheme, lastDark: lastDarkTheme
+        ).pageRenderFilter
 
         // System light/dark flip. We never force NSApp.appearance (only
         // per-window), so NSApp.effectiveAppearance keeps tracking the
@@ -89,6 +130,12 @@ public final class ThemeManager {
     /// background, so the letterbox reads as the page's paper mat).
     public var pdfBackground: NSColor {
         DesignPalette.palette(for: resolvedTheme).contentBackground
+    }
+
+    /// Secondary color for the current theme — recolors the PDF's own link
+    /// boxes (see `LinkBoxColorizer`).
+    public var linkBox: NSColor {
+        DesignPalette.palette(for: resolvedTheme).linkBox
     }
 
     /// Starts tinting `window`'s chrome with the theme (weakly held).
@@ -126,11 +173,9 @@ public final class ThemeManager {
     /// The `window.appearance` the theme demands — nil for `.auto`, which
     /// inherits so the window follows system flips on its own.
     private var forcedAppearanceName: NSAppearance.Name? {
-        switch current {
-        case .auto: nil
-        case .light, .sepia: .aqua
-        case .dark: .darkAqua
-        }
+        // `.auto` inherits the system appearance; every concrete theme forces
+        // its family's chrome (light-family → aqua, dark-family → darkAqua).
+        current == .auto ? nil : (current.isDark ? .darkAqua : .aqua)
     }
 
     /// KVO target: restores chrome when something else (SwiftUI scene

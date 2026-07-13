@@ -19,6 +19,13 @@ import SearchIndexKit
 @MainActor
 public protocol ActivePDFControlling: AnyObject {
     var liveNavEntry: NavEntry? { get }
+    /// The live view's current auto-scale ("fit") state — read when a
+    /// replacement view (theme rebuild) restores zoom from the outgoing one.
+    var liveAutoScales: Bool { get }
+    /// The tab this controller drives — a rebuild only restores from the
+    /// outgoing controller when it's the SAME tab (theme switch), never a
+    /// different one (tab switch).
+    var controlledTabID: UUID { get }
     /// Position of the current text selection (page + top-left of its
     /// bounds), nil without one — "Copy Link to Selection".
     var selectionNavEntry: NavEntry? { get }
@@ -37,6 +44,10 @@ public protocol ActivePDFControlling: AnyObject {
 
 /// View-control hooks are optional for test fakes.
 public extension ActivePDFControlling {
+    var liveAutoScales: Bool { false }
+    /// Test fakes don't drive a real tab; a fresh id never matches a real
+    /// tab, so they simply opt out of the live-restore path.
+    var controlledTabID: UUID { UUID() }
     var selectionNavEntry: NavEntry? { nil }
     func apply(displayModeRaw: Int) {}
     func fitWidth() {}

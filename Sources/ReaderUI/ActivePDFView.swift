@@ -39,12 +39,30 @@ struct ActivePDFView: NSViewRepresentable {
         anchorProvider.isEnabled = AppSettings.shared.marginAnchorsEnabled
         view.pageOverlayViewProvider = anchorProvider
         view.document = document
+        // Recolor the PDF's own link boxes to the theme secondary before the
+        // first render. This view is `.id`'d on the theme, so it rebuilds on
+        // a theme change and re-tints; the colorizer caches per color, so a
+        // plain tab switch doesn't re-walk the document.
+        LinkBoxColorizer.apply(ThemeManager.shared.linkBox, to: document)
         view.displayMode = PDFDisplayMode(rawValue: tab.displayModeRaw) ?? .singlePageContinuous
         view.displaysPageBreaks = true
         view.backgroundColor = ThemeManager.shared.pdfBackground
-        view.autoScales = tab.autoScales
-        if !tab.autoScales {
-            view.scaleFactor = tab.scaleFactor
+        // On a theme switch the view's `.id` changes, so SwiftUI destroys and
+        // rebuilds this view — and it often builds the replacement BEFORE
+        // tearing down the outgoing one (whose teardown is what captures the
+        // live zoom/position into the tab). Restore from that outgoing view's
+        // LIVE state when it's still attached, so a theme switch preserves the
+        // exact zoom instead of snapping back to stale tab state.
+        let pane = isPrimary ? model.primaryController : model.splitController
+        // Only when the outgoing view is the SAME tab (theme rebuild), never a
+        // different tab (tab switch), whose position must NOT leak in.
+        let outgoing = pane?.controlledTabID == tab.id ? pane : nil
+        let live = outgoing?.liveNavEntry
+        let restore = live ?? tab.currentNavEntry
+        let restoreAutoScales = live != nil ? outgoing!.liveAutoScales : tab.autoScales
+        view.autoScales = restoreAutoScales
+        if !restoreAutoScales {
+            view.scaleFactor = restore.scaleFactor ?? tab.scaleFactor
         }
 
         let coordinator = context.coordinator
@@ -67,7 +85,6 @@ struct ActivePDFView: NSViewRepresentable {
             )
         }
 
-        let restore = tab.currentNavEntry
         // Defer until after the view has a size, or the point lands wrong.
         DispatchQueue.main.async { [weak view] in
             guard let view, let document = view.document else { return }
@@ -217,6 +234,12 @@ struct ActivePDFView: NSViewRepresentable {
         var liveNavEntry: NavEntry? {
             view?.currentNavEntry()
         }
+
+        var liveAutoScales: Bool {
+            view?.autoScales ?? false
+        }
+
+        var controlledTabID: UUID { tabID }
 
         var selectionNavEntry: NavEntry? {
             guard

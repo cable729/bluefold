@@ -46,8 +46,16 @@ public struct SettingsView: View {
     private var appearanceSection: some View {
         Section("Appearance") {
             Picker("Theme", selection: $theme.current) {
-                ForEach(Self.themeChoices, id: \.self) { choice in
-                    Text(Self.themeLabel(choice)).tag(choice)
+                Text("Auto (match system)").tag(AppTheme.auto)
+                Section("Light") {
+                    ForEach(AppTheme.lightFamily, id: \.self) { choice in
+                        Text(choice.displayName).tag(choice)
+                    }
+                }
+                Section("Dark") {
+                    ForEach(AppTheme.darkFamily, id: \.self) { choice in
+                        Text(choice.displayName).tag(choice)
+                    }
                 }
             }
             .pickerStyle(.menu)
@@ -59,13 +67,6 @@ public struct SettingsView: View {
         }
     }
 
-    /// Auto first (the recommended default), then the concrete themes in
-    /// their View-menu order.
-    static let themeChoices: [AppTheme] = [.auto, .light, .dark, .sepia]
-
-    static func themeLabel(_ theme: AppTheme) -> String {
-        theme == .auto ? "Auto (match system)" : theme.rawValue.capitalized
-    }
 
     // MARK: - Reading
 

@@ -557,11 +557,15 @@ final class ReaderSessionModel {
 
     /// Live scroll-anchor feed (scroll ticks): drives the breadcrumb, the
     /// sidebar follow highlight, and section stepping.
-    func notePosition(tabID: UUID, entry: NavEntry) {
+    func notePosition(tabID: UUID, entry: NavEntry, autoScales: Bool) {
         guard tabID == activeTabID,
               let index = tabs.firstIndex(where: { $0.id == tabID })
         else { return }
         livePosition = entry
+        // Keep the tab's auto-scale ("fit") state live so a theme rebuild —
+        // which may build the new view before the old one captures — restores
+        // the exact zoom instead of snapping back to a stale fit.
+        if tabs[index].autoScales != autoScales { tabs[index].autoScales = autoScales }
         let crumb = currentSectionStop?.path.joined(separator: " › ") ?? ""
         if !crumb.isEmpty, tabs[index].breadcrumb != crumb {
             tabs[index].breadcrumb = crumb

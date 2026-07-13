@@ -31,9 +31,16 @@ struct ReaderStatusBar: View {
                 Menu {
                     Picker("Theme", selection: Bindable(ThemeManager.shared).current) {
                         Text("Auto").tag(AppTheme.auto)
-                        Text("Light").tag(AppTheme.light)
-                        Text("Dark").tag(AppTheme.dark)
-                        Text("Sepia").tag(AppTheme.sepia)
+                        Section("Light") {
+                            ForEach(AppTheme.lightFamily, id: \.self) { choice in
+                                Text(choice.displayName).tag(choice)
+                            }
+                        }
+                        Section("Dark") {
+                            ForEach(AppTheme.darkFamily, id: \.self) { choice in
+                                Text(choice.displayName).tag(choice)
+                            }
+                        }
                     }
                     .pickerStyle(.inline)
                     .labelsHidden()
@@ -190,12 +197,7 @@ struct ReaderStatusBar: View {
     }
 
     private var themeName: String {
-        switch ThemeManager.shared.current {
-        case .light: "Light"
-        case .dark: "Dark"
-        case .sepia: "Sepia"
-        case .auto: "Auto"
-        }
+        ThemeManager.shared.current.displayName
     }
 
     private func syncPageField() {

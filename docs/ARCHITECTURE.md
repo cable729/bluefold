@@ -127,10 +127,28 @@ auto-register), so bookmarks/reading-state work for every PDF.
 
 `ThemeManager` (UserDefaults-persisted) + `ThemedPDFPage` installed on every
 document via `PDFDocumentDelegate.classForPage`. Page filtering is done with
-blend modes in `draw(with:to:)` — dark = difference-invert, sepia = multiply
-`#F5EDE1` — because that path works on BOTH macOS and iOS (CALayer.filters
-does not). `PageFilterStore` is a lock, not MainActor state: PDFKit draws
-tiles off-main. Theme switch rebuilds the PDFView (its `.id` includes theme).
+blend modes in `draw(with:to:)` — because that path works on BOTH macOS and
+iOS (CALayer.filters does not). The `PageRenderFilter` cases:
+`invert` (difference-blend, neutral dark), `multiply(tint)` (light-family
+reading tint — sepia `#F5EDE1`, Solarized Light `#FDF6E3`), and
+`invertTinted(tint)` (two passes — difference-invert, then screen the tint —
+so dark themes get a tinted paper: Solarized Dark, Nord, Gruvbox, Dracula,
+and the Bluefold signature navy `#0E2849`). Eleven concrete themes plus
+`auto`; each has a full `DesignPalette`. `PageFilterStore` is a lock, not
+MainActor state: PDFKit draws tiles off-main. Theme switch rebuilds the
+PDFView (its `.id` includes theme).
+
+`DesignPalette.linkBox` (theme secondary) recolors the PDF's OWN hyperref
+link-annotation borders (the colored boxes around cross-references) via
+`LinkBoxColorizer`, applied where the view assigns its document (macOS
+`ActivePDFView`, iOS `PDFKitView`) — the same `.id`-on-theme rebuild seam, so
+boxes re-tint on a theme switch; idempotent per color so plain tab switches
+don't re-walk. `AppTheme.isDark` sorts themes into light/dark families
+(`lightFamily`/`darkFamily`) that drive both the forced window appearance and
+the grouped picker sections. `.auto` resolves via
+`resolved(systemIsDark:lastLight:lastDark:)`: the theme managers remember the
+last light-family and dark-family pick (persisted) so Auto swaps between the
+user's real choices, not plain light/dark.
 
 ## CloudKit sync (M15 — code done; live activation pending, see SYNC.md)
 

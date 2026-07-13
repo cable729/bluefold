@@ -199,22 +199,49 @@ struct ReaderBottomBarIOS: View {
     }
 
     private var themeMenu: some View {
+        // Labeled `Section`s of items — NOT a Picker: an inline Picker's
+        // sections flatten in an iOS menu, dropping the Light/Dark headers.
+        // `Toggle` rows keep one uniform checkmark column across sections (so
+        // both groups line up), and `.menuOrder(.fixed)` keeps the declared
+        // order — the bottom-bar menu opens upward, which otherwise reverses
+        // the rows (owner feedback). Mirrors the macOS status-bar menu.
         Menu {
-            Picker("Theme", selection: Bindable(theme).current) {
-                Text("Auto").tag(AppTheme.auto)
-                Text("Light").tag(AppTheme.light)
-                Text("Dark").tag(AppTheme.dark)
-                Text("Sepia").tag(AppTheme.sepia)
+            themeItem(.auto)
+            Section("Light") {
+                ForEach(AppTheme.lightFamily, id: \.self, content: themeItem)
+            }
+            Section("Dark") {
+                ForEach(AppTheme.darkFamily, id: \.self, content: themeItem)
             }
         } label: {
-            Label(ThemeStore.label(for: theme.current),
-                  systemImage: "circle.lefthalf.filled")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(platformColor: palette.ink))
+            // iPad has room for the name; the narrow iPhone bar shows the icon
+            // alone (names like "Solarized Dark" crowd it). Current theme stays
+            // in the accessibility label either way.
+            if sizeClass == .regular {
+                Label(ThemeStore.label(for: theme.current),
+                      systemImage: "circle.lefthalf.filled")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(platformColor: palette.ink))
+            } else {
+                Image(systemName: "circle.lefthalf.filled")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color(platformColor: palette.ink))
+            }
         }
+        .menuOrder(.fixed)
         .fixedSize()
-        .accessibilityLabel("Theme")
+        .accessibilityLabel("Theme: \(ThemeStore.label(for: theme.current))")
         .hoverEffect(.highlight)
+    }
+
+    /// `Toggle` (not a checkmark Button): iOS reserves the checkmark column for
+    /// EVERY toggle, so both sections align — a plain Button only reserves it in
+    /// the section that holds the selection, indenting one group vs the other.
+    private func themeItem(_ option: AppTheme) -> some View {
+        Toggle(option.displayName, isOn: Binding(
+            get: { theme.current == option },
+            set: { if $0 { theme.current = option } }
+        ))
     }
 
     private func syncPageField() {
