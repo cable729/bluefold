@@ -17,7 +17,8 @@ import UIKit
 /// Touch translations of the macOS pointer vocabulary:
 /// - plain tap on a link = navigate in place (history push)
 /// - ⌘-tap (hardware keyboard) = background tab, like macOS ⌘-click
-/// - long-press on a link = menu: Open Here / New Tab / Split
+/// - long-press on a link = bespoke peek overlay (destination preview +
+///   Open / New Tab / Split), see `LinkPeekOverlayIOS`
 final class ReaderPDFViewIOS: PDFView {
     /// Called with the resolved target, the position being navigated *away
     /// from* (the history push target), and how to open it. The handler
@@ -32,6 +33,9 @@ final class ReaderPDFViewIOS: PDFView {
     /// Fired on a tap that hit neither a link nor a text selection
     /// (iPhone chrome show/hide toggle).
     var onContentTap: (() -> Void)?
+    /// The current theme's accent, used to tint the long-press peek buttons.
+    /// Pushed from `PDFKitView` so the peek follows light/dark/sepia.
+    var linkAccent: UIColor = .tintColor
 
     private let linkTap = UITapGestureRecognizer()
     private let linkPress = UILongPressGestureRecognizer()
@@ -52,9 +56,6 @@ final class ReaderPDFViewIOS: PDFView {
     /// touchesEnded override never fired (PDFKit's subviews consume the
     /// touches before they bubble).
     private let chromeTap = UITapGestureRecognizer()
-    private lazy var linkMenu = UIEditMenuInteraction(delegate: self)
-    /// Link under the active long-press, held for the menu callbacks.
-    private var pressedLink: LinkTarget?
     /// Recognizers already told to wait for ours (idempotence guard for the
     /// per-layout re-walk; holds identifiers, not references).
     private var deferredRecognizers: Set<ObjectIdentifier> = []
@@ -94,8 +95,6 @@ final class ReaderPDFViewIOS: PDFView {
             recognizer.delegate = self
             addGestureRecognizer(recognizer)
         }
-
-        addInteraction(linkMenu)
 
         // Links are draggable onto the tab strip / split drop zone.
         let linkDrag = UIDragInteraction(delegate: self)
@@ -191,16 +190,30 @@ final class ReaderPDFViewIOS: PDFView {
         onLinkActivated?(target, currentNavEntry(), mode)
     }
 
+    /// Long-press on a link opens the bespoke peek overlay: a scrollable preview
+    /// of the destination at book scale with Open / New Tab / (iPad) Split
+    /// buttons. Same-document links show a live preview; remote links fall back
+    /// to a placeholder card so the open actions stay available.
     @objc private func handleLinkPress() {
         guard linkPress.state == .began,
-              let target = linkTarget(at: linkPress.location(in: self))
+              let target = linkTarget(at: linkPress.location(in: self)),
+              let window
         else { return }
-        pressedLink = target
-        let configuration = UIEditMenuConfiguration(
-            identifier: "bluefold.link",
-            sourcePoint: linkPress.location(in: self)
-        )
-        linkMenu.presentEditMenu(with: configuration)
+        let current = currentNavEntry()
+        // iPad splits both ways (side-by-side + top/bottom); iPhone is
+        // vertical-only (its split stacks top/bottom with one tab row).
+        let splitAxes: [SplitAxis] =
+            UIDevice.current.userInterfaceIdiom == .pad ? [.horizontal, .vertical] : [.vertical]
+        let overlay = LinkPeekOverlayIOS(
+            document: document,
+            target: target,
+            contentScale: scaleFactor,  // book's on-screen scale → readable at size
+            splitAxes: splitAxes,
+            accent: linkAccent
+        ) { [weak self] mode in
+            self?.onLinkActivated?(target, current, mode)
+        }
+        overlay.present(in: window, from: linkPress.location(in: window))
     }
 
     @objc private func handleScrollPan(_ pan: UIPanGestureRecognizer) {
@@ -279,39 +292,3 @@ extension ReaderPDFViewIOS: @MainActor UIDragInteractionDelegate {
     }
 }
 
-// MARK: - Link long-press menu
-
-extension ReaderPDFViewIOS: @MainActor UIEditMenuInteractionDelegate {
-    func editMenuInteraction(
-        _ interaction: UIEditMenuInteraction,
-        menuFor configuration: UIEditMenuConfiguration,
-        suggestedActions: [UIMenuElement]
-    ) -> UIMenu? {
-        guard configuration.identifier as? String == "bluefold.link",
-              let target = pressedLink
-        else { return nil }
-        let current = currentNavEntry()
-        var actions: [UIAction] = [
-            UIAction(title: "Open Here", image: UIImage(systemName: "arrow.right")) {
-                [weak self] _ in
-                self?.onLinkActivated?(target, current, .here)
-            },
-            UIAction(
-                title: "Open in New Tab",
-                image: UIImage(systemName: "plus.rectangle.on.rectangle")
-            ) { [weak self] _ in
-                self?.onLinkActivated?(target, current, .newTab)
-            },
-        ]
-        // Split pane is an iPad affordance.
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            actions.append(UIAction(
-                title: "Open in Split",
-                image: UIImage(systemName: "rectangle.split.2x1")
-            ) { [weak self] _ in
-                self?.onLinkActivated?(target, current, .split)
-            })
-        }
-        return UIMenu(children: actions)
-    }
-}

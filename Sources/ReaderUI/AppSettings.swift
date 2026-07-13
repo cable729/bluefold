@@ -26,6 +26,7 @@ public final class AppSettings {
     static let backgroundIndexingKey = "BackgroundIndexingEnabled"
     static let ocrIndexingKey = "OCRIndexingEnabled"
     static let marginAnchorsKey = "MarginAnchorsEnabled"
+    static let linkHoverPreviewKey = "LinkHoverPreviewEnabled"
     static let autoReloadDocumentsKey = "AutoReloadDocumentsEnabled"
     static let syncEnabledKey = "CloudKitSyncEnabled"
 
@@ -87,6 +88,17 @@ public final class AppSettings {
         }
     }
 
+    /// Whether hovering an internal link on macOS pops the peek preview. Off:
+    /// no hover panel, and PDFKit's plain "Go to page N" tooltip is left in
+    /// place (the reader stops suppressing it). Long-press peek on iOS is a
+    /// deliberate gesture and is unaffected.
+    public var linkHoverPreviewEnabled: Bool {
+        didSet {
+            guard linkHoverPreviewEnabled != oldValue else { return }
+            defaults?.set(linkHoverPreviewEnabled, forKey: Self.linkHoverPreviewKey)
+        }
+    }
+
     /// Whether open books reload automatically when their file changes on
     /// disk (auto-exported note folders — reMarkable & co. — regenerate
     /// PDFs in place). Reading position survives the swap. Applied live via
@@ -137,6 +149,8 @@ public final class AppSettings {
             defaults?.object(forKey: Self.ocrIndexingKey) as? Bool ?? true
         marginAnchorsEnabled =
             defaults?.object(forKey: Self.marginAnchorsKey) as? Bool ?? true
+        linkHoverPreviewEnabled =
+            defaults?.object(forKey: Self.linkHoverPreviewKey) as? Bool ?? true
         autoReloadDocumentsEnabled =
             defaults?.object(forKey: Self.autoReloadDocumentsKey) as? Bool ?? true
         syncEnabled =

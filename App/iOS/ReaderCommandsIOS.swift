@@ -22,15 +22,39 @@ final class ReaderChromeModel {
     /// Sidebar panel (regular width) / sheet (compact). `--sidebar` is an
     /// automation hook (simctl can't tap), like macOS `--open`.
     var sidebarVisible = ProcessInfo.processInfo.arguments.contains("--sidebar")
-    var sidebarMode: SidebarMode = .contents
+    /// Which sidebar list is showing. Persisted so the reader reopens on the
+    /// same tab across launches; a restored `.find` has no live query to show,
+    /// so `storedSidebarMode` coerces it back to `.contents`.
+    var sidebarMode: SidebarMode = ReaderChromeModel.storedSidebarMode {
+        didSet {
+            guard sidebarMode != oldValue else { return }
+            UserDefaults.standard.set(sidebarMode.rawValue, forKey: Self.sidebarModeKey)
+        }
+    }
     /// iPhone reading mode: chrome fades while scrolling; tap toggles.
     var chromeHidden = false
     /// When locked (iPhone lock button), chrome stays visible: scrolling
-    /// never auto-hides it and the tap toggle is inert.
-    var chromeLocked = false {
+    /// never auto-hides it and the tap toggle is inert. Persisted — a reading
+    /// preference that should survive relaunch.
+    var chromeLocked = UserDefaults.standard.bool(forKey: ReaderChromeModel.chromeLockedKey) {
         didSet {
             if chromeLocked { chromeHidden = false }
+            guard chromeLocked != oldValue else { return }
+            UserDefaults.standard.set(chromeLocked, forKey: Self.chromeLockedKey)
         }
+    }
+
+    // MARK: - Persistence (UserDefaults, ThemeStore convention)
+
+    private static let sidebarModeKey = "ReaderSidebarMode"
+    private static let chromeLockedKey = "ReaderChromeLocked"
+
+    /// Last sidebar tab, with `.find` coerced to `.contents` — a restored find
+    /// pane has nothing to show without a query.
+    private static var storedSidebarMode: SidebarMode {
+        let stored = UserDefaults.standard.string(forKey: sidebarModeKey)
+            .flatMap(SidebarMode.init(rawValue:)) ?? .contents
+        return stored == .find ? .contents : stored
     }
 
     /// The top-bar magnifier and ⌘F: find lives in the sidebar with

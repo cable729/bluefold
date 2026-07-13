@@ -677,6 +677,38 @@ below is self-contained.
   **Simulator-verified 2026-07-12** (iPad Pro 11", single-page): left→677,
   up→677, down→676 all turn; two-up 661/662→663/664; continuous-mode
   scrolling unaffected (664→665 drag).
+- [~] **M16j** Round 8 (2026-07-12, owner feature): **Zotero-style link
+  hover/peek preview**. Point at (macOS) or long-press (iOS) an internal
+  cross-reference and a **live, scrollable `PDFView`** peek shows the link's
+  DESTINATION in place — no navigation. Redesigned from a first cut that used a
+  fixed cropped IMAGE (too small, unreadable when shrunk, couldn't scroll, and
+  broke when the target ran across a page boundary). Shared core `LinkPreview`
+  (cross-platform): `textColumnBounds(on:)` (whole-page text-selection bounds →
+  auto-crop the left/right page margins, Zotero-style), `initialScrollPoint(...)`
+  (scroll to the column's left edge + `headroom` above the target; page-level
+  links anchor at the page top), `panelSize(...)` (width tracks the column at
+  book scale, capped → horizontal scroll beyond), and
+  `configure(_:document:target:contentScale:)` which loads a preview `PDFView`
+  at the SOURCE book's on-screen scale so text is readable without zoom.
+  **Same-document only in v1** (remote `PDFActionRemoteGoTo` → not previewable).
+  **macOS**: `ReaderPDFView` gains an `NSTrackingArea` + `mouseMoved` hover
+  (~0.45s settle); the panel is a shared borderless non-activating child
+  `NSPanel` (`LinkPreviewPanel`) that is now **interactive** — a tracking area +
+  0.3s hide-grace bridges the pointer from the link onto the panel so the user
+  can scroll it; leaving it (without returning to the link) dismisses.
+  `addToolTip` is overridden to `0` on both the reader and the preview
+  (`NoToolTipPDFView`) to kill PDFKit's "Go to page N" hover tag. **iOS**:
+  long-press presents `LinkPeekOverlayIOS` — a contained card (dimmed backdrop,
+  tap to dismiss) with the live preview on top and a footer toolbar: wide
+  **Open** + **New Tab** / **Split** (iPad) icon buttons. Fixed the round-1 bug
+  where the buttons ate no taps (they floated outside their superview's
+  hit-test bounds) by putting card + toolbar in one sized container; a gesture
+  delegate keeps the backdrop tap from stealing button touches. Auto-crop +
+  scroll math VERIFIED against real Axler (env-gated probe, since deleted: 375pt
+  crop → ~335pt text column, left margin dropped, 46pt headroom). Both schemes
+  build; `LinkPreviewGeometryTests` (7) green. Live hover/long-press interaction
+  stays an OWNER hand-test item (computer-use access to the app was denied
+  again; simctl can't long-press). Remote-link previews deferred (BACKLOG).
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `BluefoldUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but locally synthesized input can't drive them reliably (see XCUITest notes below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI for end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest$(date +%s)`; full-suite local runs can degrade mid-run (see XCUITest notes below) — spot-check single tests locally, full passes belong to CI. `VERIFY_UITESTS=1 ./scripts/verify.sh` runs the suite as opt-in step 5. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
 - [~] **M18** code side DONE (2026-07-08): Settings window ⌘, (AppSettings:
   LRU capacity live-applied via SessionCoordinator, indexing + OCR toggles
@@ -695,6 +727,26 @@ below is self-contained.
   (refuses unnotarized DMGs via `stapler validate`); docs/RELEASING.md is
   the runbook. Still open: README/site screenshots, Gatekeeper spot-check
   on a second Mac, release workflow secrets for CI releases (optional).
+- [~] **M19** Session-persistence hardening (2026-07-12, owner): the iOS
+  session now autosaves ~1s after any change (tabs, active tab, split layout,
+  scroll position) via a re-arming `withObservationTracking` + a cancelable
+  debounce — `AutosaveObserver` in ReaderCore, driven by the state
+  `ReaderSessionModel.save()`'s snapshot reads, `AutosaveObserverTests` (7)
+  green under `swift test`. So an in-progress session survives an ABRUPT kill
+  (SIGKILL from Xcode Stop, a jetsam kill, a crash) — the M16-era code flushed
+  only on the clean scenePhase `.inactive`/`.background`, which a SIGKILL
+  skips, so a relaunch reverted to the last cleanly-backgrounded snapshot.
+  Extracted the mechanism (rather than sprinkling `save()` across ~15 mutation
+  methods) so a nested `tabs[i].pageIndex` scroll write still trips the array
+  observation — the test that guards it. **Simulator-verified 2026-07-12**
+  (iPhone 17 Pro + iPad Pro 11"): open/rearrange → `simctl terminate`
+  (SIGKILL) → relaunch, session.json byte-identical and restored. Reader UI
+  prefs now persist via the UserDefaults/`@AppStorage` convention (ThemeStore
+  pattern): chrome **UI lock**, **sidebar mode** (Contents/Bookmarks; a stale
+  Find coerces to Contents), and **sidebar follow-scroll** (now shared between
+  the iPad panel and iPhone sheet). Newly opened books always start in
+  single-page continuous. Closes the M16c-deferred "reading-state persistence
+  on iOS / sidebar follow-mode toggle" items.
 
 ## ⚠️ CI: BLOCKED ON BILLING; underlying deadlock diagnosed but not yet pinpointed (2026-07-08)
 Chronology of findings, most important first:

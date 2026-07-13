@@ -71,6 +71,14 @@ public struct SettingsView: View {
 
     private var readingSection: some View {
         Section("Reading") {
+            Toggle("Link hover preview", isOn: $settings.linkHoverPreviewEnabled)
+            Text(
+                "Hovering an internal cross-reference peeks its destination in "
+                    + "a small floating panel you can scroll and open from. "
+                    + "Turn this off to just show a plain \u{201C}Go to page N\u{201D} "
+                    + "tooltip instead. Applies immediately."
+            )
+            .settingsCaption()
             Toggle("Reload books changed on disk", isOn: $settings.autoReloadDocumentsEnabled)
             Text(
                 "When an open PDF's file changes — a notes app regenerated "

@@ -20,6 +20,7 @@ struct PDFKitView: UIViewRepresentable {
     let document: PDFDocument
     unowned let model: ReaderSessionModel
     let backgroundColor: UIColor
+    let accent: UIColor
     var pane: Pane = .primary
 
     func makeCoordinator() -> Coordinator {
@@ -32,6 +33,7 @@ struct PDFKitView: UIViewRepresentable {
         view.displayMode = PDFDisplayMode(rawValue: tab.displayModeRaw) ?? .singlePageContinuous
         view.displayDirection = .vertical
         view.backgroundColor = backgroundColor
+        view.linkAccent = accent
         view.autoScales = tab.autoScales
         if !tab.autoScales {
             view.scaleFactor = tab.scaleFactor

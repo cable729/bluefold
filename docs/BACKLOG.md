@@ -45,6 +45,15 @@ the repo goes public.
   tightened to a flush hairline + floating grab handle (no gap band), and
   the sidebar follow-section icon switched to the macOS crosshair
   (`scope` / `circle.dashed`). Owner hand-tested drag-to-split — works.
+  **Session & settings persistence DONE 2026-07-12** (M19): the iOS session
+  autosaves ~1s after any change (new `AutosaveObserver` in ReaderCore +
+  tests), so it survives a SIGKILL / jetsam / crash — not only the clean
+  scenePhase `.background` flush. Reader prefs persist via
+  UserDefaults/`@AppStorage`: chrome UI lock, sidebar mode, sidebar
+  follow-scroll (shared iPad panel ↔ iPhone sheet); new books always open
+  single-page continuous. Clears the deferred "reading-state persistence /
+  sidebar follow-mode toggle" items above. Simulator-verified (iPhone 17 Pro
+  + iPad Pro 11": kill-relaunch keeps session.json byte-identical).
 - **Split 2-D grid (desktop) — NOT STARTED.** Owner wants desktop to split
   left/right AND top/bottom at the SAME time (a 2×2 / quadrant layout).
   Today the model is one primary + one secondary pane (single axis); this
@@ -113,6 +122,15 @@ the repo goes public.
   over the same command table as the help overlay.
 - **Many more keybindings generally** — audit VS Code/Preview/Skim for
   conventions; document in the help overlay.
+- ✅ DONE 2026-07-12 (Round 8, v1) — **Zotero-style link hover/peek preview** —
+  hover (macOS) / long-press (iOS) an internal cross-reference shows a live,
+  scrollable `PDFView` of the destination at book scale, auto-cropped to the
+  text column. Shared `LinkPreview` + interactive `LinkPreviewPanel` (macOS
+  child panel, pointer bridges in to scroll) + `LinkPeekOverlayIOS` card
+  (Open / New Tab / Split toolbar). **Deferred:** previews for cross-file
+  (`PDFActionRemoteGoTo`) links — v1 previews same-document targets only and
+  shows a placeholder card for remote ones; a remote preview means loading the
+  other document into the preview view.
 
 ### Search
 - ✅ DONE 2026-07-08 — **No Enter required** — live search with debounce (~300ms after typing

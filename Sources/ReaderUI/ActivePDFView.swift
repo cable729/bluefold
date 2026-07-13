@@ -58,6 +58,14 @@ struct ActivePDFView: NSViewRepresentable {
                 inNewTab: inNewTab
             )
         }
+        view.onLinkSplit = { [weak model, weak coordinator] target, axis in
+            model?.linkActivatedSplit(
+                sourceTabID: coordinator?.tabID,
+                target: target.entry,
+                remoteFileURL: target.remoteFileURL,
+                axis: axis
+            )
+        }
 
         let restore = tab.currentNavEntry
         // Defer until after the view has a size, or the point lands wrong.
@@ -101,9 +109,11 @@ struct ActivePDFView: NSViewRepresentable {
         // visible pane.
         context.coordinator.anchorProvider?.isEnabled =
             AppSettings.shared.marginAnchorsEnabled
+        view.hoverPreviewEnabled = AppSettings.shared.linkHoverPreviewEnabled
     }
 
     static func dismantleNSView(_ view: ReaderPDFView, coordinator: Coordinator) {
+        view.cancelLinkHover()
         coordinator.captureNow()
         if coordinator.model?.primaryController === coordinator {
             coordinator.model?.primaryController = nil
@@ -112,6 +122,7 @@ struct ActivePDFView: NSViewRepresentable {
             coordinator.model?.splitController = nil
         }
         view.onLinkActivated = nil
+        view.onLinkSplit = nil
         view.onInteract = nil
         view.pageOverlayViewProvider = nil
         view.document = nil

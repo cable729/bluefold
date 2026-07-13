@@ -209,6 +209,7 @@ struct ReaderView: View {
             document: document,
             model: model,
             backgroundColor: theme.pdfBackground,
+            accent: palette.accent,
             pane: pane
         )
         .id("\(tab.id)-\(theme.resolvedTheme.rawValue)-\(pane == .split)")
