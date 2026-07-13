@@ -460,7 +460,7 @@ public enum CommandRegistry {
         for theme in AppTheme.allCases {
             commands.append(ReaderCommand(
                 id: "view.theme.\(theme.rawValue)",
-                title: "\(theme.rawValue.capitalized) Theme",
+                title: "\(theme.displayName) Theme",
                 category: .view,
                 isOn: { _ in ThemeManager.shared.current == theme },
                 run: { _ in ThemeManager.shared.current = theme }

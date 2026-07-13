@@ -17,12 +17,25 @@ import UIKit
 @Observable
 final class ThemeStore {
     private static let defaultsKey = "BluefoldTheme"  // shared with macOS
+    private static let lastLightKey = "BluefoldLastLightTheme"
+    private static let lastDarkKey = "BluefoldLastDarkTheme"
 
     var current: AppTheme {
         didSet {
             UserDefaults.standard.set(current.rawValue, forKey: Self.defaultsKey)
+            rememberFamilyChoice(current)
             PageFilterStore.current = resolvedTheme.pageRenderFilter
         }
+    }
+
+    /// Remembered per-family choices — `.auto` resolves to the last light-
+    /// family theme by day and the last dark-family theme by night (matches
+    /// macOS `ThemeManager`). Persisted under keys shared with macOS.
+    private(set) var lastLightTheme: AppTheme {
+        didSet { UserDefaults.standard.set(lastLightTheme.rawValue, forKey: Self.lastLightKey) }
+    }
+    private(set) var lastDarkTheme: AppTheme {
+        didSet { UserDefaults.standard.set(lastDarkTheme.rawValue, forKey: Self.lastDarkKey) }
     }
 
     /// Whether the SYSTEM appearance is dark, as last observed while no
@@ -30,20 +43,43 @@ final class ThemeStore {
     private(set) var systemIsDark: Bool
 
     init() {
-        let stored = UserDefaults.standard.string(forKey: Self.defaultsKey)
-        let theme = stored.flatMap(AppTheme.init(rawValue:)) ?? .light
+        let defaults = UserDefaults.standard
+        let theme = defaults.string(forKey: Self.defaultsKey).flatMap(AppTheme.init(rawValue:)) ?? .light
         current = theme
-        systemIsDark = UITraitCollection.current.userInterfaceStyle == .dark
+        let storedLight = defaults.string(forKey: Self.lastLightKey).flatMap(AppTheme.init(rawValue:))
+        let storedDark = defaults.string(forKey: Self.lastDarkKey).flatMap(AppTheme.init(rawValue:))
+        lastLightTheme = storedLight ?? (!theme.isDark && theme != .auto ? theme : .light)
+        lastDarkTheme = storedDark ?? (theme.isDark ? theme : .dark)
+        let isDark = UITraitCollection.current.userInterfaceStyle == .dark
+        systemIsDark = isDark
         PageFilterStore.current = theme.resolved(
-            systemIsDark: UITraitCollection.current.userInterfaceStyle == .dark
+            systemIsDark: isDark, lastLight: lastLightTheme, lastDark: lastDarkTheme
         ).pageRenderFilter
     }
 
-    /// `current` with `.auto` resolved; never `.auto`. Everything that
-    /// renders (page filter, PDF background, the `.id()` keying that
-    /// rebuilds PDFViews) keys off this.
+    /// `current` with `.auto` resolved against the system appearance and the
+    /// remembered per-family choices; never `.auto`. Everything that renders
+    /// (page filter, PDF background, the `.id()` keying that rebuilds
+    /// PDFViews) keys off this.
     var resolvedTheme: AppTheme {
-        current.resolved(systemIsDark: systemIsDark)
+        current.resolved(
+            systemIsDark: systemIsDark, lastLight: lastLightTheme, lastDark: lastDarkTheme
+        )
+    }
+
+    /// Secondary color for the current theme — recolors the PDF's own link
+    /// boxes (see `LinkBoxColorizer`).
+    var linkBox: UIColor {
+        DesignPalette.palette(for: resolvedTheme).linkBox
+    }
+
+    private func rememberFamilyChoice(_ theme: AppTheme) {
+        guard theme != .auto else { return }
+        if theme.isDark {
+            if lastDarkTheme != theme { lastDarkTheme = theme }
+        } else if lastLightTheme != theme {
+            lastLightTheme = theme
+        }
     }
 
     /// Fed by the root view's `colorScheme` environment. Only trusted while
@@ -54,30 +90,20 @@ final class ThemeStore {
         PageFilterStore.current = resolvedTheme.pageRenderFilter
     }
 
-    /// What the root view forces; nil for `.auto` (follow the system).
+    /// What the root view forces; nil for `.auto` (follow the system). Every
+    /// concrete theme forces its family's scheme (light-family → light,
+    /// dark-family → dark).
     var preferredColorScheme: ColorScheme? {
-        switch current {
-        case .auto: nil
-        case .dark: .dark
-        case .light, .sepia: .light
-        }
+        current == .auto ? nil : (current.isDark ? .dark : .light)
     }
 
-    /// PDFView letterbox background per theme.
+    /// PDFView letterbox background — the theme's page paper, so the letterbox
+    /// reads as the page's mat (matches macOS `ThemeManager.pdfBackground`).
     var pdfBackground: UIColor {
-        switch resolvedTheme {
-        case .light, .auto: .systemBackground
-        case .dark: UIColor(white: 0.12, alpha: 1)
-        case .sepia: UIColor(cgColor: Theme.sepiaPaper)
-        }
+        DesignPalette.palette(for: resolvedTheme).contentBackground
     }
 
     static func label(for theme: AppTheme) -> String {
-        switch theme {
-        case .light: "Light"
-        case .dark: "Dark"
-        case .sepia: "Sepia"
-        case .auto: "Auto"
-        }
+        theme.displayName
     }
 }

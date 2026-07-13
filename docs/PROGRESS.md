@@ -709,6 +709,43 @@ below is self-contained.
   build; `LinkPreviewGeometryTests` (7) green. Live hover/long-press interaction
   stays an OWNER hand-test item (computer-use access to the app was denied
   again; simctl can't long-press). Remote-link previews deferred (BACKLOG).
+- [~] **M16k** Round 9 (2026-07-12, owner feature): **six more reading
+  themes**. Added coding-world palettes — **Solarized Light/Dark**, **Nord**,
+  **Gruvbox** (dark), **Dracula** — plus a **Bluefold signature** (brand navy
+  `#0E2849` paper + blue `#2E7FE5` accent). `PageRenderFilter` generalized from
+  the coarse `none/invert/warmPaper` to carry a tint: `multiply(PageTint)`
+  (light-family reading tints) and `invertTinted(PageTint)` — a **two-pass**
+  page blend (difference-invert, then `.screen` the tint) that turns a white
+  page into tinted-dark paper with light text, so the new dark themes retint
+  the reading *surface*, not just the chrome (Nord-dark ≠ neutral dark).
+  `PageRenderFilter` is runtime-derived (never persisted), so no migration;
+  new `AppTheme` cases are append-only with pinned raw values. Each theme has
+  a full 14-color `DesignPalette`; `AppTheme.isDark` drives both the palette
+  family and `ThemeManager.forcedAppearanceName` (aqua vs darkAqua). New
+  `AppTheme.displayName` de-duplicates the picker labels (Settings + status-bar
+  menu, both now grouped into **Light**/**Dark** `Section`s) and the generated
+  View-menu commands. Tests: `ThemingTests` renders a white PDF through each
+  new filter and asserts the mean RGB (Solarized-light cream, dark tints low-
+  luma with correct hue — Bluefold blue > green > red); `rawValuesAreStable`
+  and `pageFilterMatchesThemeFamily` pin the new cases.
+  **Round 9b (2026-07-12, owner feedback, in worktree `add-more-themes` —
+  isolated from the concurrent M16j link-preview WIP):** (1) added a 7th new
+  theme, **Foldblue** — Bluefold's LIGHT signature (warm aussie-brown paper
+  `#F1E3CC`, icon light-blue `#2E7FE5` accent, tan secondary), a browner
+  sepia. (2) New `DesignPalette.linkBox` (theme secondary) recolors the PDF's
+  OWN hyperref link-annotation borders (the red cross-reference boxes) to
+  match the theme — tan on Bluefold, pink on Dracula, etc. — via
+  `LinkBoxColorizer` at the document-assign seam (`ActivePDFView` /
+  `PDFKitView`), idempotent per color (associated marker) so tab switches
+  don't re-walk; only borders the author already drew are recolored. (3)
+  **`.auto` now remembers** the last light-family and last dark-family pick
+  (persisted, macOS + iOS) and swaps between them by system appearance, via
+  `AppTheme.resolved(systemIsDark:lastLight:lastDark:)`. Colors sampled from
+  the actual app icon (navy `#0E2849`, blue `#2E7FE5`, page tan `#D2B090`).
+  Eleven concrete themes + auto. **525 tests green (26 theme tests incl.
+  `LinkBoxColorizer` + auto-memory + persistence); macOS + iOS builds green.**
+  Owner hand-check across all themes on a real PDF (page tint + link boxes +
+  auto day/night swap) pending; then merge the worktree.
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `BluefoldUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but locally synthesized input can't drive them reliably (see XCUITest notes below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI for end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest$(date +%s)`; full-suite local runs can degrade mid-run (see XCUITest notes below) — spot-check single tests locally, full passes belong to CI. `VERIFY_UITESTS=1 ./scripts/verify.sh` runs the suite as opt-in step 5. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
 - [~] **M18** code side DONE (2026-07-08): Settings window ⌘, (AppSettings:
   LRU capacity live-applied via SessionCoordinator, indexing + OCR toggles

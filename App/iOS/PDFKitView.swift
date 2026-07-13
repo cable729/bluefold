@@ -20,7 +20,10 @@ struct PDFKitView: UIViewRepresentable {
     let document: PDFDocument
     unowned let model: ReaderSessionModel
     let backgroundColor: UIColor
+    /// The current theme's accent — tints the long-press link-peek buttons.
     let accent: UIColor
+    /// Theme secondary — recolors the PDF's own link boxes (see LinkBoxColorizer).
+    let linkBox: UIColor
     var pane: Pane = .primary
 
     func makeCoordinator() -> Coordinator {
@@ -34,13 +37,23 @@ struct PDFKitView: UIViewRepresentable {
         view.displayDirection = .vertical
         view.backgroundColor = backgroundColor
         view.linkAccent = accent
+        // tab.autoScales is kept live by notePosition, so a theme rebuild
+        // restores the exact fit state; the manual scale likewise comes from
+        // the live feed when this is the same active tab (tab.scaleFactor can
+        // be stale if SwiftUI builds the new view before the old one captures).
         view.autoScales = tab.autoScales
         if !tab.autoScales {
-            view.scaleFactor = tab.scaleFactor
+            let liveScale = (pane == .primary && tab.id == model.activeTabID)
+                ? model.livePosition?.scaleFactor : nil
+            view.scaleFactor = liveScale ?? tab.scaleFactor
         }
         // System find UI (⌘F / toolbar button routes through the model).
         view.isFindInteractionEnabled = true
         view.document = document
+        // Recolor the PDF's own link boxes to the theme secondary before the
+        // first render. This view is `.id`'d on the theme, so it rebuilds and
+        // re-tints on a theme change; the colorizer caches per color.
+        LinkBoxColorizer.apply(linkBox, to: document)
 
         let tabID = tab.id
         view.onLinkActivated = { [weak model] target, current, mode in
@@ -160,7 +173,8 @@ struct PDFKitView: UIViewRepresentable {
 
         private func notePosition() {
             guard let view else { return }
-            model?.notePosition(tabID: tabID, entry: view.currentNavEntry())
+            model?.notePosition(tabID: tabID, entry: view.currentNavEntry(),
+                                autoScales: view.autoScales)
         }
 
         // MARK: ActivePDFNavigating

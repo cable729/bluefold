@@ -25,8 +25,12 @@ things again later. This app is built around:
   [Calibre](https://calibre-ebook.com) library attached as a read-only source.
 - **Full-text search across the library** — background-built SQLite FTS5 index
   finds text in books you've never opened.
-- **Themes** — light, dark, and sepia, applied to PDF pages too (smart
-  invert / warm-paper rendering).
+- **Themes** — light, dark, sepia, plus coding-world reading palettes
+  (Solarized Light/Dark, Nord, Gruvbox, Dracula) and the Bluefold signatures
+  (dark navy + light "Foldblue"), all applied to the PDF pages too (smart
+  invert / tinted-paper rendering) and even recoloring the PDF's own link
+  boxes to match — not just the chrome. **Auto** follows your system between
+  the last light and last dark theme you picked.
 - **Sync without a subscription** — tags, collections, bookmarks, and reading
   position sync between Mac and iPhone via CloudKit (your iCloud account, no
   third-party service).
