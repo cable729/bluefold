@@ -47,10 +47,10 @@ public enum AppTheme: String, Codable, CaseIterable, Equatable, Sendable {
     /// Light/Dark sections. `.auto` is offered separately (above the groups)
     /// as the recommended default, so it appears in neither list.
     public static let lightFamily: [AppTheme] = [
-        .foldblue, .light, .gruvboxLight, .solarizedLight, .sepia,
+        .light, .foldblue, .gruvboxLight, .solarizedLight, .sepia,
     ]
     public static let darkFamily: [AppTheme] = [
-        .bluefold, .dark, .gruvbox, .solarizedDark, .dracula, .nord,
+        .dark, .bluefold, .gruvbox, .solarizedDark, .dracula, .nord,
     ]
 
     /// Human-facing label (raw values are camelCase for compound themes, so
