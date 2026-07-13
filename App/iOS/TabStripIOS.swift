@@ -166,49 +166,85 @@ struct TabStripIOS: View {
     @State private var tabMids: [TabMid] = []
     /// X of the insertion bar while a tab drag hovers the strip; nil = none.
     @State private var insertionX: CGFloat?
+    /// Whether the active tab has been scrolled into view for this appearance.
+    /// The initial scroll is driven off the first non-empty `TabMidKey` update
+    /// (cell geometry = layout is done), since `onAppear` fires too early.
+    @State private var didInitialScroll = false
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(groups) { group in
-                    TabGroupIOS(model: model, group: group, palette: palette)
+        // ScrollViewReader so the active tab can be scrolled into view — at
+        // launch and on every selection change — otherwise a selection far
+        // to the right leaves the strip parked at the start with no visible
+        // indication of which tab is current.
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(groups) { group in
+                        TabGroupIOS(model: model, group: group, palette: palette)
+                    }
                 }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .coordinateSpace(name: "strip")
-            // Insertion indicator — a small accent bar showing where the
-            // dragged tab will land (owner: "hard to tell what will happen").
-            .overlay(alignment: .leading) {
-                if let insertionX {
-                    Capsule()
-                        .fill(Color(platformColor: palette.accent))
-                        .frame(width: 3, height: 34)
-                        .position(x: insertionX, y: 22)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .coordinateSpace(name: "strip")
+                // Insertion indicator — a small accent bar showing where the
+                // dragged tab will land (owner: "hard to tell what will happen").
+                .overlay(alignment: .leading) {
+                    if let insertionX {
+                        Capsule()
+                            .fill(Color(platformColor: palette.accent))
+                            .frame(width: 3, height: 34)
+                            .position(x: insertionX, y: 22)
+                    }
                 }
-            }
-            .onPreferenceChange(TabMidKey.self) { mids in
-                tabMids = mids.sorted { $0.midX < $1.midX }
-            }
-            .onDrop(of: [.text], delegate: TabStripDropDelegate(
-                mids: tabMids,
-                insertionX: $insertionX,
-                onReorder: { model.moveTab(id: $0, toIndex: $1) },
-                onSection: { entry, index in
-                    guard let url = model.activeURL else { return }
-                    model.openTab(url: url, at: entry, insertAt: index, activate: false)
+                .onPreferenceChange(TabMidKey.self) { mids in
+                    tabMids = mids.sorted { $0.midX < $1.midX }
+                    // First real layout: bring the restored active tab into
+                    // view. onAppear fires before the cells are laid out, so
+                    // scrollTo there is a no-op — the midpoints arriving is
+                    // the signal that the strip has a geometry to scroll to.
+                    if !didInitialScroll, !mids.isEmpty, model.activeTabID != nil {
+                        didInitialScroll = true
+                        scrollToActive(proxy, animated: false)
+                    }
                 }
-            ))
+                .onDrop(of: [.text], delegate: TabStripDropDelegate(
+                    mids: tabMids,
+                    insertionX: $insertionX,
+                    onReorder: { model.moveTab(id: $0, toIndex: $1) },
+                    onSection: { entry, index in
+                        guard let url = model.activeURL else { return }
+                        model.openTab(url: url, at: entry, insertAt: index, activate: false)
+                    }
+                ))
+            }
+            // Color subviews (dividers, cover placeholders) have no intrinsic
+            // height — without a hard cap the horizontal scroller goes greedy
+            // and the strip fills the screen.
+            .frame(height: 50)
+            .background(Color(platformColor: palette.stripBackground))
+            // Tabs fade out under the edges when the strip overflows (desktop
+            // parity), so a partially-scrolled tab looks clipped, not cut.
+            .overlay(alignment: .leading) { edgeFade(leading: true) }
+            .overlay(alignment: .trailing) { edgeFade(leading: false) }
+            .onChange(of: model.activeTabID) { _, _ in
+                scrollToActive(proxy, animated: true)
+            }
         }
-        // Color subviews (dividers, cover placeholders) have no intrinsic
-        // height — without a hard cap the horizontal scroller goes greedy
-        // and the strip fills the screen.
-        .frame(height: 50)
-        .background(Color(platformColor: palette.stripBackground))
-        // Tabs fade out under the edges when the strip overflows (desktop
-        // parity), so a partially-scrolled tab looks clipped, not cut.
-        .overlay(alignment: .leading) { edgeFade(leading: true) }
-        .overlay(alignment: .trailing) { edgeFade(leading: false) }
+    }
+
+    /// Bring the active tab into view — centered when possible, clamped to
+    /// the ends otherwise. The initial (post-restore) scroll is unanimated
+    /// and deferred: a synchronous scrollTo during first layout loses to the
+    /// ScrollView settling its own offset back to 0, so hop off the layout
+    /// pass before scrolling. Later selection changes animate immediately.
+    private func scrollToActive(_ proxy: ScrollViewProxy, animated: Bool) {
+        guard let active = model.activeTabID else { return }
+        let scroll = { proxy.scrollTo(active, anchor: .center) }
+        if animated {
+            withAnimation { scroll() }
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: scroll)
+        }
     }
 
     private func edgeFade(leading: Bool) -> some View {
@@ -407,6 +443,10 @@ private struct TabGroupIOS: View {
             }
         }
         .draggable(DragPayload.tab(tab.id))
+        // Explicit scroll anchor: cells live inside this nested group view, so
+        // ScrollViewReader can't rely on ForEach's implicit identity to find
+        // the active tab — scrollTo(tab.id) needs a matching .id() to target.
+        .id(tab.id)
         // Report this cell's midpoint so the strip can place the insertion
         // bar and compute a drop's landing index (reorder is handled at the
         // strip level, not per cell — the group lozenge clips overlays).
