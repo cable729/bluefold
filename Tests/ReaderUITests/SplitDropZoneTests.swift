@@ -10,7 +10,7 @@ import Testing
 /// side, same-window guards, overlay cleanup). Crafted NSEvents in real
 /// windows, same approach as TabStripDragTests — XCUITest drag synthesis
 /// does not work on this machine.
-@Suite("Split drop zones", .serialized)
+@Suite("Split drop zones", .serialized, .requiresWindowServer)
 @MainActor
 struct SplitDropZoneTests {
 
