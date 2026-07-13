@@ -348,8 +348,10 @@ final class ReaderSessionModel {
         if splitTabID != nil {
             closeSplit()
         } else {
-            // iPhone can't show two pages side by side — always stack.
-            splitAxis = UIDevice.current.userInterfaceIdiom == .phone ? .vertical : axis
+            // The caller passes the orientation-appropriate axis (iPhone
+            // stacks in portrait, splits side by side in landscape); the view
+            // re-derives it live on rotation from the pane area's geometry.
+            splitAxis = axis
             splitSide = side
             duplicateActiveTabToSplit()
         }

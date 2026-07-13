@@ -12,6 +12,12 @@ struct ReaderTopBarIOS: View {
     let palette: DesignPalette
 
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.verticalSizeClass) private var vSizeClass
+
+    /// iPhone landscape splits side by side; portrait stacks top/bottom.
+    private var isPhoneLandscape: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone && vSizeClass == .compact
+    }
 
     var body: some View {
         HStack(spacing: 16) {
@@ -89,19 +95,25 @@ struct ReaderTopBarIOS: View {
         }
     }
 
-    /// Split control: iPhone toggles a top/bottom split; iPad offers a
+    /// Split control: iPhone toggles a split that follows the orientation
+    /// (side-by-side in landscape, top/bottom in portrait); iPad offers a
     /// menu to split right or bottom and to re-orient / close an open one.
     @ViewBuilder
     private var splitControl: some View {
         if sizeClass == .compact {
             Button {
-                model.toggleSplit(axis: .vertical)
+                model.toggleSplit(axis: isPhoneLandscape ? .horizontal : .vertical)
             } label: {
-                Image(systemName: model.splitTabID == nil
-                    ? "rectangle.split.1x2" : "rectangle")
+                Image(systemName: model.splitTabID != nil
+                    ? "rectangle"
+                    : (isPhoneLandscape
+                        ? "rectangle.split.2x1" : "rectangle.split.1x2"))
             }
             .accessibilityLabel(
-                model.splitTabID == nil ? "Split top and bottom" : "Close split")
+                model.splitTabID != nil
+                    ? "Close split"
+                    : (isPhoneLandscape
+                        ? "Split left and right" : "Split top and bottom"))
             .hoverEffect(.highlight)
         } else {
             Menu {
