@@ -155,15 +155,14 @@ struct ReaderView: View {
                 pdfView(tab: tab, document: document, pane: .primary)
                     // Drag a tab, sidebar section, or link onto a HALF of the
                     // page to split there: left/right (iPad) or top/bottom.
-                    .overlay {
-                        if model.splitTabID == nil {
-                            SplitZoneDropView(
-                                allowSides: sizeClass == .regular,
-                                palette: palette,
-                                onDrop: handleSplitDrop
-                            )
-                        }
-                    }
+                    // The drop binds to the page itself (hittable content) so
+                    // drags register — an empty full-page overlay does not.
+                    .modifier(SplitZoneDrop(
+                        enabled: model.splitTabID == nil,
+                        allowSides: sizeClass == .regular,
+                        palette: palette,
+                        onDrop: handleSplitDrop
+                    ))
             } else if let error = model.downloadError {
                 ContentUnavailableView(
                     "Couldn't Download \(title(for: tab))",
@@ -259,16 +258,19 @@ private struct SplitContainerIOS<Primary: View, Secondary: View>: View {
                 if axis == .vertical {
                     VStack(spacing: 0) {
                         firstPane.frame(height: primaryExtent)
-                        divider(total: total)
                         secondPane
                     }
                 } else {
                     HStack(spacing: 0) {
                         firstPane.frame(width: primaryExtent)
-                        divider(total: total)
                         secondPane
                     }
                 }
+            }
+            // The panes butt flush together; the divider floats on the seam
+            // as a hairline + grab handle — no gap band around it.
+            .overlay(alignment: .topLeading) {
+                divider(total: total, boundary: primaryExtent)
             }
             .overlay(alignment: .topLeading) {
                 if isDragging {
@@ -317,9 +319,11 @@ private struct SplitContainerIOS<Primary: View, Secondary: View>: View {
             .clipped()
     }
 
-    /// The resting divider: a hairline with a grab handle. Owns the drag
-    /// gesture, so dragging elsewhere in a pane scrolls the PDF as normal.
-    private func divider(total: CGFloat) -> some View {
+    /// The resting divider: a hairline with a grab handle, floated on the
+    /// seam between the flush panes (so there's no gap band around it). The
+    /// grab area is a wider transparent strip that owns the drag gesture, so
+    /// dragging elsewhere in a pane scrolls the PDF as normal.
+    private func divider(total: CGFloat, boundary: CGFloat) -> some View {
         ZStack {
             Color(platformColor: palette.chromeBorder)
                 .frame(
@@ -344,6 +348,11 @@ private struct SplitContainerIOS<Primary: View, Secondary: View>: View {
         .contentShape(Rectangle())
         .hoverEffect(.highlight)
         .gesture(dragGesture(total: total))
+        // Center the grab strip on the seam without occupying layout space.
+        .offset(
+            x: axis == .horizontal ? boundary - grabThickness / 2 : 0,
+            y: axis == .vertical ? boundary - grabThickness / 2 : 0
+        )
     }
 
     /// The accent line that tracks the finger during a drag.
@@ -397,35 +406,59 @@ enum SplitZone {
     var side: SplitSide { self == .left || self == .top ? .leading : .trailing }
 }
 
-/// Full-page drop target: dragging a tab/section/link over a half of the
-/// page highlights that half and, on drop, splits there. iPad allows
-/// left/right + top/bottom; compact widths allow only top/bottom.
-private struct SplitZoneDropView: View {
+/// Hangs the half-page split drop target on the primary page itself.
+///
+/// `.onDrop` binds to the page's own (hittable) content — an empty full-page
+/// overlay registers no drop area, so drags never land (the old bug). The
+/// pane size is read from a zero-cost background probe; the hovered-half
+/// highlight is a non-hit-testing overlay shown only mid-drag, so it never
+/// shadows the page's normal touch handling.
+private struct SplitZoneDrop: ViewModifier {
+    let enabled: Bool
     let allowSides: Bool
     let palette: DesignPalette
     let onDrop: (String, SplitAxis, SplitSide) -> Void
 
     @State private var zone: SplitZone?
+    @State private var size: CGSize = .zero
 
-    var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                if let zone {
-                    highlight(zone, in: geo.size)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onDrop(
-                of: [.text],
-                delegate: SplitDropDelegate(
-                    size: geo.size, allowSides: allowSides,
-                    zone: $zone, onDrop: onDrop
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .background(
+                    GeometryReader { geo in
+                        Color.clear
+                            .onAppear { size = geo.size }
+                            .onChange(of: geo.size) { _, new in size = new }
+                    }
                 )
-            )
+                .overlay {
+                    if let zone {
+                        SplitZoneHighlight(zone: zone, size: size, palette: palette)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .onDrop(
+                    of: [.text],
+                    delegate: SplitDropDelegate(
+                        size: size, allowSides: allowSides,
+                        zone: $zone, onDrop: onDrop
+                    )
+                )
+        } else {
+            content
         }
     }
+}
 
-    private func highlight(_ zone: SplitZone, in size: CGSize) -> some View {
+/// The translucent accent panel over the hovered half, showing where the
+/// split will land.
+private struct SplitZoneHighlight: View {
+    let zone: SplitZone
+    let size: CGSize
+    let palette: DesignPalette
+
+    var body: some View {
         let rect: CGRect
         switch zone {
         case .left: rect = CGRect(x: 0, y: 0, width: size.width / 2, height: size.height)

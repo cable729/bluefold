@@ -128,7 +128,7 @@ struct SidebarIOS: View {
                         followSection.toggle()
                     } label: {
                         Image(systemName: followSection
-                            ? "location.fill" : "location")
+                            ? "scope" : "circle.dashed")
                             .foregroundStyle(Color(platformColor:
                                 followSection ? palette.accent : palette.textMuted))
                     }
