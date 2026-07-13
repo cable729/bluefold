@@ -19,6 +19,9 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
+        // Test-only: TestClock for deterministic testing of time-based code
+        // (the autosave debounce). Production uses the stdlib `Clock` protocol.
+        .package(url: "https://github.com/pointfreeco/swift-clocks", from: "1.0.0"),
     ],
     targets: [
         // Pure data models: tabs, navigation history, session snapshots, themes.
@@ -66,7 +69,13 @@ let package = Package(
         .executableTarget(name: "calibre-ls", dependencies: ["CalibreKit"]),
         .executableTarget(name: "pdfindex", dependencies: ["SearchIndexKit"]),
 
-        .testTarget(name: "ReaderCoreTests", dependencies: ["ReaderCore"]),
+        .testTarget(
+            name: "ReaderCoreTests",
+            dependencies: [
+                "ReaderCore",
+                .product(name: "Clocks", package: "swift-clocks"),
+            ]
+        ),
         .testTarget(name: "ReaderPersistenceTests", dependencies: ["ReaderPersistence"]),
         .testTarget(name: "CalibreKitTests", dependencies: ["CalibreKit"]),
         .testTarget(name: "SearchIndexKitTests", dependencies: ["SearchIndexKit"]),
