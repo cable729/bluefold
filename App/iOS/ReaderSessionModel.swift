@@ -85,6 +85,24 @@ final class ReaderSessionModel {
 
     init() {
         restore()
+        // Arm autosave AFTER restore, so reloading the session doesn't
+        // immediately rewrite the file we just read.
+        autosaver = AutosaveObserver(
+            track: { [weak self] in
+                guard let self else { return }
+                // Everything `save()`'s snapshot reads. Mutating a tab's
+                // stored position writes back through the `tabs` array
+                // property, so subscript edits (page, zoom, history) trip
+                // this too.
+                _ = self.tabs
+                _ = self.activeTabID
+                _ = self.splitTabID
+                _ = self.splitAxis
+                _ = self.splitSide
+            },
+            save: { [weak self] in self?.save() }
+        )
+        autosaver.start()
     }
 
     var activeTab: TabState? {
@@ -124,6 +142,10 @@ final class ReaderSessionModel {
         let bookmark = try? url.bookmarkData()
         var tab = TabState(fileBookmark: bookmark, pathHint: url.path)
         tab.autoScales = true
+        // A freshly opened book always starts in single-page continuous scroll,
+        // regardless of what mode other tabs are in. (Restored tabs keep their
+        // own layout — restore() doesn't route through here.)
+        tab.displayModeRaw = PDFDisplayMode.singlePageContinuous.rawValue
         if let entry {
             tab.apply(entry)
         }
@@ -775,7 +797,16 @@ final class ReaderSessionModel {
 
     // MARK: - Session persistence
 
+    /// Debounced autosave: any change to the session shape (tabs, active tab,
+    /// split layout, or a tab's stored position) reschedules a write ~1s
+    /// later. This is what makes an in-progress session survive an abrupt
+    /// kill — the scenePhase `.background` flush only fires on a clean
+    /// transition, which a SIGKILL (Xcode Stop, a jetsam kill, a crash) skips
+    /// entirely, leaving only the last cleanly-backgrounded snapshot on disk.
+    @ObservationIgnored private var autosaver: AutosaveObserver!
+
     func save() {
+        autosaver?.cancel()
         if let activeTab { persistReadingState(for: activeTab) }
         if let splitTab { persistReadingState(for: splitTab) }
         let window = WindowState(

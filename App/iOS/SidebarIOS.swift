@@ -21,7 +21,9 @@ struct SidebarIOS: View {
     @State private var expanded: Set<UUID> = []
     /// Follow the reading position: keep only the current section's ancestor
     /// path expanded and scroll it into view. Off = free manual browsing.
-    @State private var followSection = true
+    /// Persisted (and shared between the iPad panel and iPhone sheet) so the
+    /// choice survives relaunch.
+    @AppStorage("ReaderSidebarFollowSection") private var followSection = true
     @State private var findQuery = ""
     @State private var findController = FindController()
     @FocusState private var findFieldFocused: Bool
