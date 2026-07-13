@@ -30,11 +30,16 @@ import Testing
     /// Short debounce so a scheduled write resolves quickly.
     private static let delay: Duration = .milliseconds(50)
 
+    /// A debounce long enough that it never fires during a test — for the
+    /// cases that must OBSERVE the pending state before acting on it, so they
+    /// don't race the ~50ms window shut on a contended CI runner.
+    private static let longDelay: Duration = .seconds(30)
+
     private func makeObserver(
-        _ fixture: Fixture, _ recorder: SaveRecorder
+        _ fixture: Fixture, _ recorder: SaveRecorder, delay: Duration = Self.delay
     ) -> AutosaveObserver {
         AutosaveObserver(
-            delay: Self.delay,
+            delay: delay,
             track: { _ = fixture.items; _ = fixture.flag },
             save: { recorder.count += 1 }
         )
@@ -127,7 +132,9 @@ import Testing
     func flushWritesOnceImmediately() async {
         let fixture = Fixture()
         let recorder = SaveRecorder()
-        let observer = makeObserver(fixture, recorder)
+        // Long debounce: the write must not fire on its own before flush, or
+        // this races (flush would double-write) under load.
+        let observer = makeObserver(fixture, recorder, delay: Self.longDelay)
         observer.start()
 
         fixture.flag = true
@@ -144,7 +151,9 @@ import Testing
     func cancelDropsPending() async {
         let fixture = Fixture()
         let recorder = SaveRecorder()
-        let observer = makeObserver(fixture, recorder)
+        // Long debounce so the pending write can't fire before we cancel it —
+        // otherwise, under CI load, the ~50ms window closes and cancel no-ops.
+        let observer = makeObserver(fixture, recorder, delay: Self.longDelay)
         observer.start()
 
         fixture.flag = true
