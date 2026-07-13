@@ -331,7 +331,7 @@ private let standardPageTexts = [
     #expect(result == .notSearchable)
 }
 
-@Test func scannedPDFIsIndexedViaOCR() async throws {
+@Test(.requiresVisionOCR) func scannedPDFIsIndexedViaOCR() async throws {
     let dir = try TempDir()
     let file = dir.file("scanned.pdf")
     try makeScannedPDF(at: file, pageTexts: ["scanned page with token qwjzxv"])
