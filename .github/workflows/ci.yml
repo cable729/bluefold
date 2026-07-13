@@ -80,6 +80,14 @@ jobs:
         run: |
           sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
       - name: Run UI tests
+        # xcodebuild's UI-test RUNNER process is spawned by testmanagerd, not
+        # by this shell, so it does NOT inherit the runner's `CI` env var.
+        # xcodebuild forwards any `TEST_RUNNER_`-prefixed variable into the
+        # test runner's environment with the prefix stripped — so this makes
+        # `CI` visible to the XCTSkipIf guard in SmokeUITests that skips the
+        # synthesized cross-window drag (unreliable on the headless runner).
+        env:
+          TEST_RUNNER_CI: "1"
         run: |
           set -o pipefail
           xcodebuild -project App/Bluefold.xcodeproj -scheme Bluefold \
