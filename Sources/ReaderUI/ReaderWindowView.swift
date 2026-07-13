@@ -12,6 +12,8 @@ public struct ReaderWindowView: View {
 
     @State private var find = FindController()
     @State private var ui = ReaderWindowUIState()
+    /// Highlighted while a PDF is dragged over the window (Finder drop → new tabs).
+    @State private var isDropTargeted = false
     @Environment(\.openWindow) private var openWindow
 
     public init(windowID: UUID) {
@@ -149,6 +151,22 @@ public struct ReaderWindowView: View {
                 .help("All commands (⌘⇧P) · Open a book (⌘O) · Sections (⌘P) · Shortcuts (/)")
             }
         }
+        // Drop PDFs from Finder anywhere in the window — each opens as a tab
+        // in THIS window. We register `.fileURL`, not `.pdf`: a Finder file
+        // drag advertises the item as `public.file-url`, so registering
+        // `.pdf` rejects the drop outright (nothing happens). Non-PDF files
+        // are filtered out in the handler instead. The real file URL is read
+        // below, never a temp copy, so the tab's pathHint is the original.
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { handleDrop($0) }
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(Color.accentColor, lineWidth: 3)
+                    .padding(2)
+                    .allowsHitTesting(false)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: isDropTargeted)
         .navigationTitle(activeTitle)
         // No .preferredColorScheme here: SwiftUI only re-applies it to the
         // hosting window reliably while that window is key, so a theme
@@ -307,6 +325,38 @@ public struct ReaderWindowView: View {
 
     private func openPanel() {
         model.openTabViaPanel()
+    }
+
+    /// Handles a Finder drop of one or more PDFs: each file opens as a tab in
+    /// this window. Returns true when at least one dragged item is a file
+    /// (so the drop is accepted); non-PDF files are quietly skipped.
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        let fileProviders = providers.filter {
+            $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+        }
+        guard !fileProviders.isEmpty else { return false }
+        for provider in fileProviders {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
+                guard
+                    let data = item as? Data,
+                    // The real file URL, not the copied representation a
+                    // Transferable URL would hand back — pathHint (session
+                    // restore, deep links, reading state) must be the original.
+                    let url = URL(dataRepresentation: data, relativeTo: nil),
+                    Self.isPDF(url)
+                else { return }
+                Task { @MainActor in model.openTab(fileURL: url) }
+            }
+        }
+        return true
+    }
+
+    /// Whether a dropped file is a PDF — extension first (cheap), falling back
+    /// to its declared content type for extensionless files.
+    private static func isPDF(_ url: URL) -> Bool {
+        if url.pathExtension.lowercased() == "pdf" { return true }
+        let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType
+        return type?.conforms(to: .pdf) ?? false
     }
 
     /// Test/automation hook: `Bluefold --open <path> [--open <path> …]`

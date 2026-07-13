@@ -96,6 +96,43 @@ the repo goes public.
   Calibre folder), app icon, README screenshots, notarized DMG pipeline,
   make repo public, CONTRIBUTING.md.
 
+## Feature requests (2026-07-13) — multi-library sync & metadata
+
+Context: drag-and-drop of PDF files into a macOS reader window (opens each as
+a tab) shipped 2026-07-13 (`ReaderWindowView.onDrop`). That surfaced the
+larger library story below.
+
+### Multiple libraries / sources
+- **Sync more than one library at once.** Today the library is effectively a
+  single Calibre source (read-only `metadata.db`) mirrored into `library.db`.
+  The user wants to register and sync *several* sources side by side:
+  Calibre, Zotero, dragged-and-dropped folders (watched, like the existing
+  folder-watch pipeline), and individual drag-and-dropped files. Needs a
+  source model (id, kind, path/root, read-only?, last-scanned) plus a scan
+  pipeline per kind that lands rows in the same overlay DB.
+- **Drag-and-dropped files auto-add to the library.** When a PDF is dropped
+  into a reader window (or onto the app), it should be imported into the
+  library automatically — not only opened as an ephemeral tab. Decide the
+  default source/collection for ad-hoc drops (e.g. an "Imported" source or the
+  watched-folder pipeline), and whether it copies the file or references it in
+  place (references in place matches the current pathHint model; deep links
+  and reading state already key off content hash, so a moved file still
+  resolves).
+
+### PDF metadata editing
+- **Edit a book's metadata** — author, title, etc. — so it's correct in the
+  library. Calibre rows are read-only (constraint in docs/DECISIONS), so
+  edits live in the overlay DB as an override layer (book row already carries
+  a mirrored `authors` column, schema v3). Needs an edit UI + override
+  precedence rules (overlay beats mirrored-from-source) that survive a
+  re-scan.
+
+### Browse by metadata
+- **Browse the library by author** (and other metadata). Group/sort the
+  library view by author, and likely other fields (title, added date,
+  source). Complements the existing tag/collection sidebar scopes with
+  metadata-driven grouping.
+
 ## Feature requests (2026-07-07)
 
 ### Reader
