@@ -41,16 +41,15 @@ struct ReaderTopBarIOS: View {
 
             Spacer()
 
-            // iPhone reading mode: lock the chrome visible (auto-hide off).
-            if sizeClass == .compact {
-                Button {
-                    chrome.chromeLocked.toggle()
-                } label: {
-                    Image(systemName: chrome.chromeLocked ? "lock.fill" : "lock.open")
-                }
-                .accessibilityLabel(chrome.chromeLocked ? "Unlock toolbars" : "Lock toolbars visible")
-                .hoverEffect(.highlight)
+            // Reading mode (iPhone and iPad): lock the chrome visible
+            // (auto-hide off, tap toggle inert).
+            Button {
+                chrome.chromeLocked.toggle()
+            } label: {
+                Image(systemName: chrome.chromeLocked ? "lock.fill" : "lock.open")
             }
+            .accessibilityLabel(chrome.chromeLocked ? "Unlock toolbars" : "Lock toolbars visible")
+            .hoverEffect(.highlight)
 
             if model.activeTabID != nil {
                 Button {

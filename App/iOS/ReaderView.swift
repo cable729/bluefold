@@ -25,9 +25,9 @@ struct ReaderView: View {
         DesignPalette.palette(for: theme.resolvedTheme)
     }
 
-    /// iPhone reading mode: chrome hides on scroll, returns on tap.
+    /// Reading mode (iPhone and iPad): chrome hides on scroll, returns on tap.
     private var chromeHidden: Bool {
-        sizeClass == .compact && chrome.chromeHidden
+        chrome.chromeHidden
     }
 
     var body: some View {
@@ -525,8 +525,8 @@ private struct SplitDropDelegate: DropDelegate {
     }
 }
 
-/// Wires the PDF view's scroll/tap callbacks to the chrome model on
-/// compact width (iPhone reading mode).
+/// Wires the PDF view's scroll/tap callbacks to the chrome model for the
+/// primary pane (iPhone and iPad reading mode).
 private struct ChromeGestureModifier: ViewModifier {
     let pane: PDFKitView.Pane
     let sizeClass: UserInterfaceSizeClass?
@@ -535,7 +535,7 @@ private struct ChromeGestureModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(ChromeGestureBinder(
-                enabled: sizeClass == .compact && pane == .primary,
+                enabled: pane == .primary,
                 chrome: chrome))
     }
 }
