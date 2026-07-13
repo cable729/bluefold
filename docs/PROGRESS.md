@@ -640,6 +640,23 @@ below is self-contained.
   divider-drag feel, drop-to-split, share-sheet appearance, reading-state
   resume. Cross-device tag visibility still needs CloudKit sync (M15, not
   activated — iOS/macOS have separate library.db).
+- [~] **M16h** Round 6 (2026-07-12, split-drag regression fix): the
+  drag-to-split drop target added in a00bec5 was DEAD. `SplitZoneDropView`
+  was a full-page overlay whose `ZStack` is empty at rest, so the host view
+  is hit-transparent and UIKit's drag hit-test never routed the drag to its
+  `.onDrop` (the tab strip works because its content is hittable). Replaced
+  it with a `SplitZoneDrop` modifier that hangs `.onDrop` on the pdfView
+  itself, reads pane size from a `.background` GeometryReader probe, and
+  shows the half-page highlight as a non-hit-testing overlay. The split
+  MACHINERY was never broken — confirmed by driving `toggleSplit` /
+  `setSplitAxis` / `closeSplit` through a temporary `--autosplit` launch hook
+  + simctl screenshots (all render correctly; the owner's "menu buttons do
+  nothing" report was the drag failure, not a menu-logic bug). Also: the
+  split **divider** now floats a hairline + grab handle on the seam with the
+  panes flush (no 24pt gap band), and the iOS sidebar follow-section toggle
+  uses the macOS crosshair symbols (`scope` / `circle.dashed`) instead of the
+  location arrow. **Owner hand-tested drag-to-split on the iPad Pro 13" sim —
+  works.** 513 tests green, both schemes build. Shipped as `8a39ae7`.
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `BluefoldUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but locally synthesized input can't drive them reliably (see XCUITest notes below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI for end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest$(date +%s)`; full-suite local runs can degrade mid-run (see XCUITest notes below) — spot-check single tests locally, full passes belong to CI. `VERIFY_UITESTS=1 ./scripts/verify.sh` runs the suite as opt-in step 5. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
 - [~] **M18** code side DONE (2026-07-08): Settings window ⌘, (AppSettings:
   LRU capacity live-applied via SessionCoordinator, indexing + OCR toggles
@@ -788,7 +805,9 @@ destinations/crops before theorizing.
    claims com.adobe.pdf; launch alert + Settings section; Finder file
    opens route through DeepLinkRouter; prompt suppressed under
    BLUEFOLD_SESSION_DIR so harnessed launches stay quiet) — shipped in
-   v0.2.
+   v0.2. VERIFIED 2026-07-12 (M16h): iOS drag-to-split (tab chip / sidebar
+   section onto a page half, all of L/R/T/B) after the hit-transparent
+   drop-target fix.
 3. After billing: CI job B (XCUITest + iOS sim build) and wire UI tests
    into scripts/verify.sh (M17's CI side).
 4. Then M18 v0.1 remainder: mint Developer ID cert + notary

@@ -39,6 +39,12 @@ the repo goes public.
   vertical w/ draggable divider + per-pane close, iPad Split menu, macOS
   Split Down), tab breadcrumb-on-open, strip edge fade, cover-cap preview
   (no select), iPhone chrome lock button.
+  **Round 6 DONE 2026-07-12** (M16h): iOS **drag-to-split fixed** — the
+  a00bec5 drop target was a hit-transparent empty overlay so drags never
+  landed; `.onDrop` now hangs on the pdfView itself. Split **divider**
+  tightened to a flush hairline + floating grab handle (no gap band), and
+  the sidebar follow-section icon switched to the macOS crosshair
+  (`scope` / `circle.dashed`). Owner hand-tested drag-to-split — works.
 - **Split 2-D grid (desktop) — NOT STARTED.** Owner wants desktop to split
   left/right AND top/bottom at the SAME time (a 2×2 / quadrant layout).
   Today the model is one primary + one secondary pane (single axis); this
