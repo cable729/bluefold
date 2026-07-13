@@ -606,8 +606,9 @@ final class ReaderSessionModel {
         case here
         /// Background tab adjacent to the source (⌘-tap / long-press menu).
         case newTab
-        /// Into the trailing split pane (iPad).
-        case split
+        /// Into a split pane along the given axis (`.horizontal` = side by
+        /// side, `.vertical` = top/bottom).
+        case split(SplitAxis)
     }
 
     /// Handles an activated internal link from either pane. Plain taps
@@ -627,9 +628,9 @@ final class ReaderSessionModel {
                 url: targetURL, at: target.entry,
                 insertAt: sourceIndex.map { $0 + 1 }, activate: false
             )
-        case .split:
+        case .split(let axis):
             guard let targetURL else { return }
-            openEntryInSplit(target.entry, url: targetURL)
+            openEntryInSplit(target.entry, url: targetURL, axis: axis)
         case .here:
             if let remote = target.remoteFileURL {
                 openTab(url: remote, at: target.entry)

@@ -104,6 +104,7 @@ struct ActivePDFView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ view: ReaderPDFView, coordinator: Coordinator) {
+        view.cancelLinkHover()
         coordinator.captureNow()
         if coordinator.model?.primaryController === coordinator {
             coordinator.model?.primaryController = nil

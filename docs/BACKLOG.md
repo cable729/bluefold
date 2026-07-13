@@ -122,6 +122,15 @@ the repo goes public.
   over the same command table as the help overlay.
 - **Many more keybindings generally** — audit VS Code/Preview/Skim for
   conventions; document in the help overlay.
+- ✅ DONE 2026-07-12 (Round 8, v1) — **Zotero-style link hover/peek preview** —
+  hover (macOS) / long-press (iOS) an internal cross-reference shows a live,
+  scrollable `PDFView` of the destination at book scale, auto-cropped to the
+  text column. Shared `LinkPreview` + interactive `LinkPreviewPanel` (macOS
+  child panel, pointer bridges in to scroll) + `LinkPeekOverlayIOS` card
+  (Open / New Tab / Split toolbar). **Deferred:** previews for cross-file
+  (`PDFActionRemoteGoTo`) links — v1 previews same-document targets only and
+  shows a placeholder card for remote ones; a remote preview means loading the
+  other document into the preview view.
 
 ### Search
 - ✅ DONE 2026-07-08 — **No Enter required** — live search with debounce (~300ms after typing
