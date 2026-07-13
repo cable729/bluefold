@@ -18,8 +18,23 @@ struct ReaderView: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.verticalSizeClass) private var vSizeClass
     /// Primary pane's share of the split (0…1); the divider drives it.
     @State private var splitFraction: CGFloat = 0.5
+
+    /// iPhone splits follow the device orientation: side by side in
+    /// landscape, stacked top/bottom in portrait. iPad honors the axis the
+    /// user chose from the split menu.
+    private var isPhoneLandscape: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone && vSizeClass == .compact
+    }
+
+    private var effectiveSplitAxis: SplitAxis {
+        guard UIDevice.current.userInterfaceIdiom == .phone else {
+            return model.splitAxis
+        }
+        return isPhoneLandscape ? .horizontal : .vertical
+    }
 
     private var palette: DesignPalette {
         DesignPalette.palette(for: theme.resolvedTheme)
@@ -97,7 +112,7 @@ struct ReaderView: View {
     private var splitArea: some View {
         if let splitTab = model.splitTab, let splitDocument = model.splitDocument {
             SplitContainerIOS(
-                axis: model.splitAxis,
+                axis: effectiveSplitAxis,
                 side: model.splitSide,
                 fraction: $splitFraction,
                 palette: palette,
@@ -154,12 +169,17 @@ struct ReaderView: View {
             } else if let document = model.activeDocument {
                 pdfView(tab: tab, document: document, pane: .primary)
                     // Drag a tab, sidebar section, or link onto a HALF of the
-                    // page to split there: left/right (iPad) or top/bottom.
+                    // page to split there: left/right (iPad, iPhone landscape)
+                    // or top/bottom (iPhone portrait).
                     // The drop binds to the page itself (hittable content) so
                     // drags register — an empty full-page overlay does not.
                     .modifier(SplitZoneDrop(
                         enabled: model.splitTabID == nil,
-                        allowSides: sizeClass == .regular,
+                        // iPad offers all four halves; iPhone offers only the
+                        // orientation-appropriate pair — top/bottom in
+                        // portrait, left/right in landscape.
+                        allowSides: sizeClass == .regular || isPhoneLandscape,
+                        allowStacked: !isPhoneLandscape,
                         palette: palette,
                         onDrop: handleSplitDrop
                     ))
@@ -416,6 +436,7 @@ enum SplitZone {
 private struct SplitZoneDrop: ViewModifier {
     let enabled: Bool
     let allowSides: Bool
+    var allowStacked: Bool = true
     let palette: DesignPalette
     let onDrop: (String, SplitAxis, SplitSide) -> Void
 
@@ -442,6 +463,7 @@ private struct SplitZoneDrop: ViewModifier {
                     of: [.text],
                     delegate: SplitDropDelegate(
                         size: size, allowSides: allowSides,
+                        allowStacked: allowStacked,
                         zone: $zone, onDrop: onDrop
                     )
                 )
@@ -487,6 +509,7 @@ private struct SplitZoneHighlight: View {
 private struct SplitDropDelegate: DropDelegate {
     let size: CGSize
     let allowSides: Bool
+    var allowStacked: Bool = true
     @Binding var zone: SplitZone?
     let onDrop: (String, SplitAxis, SplitSide) -> Void
 
@@ -517,7 +540,10 @@ private struct SplitDropDelegate: DropDelegate {
     private func compute(_ point: CGPoint) -> SplitZone {
         let nx = point.x / max(size.width, 1)
         let ny = point.y / max(size.height, 1)
-        var candidates: [(SplitZone, CGFloat)] = [(.top, ny), (.bottom, 1 - ny)]
+        var candidates: [(SplitZone, CGFloat)] = []
+        if allowStacked {
+            candidates.append(contentsOf: [(.top, ny), (.bottom, 1 - ny)])
+        }
         if allowSides {
             candidates.append(contentsOf: [(.left, nx), (.right, 1 - nx)])
         }
