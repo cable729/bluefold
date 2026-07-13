@@ -1005,6 +1005,22 @@ public final class ReaderWindowModel {
         }
     }
 
+    /// Opens a link's destination in a split pane along `axis` — the macOS twin
+    /// of the iOS peek's Split buttons. A new background tab at `entry` provides
+    /// the split partner, so this works even in a single-tab window.
+    public func linkActivatedSplit(
+        sourceTabID: UUID? = nil,
+        target entry: NavEntry,
+        remoteFileURL: URL?,
+        axis: SplitAxis
+    ) {
+        let tabID = sourceTabID ?? activeTabID
+        guard let source = tabs.first(where: { $0.id == tabID }) else { return }
+        let fileURL = remoteFileURL ?? url(for: source)
+        let id = openTab(fileURL: fileURL, activate: false, at: entry, after: source.id)
+        openInSplit(tabID: id, axis: axis)
+    }
+
     /// The live view showing a tab, if that tab is on screen in a pane.
     private func paneController(forTab id: UUID) -> ActivePDFControlling? {
         if id == splitTabID { return splitController }

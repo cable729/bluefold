@@ -33,6 +33,9 @@ final class ReaderPDFViewIOS: PDFView {
     /// Fired on a tap that hit neither a link nor a text selection
     /// (iPhone chrome show/hide toggle).
     var onContentTap: (() -> Void)?
+    /// The current theme's accent, used to tint the long-press peek buttons.
+    /// Pushed from `PDFKitView` so the peek follows light/dark/sepia.
+    var linkAccent: UIColor = .tintColor
 
     private let linkTap = UITapGestureRecognizer()
     private let linkPress = UILongPressGestureRecognizer()
@@ -205,7 +208,8 @@ final class ReaderPDFViewIOS: PDFView {
             document: document,
             target: target,
             contentScale: scaleFactor,  // book's on-screen scale → readable at size
-            splitAxes: splitAxes
+            splitAxes: splitAxes,
+            accent: linkAccent
         ) { [weak self] mode in
             self?.onLinkActivated?(target, current, mode)
         }

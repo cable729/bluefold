@@ -14,6 +14,9 @@ final class ReaderPDFView: PDFView {
     /// `current` is the position before the jump — the history push target.
     /// The handler performs the navigation; the click is swallowed.
     var onLinkActivated: ((_ target: LinkTarget, _ current: NavEntry, _ inNewTab: Bool) -> Void)?
+    /// Called when the hover peek's Split button is used — opens the target in
+    /// a split pane along the given axis.
+    var onLinkSplit: ((_ target: LinkTarget, _ axis: SplitAxis) -> Void)?
 
     /// Left/right arrows page-turn in every display mode. PDFView pages on
     /// arrows in single-page mode but scrolls (or beeps) in the continuous
@@ -80,12 +83,30 @@ final class ReaderPDFView: PDFView {
     /// pointer crosses links while reading.
     private static let hoverDelay: TimeInterval = 0.45
 
-    /// PDFKit tags every internal link with a "Go to page N" help tooltip on
-    /// hover; the peek panel replaces it, so swallow the registration.
-    override func addToolTip(
-        _ rect: NSRect, owner: Any, userData data: UnsafeMutableRawPointer?
-    ) -> NSView.ToolTipTag {
-        0
+    /// Off = no hover panel, and PDFKit's own "Go to page N" tooltip is left
+    /// alone (we stop suppressing it). Pushed from `AppSettings` by
+    /// `ActivePDFView.updateNSView`.
+    var hoverPreviewEnabled = true {
+        didSet {
+            guard hoverPreviewEnabled != oldValue else { return }
+            if !hoverPreviewEnabled { cancelLinkHover() }
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        if hoverPreviewEnabled { suppressToolTips(in: self) }
+    }
+
+    /// Kills PDFKit's per-link "Go to page N" tooltip so the peek panel is the
+    /// only hover affordance. `removeAllToolTips()` alone doesn't do it —
+    /// PDFKit sets the `toolTip` STRING PROPERTY on its inner document view, so
+    /// clear that too, across the whole subtree. Re-run after PDFKit re-sets it
+    /// (on relayout and in `mouseMoved`).
+    private func suppressToolTips(in view: NSView) {
+        view.toolTip = nil
+        view.removeAllToolTips()
+        for subview in view.subviews { suppressToolTips(in: subview) }
     }
 
     /// Tracking area delivering `mouseMoved` while the pointer is inside.
@@ -101,7 +122,10 @@ final class ReaderPDFView: PDFView {
         if let linkHoverTracking { removeTrackingArea(linkHoverTracking) }
         let area = NSTrackingArea(
             rect: bounds,
-            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            // `.activeInActiveApp`, not `.activeInKeyWindow`: while the peek
+            // panel is the key window, the reader still needs to see the
+            // pointer leave/enter links.
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
             owner: self,
             userInfo: nil
         )
@@ -111,25 +135,28 @@ final class ReaderPDFView: PDFView {
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
+        // Preview off: leave PDFKit's tooltip in place, do nothing else.
+        guard hoverPreviewEnabled else { return }
+        // Clear the tooltip PDFKit just set for the link under the pointer,
+        // before the pointer goes still and it would appear.
+        suppressToolTips(in: self)
+
         let viewPoint = convert(event.locationInWindow, from: nil)
         // Preview same-document links only (v1). Remote links still navigate.
         guard let hovered = hoveredLink(atViewPoint: viewPoint),
               hovered.target.remoteFileURL == nil else {
-            // Off any link: let the panel dismiss after its grace, so the
-            // pointer can still travel from the link onto the panel to scroll.
+            // Off any link: cancel a pending show. A SHOWN panel dismisses
+            // itself geometrically (its safe-region poll), so the pointer can
+            // still travel the funnel from the link onto the panel.
             hoverTimer?.invalidate()
             hoverTimer = nil
             hoverTarget = nil
-            LinkPreviewPanel.shared.scheduleHide()
             return
         }
-        // Back over the link the panel already shows: keep it up.
-        if LinkPreviewPanel.shared.isShowing(target: hovered.target) {
-            LinkPreviewPanel.shared.keepAlive()
-            hoverTarget = hovered.target
-            return
-        }
-        if hovered.target == hoverTarget { return }  // already scheduled
+        // Over the link the panel already shows (or one already scheduled):
+        // nothing to do — the poll keeps it alive.
+        if LinkPreviewPanel.shared.isShowing(target: hovered.target)
+            || hovered.target == hoverTarget { return }
         hoverTimer?.invalidate()
         hoverTarget = hovered.target
         hoverViewRect = hovered.viewRect
@@ -142,12 +169,10 @@ final class ReaderPDFView: PDFView {
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
-        // The pointer may be heading for the panel — dismiss on a grace, which
-        // the panel cancels if the pointer arrives inside it.
+        // Cancel a pending show; a shown panel's own poll handles dismissal.
         hoverTimer?.invalidate()
         hoverTimer = nil
         hoverTarget = nil
-        LinkPreviewPanel.shared.scheduleHide()
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -158,12 +183,21 @@ final class ReaderPDFView: PDFView {
     private func showLinkHover() {
         guard let hoverTarget, let hoverViewRect, let document, let window else { return }
         let anchorScreenRect = window.convertToScreen(convert(hoverViewRect, to: nil))
+        let current = currentNavEntry()  // position to return to if opened
         LinkPreviewPanel.shared.show(
             document: document,
             target: hoverTarget,
             contentScale: scaleFactor,  // book's on-screen scale → readable at size
             anchorScreenRect: anchorScreenRect,
-            parent: window
+            parent: window,
+            onChoose: { [weak self] action in
+                guard let self else { return }
+                switch action {
+                case .here: self.onLinkActivated?(hoverTarget, current, false)
+                case .newTab: self.onLinkActivated?(hoverTarget, current, true)
+                case .split(let axis): self.onLinkSplit?(hoverTarget, axis)
+                }
+            }
         )
     }
 

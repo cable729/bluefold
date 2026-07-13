@@ -17,6 +17,11 @@ public enum LinkPreview {
     /// flush against the panel's top edge (a little more than a single line).
     public static let headroom: CGFloat = 46
 
+    /// Screen points of gutter kept on EACH side of the text column, so the
+    /// column sits centered with balanced left/right margins (not flush).
+    /// Shared so macOS and iOS crop identically.
+    public static let gutter: CGFloat = 12
+
     /// The bounding box of all text on `page`, in page space — used to crop the
     /// preview horizontally to the text column (dropping the page margins), the
     /// way Zotero trims a reference preview. Nil when the page has no text layer
@@ -29,27 +34,30 @@ public enum LinkPreview {
         return bounds
     }
 
-    /// The page-space point to scroll the preview's top-left to: the text
-    /// column's left edge (crops the left margin) and `headroom` above the
-    /// destination (clamped into the crop box). A page-level link (no point)
-    /// anchors at the page top.
+    /// The page-space point to scroll the preview's top-left to: `gutter` left
+    /// of the text column (so the column is centered with balanced margins) and
+    /// `headroom` above the destination (clamped into the crop box). A
+    /// page-level link (no point) anchors at the page top.
     public static func initialScrollPoint(
-        destinationPoint: CGPoint?, columnBounds: CGRect?, crop: CGRect
+        destinationPoint: CGPoint?, columnBounds: CGRect?, crop: CGRect,
+        contentScale: CGFloat
     ) -> CGPoint {
-        let x = columnBounds?.minX ?? crop.minX
+        let columnLeft = columnBounds?.minX ?? crop.minX
+        let gutterPoints = contentScale > 0 ? gutter / contentScale : 0
+        let x = max(crop.minX, columnLeft - gutterPoints)
         let baseY = destinationPoint?.y ?? crop.maxY
         return CGPoint(x: x, y: min(crop.maxY, baseY + headroom))
     }
 
-    /// The on-screen panel/card size. Width tracks the text column at book
-    /// scale (so both margins are cropped) but is capped at `maxWidth` — a
-    /// wider column then scrolls horizontally. Height is the available cap;
+    /// The on-screen panel/card size. Width = the text column at book scale
+    /// plus a `gutter` on each side (centered column), capped at `maxWidth` —
+    /// a wider column then scrolls horizontally. Height is the available cap;
     /// the content scrolls vertically within it.
     public static func panelSize(
         columnWidth: CGFloat, contentScale: CGFloat,
-        maxWidth: CGFloat, maxHeight: CGFloat, horizontalInset: CGFloat
+        maxWidth: CGFloat, maxHeight: CGFloat
     ) -> CGSize {
-        let ideal = columnWidth * contentScale + horizontalInset * 2
+        let ideal = columnWidth * contentScale + gutter * 2
         return CGSize(
             width: min(max(ideal, 160), maxWidth),
             height: max(maxHeight, 160)
@@ -91,7 +99,8 @@ public enum LinkPreview {
         let point = initialScrollPoint(
             destinationPoint: target.entry.point,
             columnBounds: textColumnBounds(on: page),
-            crop: crop
+            crop: crop,
+            contentScale: pdfView.scaleFactor
         )
         pdfView.go(to: PDFDestination(page: page, at: point))
     }

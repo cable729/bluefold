@@ -17,15 +17,21 @@ final class LinkPeekOverlayIOS: UIView {
 
     private let backdrop = UIView()
     private let cardContainer = UIView()
+    /// The [preview card + button row] stack — the part that scales in/out.
+    private var contentGroup: UIView?
+
+    private let accent: UIColor
 
     init(
         document: PDFDocument?,
         target: LinkTarget,
         contentScale: CGFloat,
         splitAxes: [SplitAxis],
+        accent: UIColor,
         onChoose: @escaping (ReaderSessionModel.LinkOpenMode) -> Void
     ) {
         self.onChoose = onChoose
+        self.accent = accent
         super.init(frame: .zero)
 
         backdrop.backgroundColor = UIColor.black.withAlphaComponent(0.28)
@@ -35,7 +41,8 @@ final class LinkPeekOverlayIOS: UIView {
         backdrop.addGestureRecognizer(backdropTap)
         addSubview(backdrop)
 
-        cardContainer.backgroundColor = .secondarySystemBackground
+        // The preview card (rounded, shadowed) holds ONLY the preview.
+        cardContainer.backgroundColor = .systemBackground
         cardContainer.layer.cornerRadius = 14
         cardContainer.layer.cornerCurve = .continuous
         cardContainer.layer.shadowColor = UIColor.black.cgColor
@@ -43,21 +50,25 @@ final class LinkPeekOverlayIOS: UIView {
         cardContainer.layer.shadowRadius = 22
         cardContainer.layer.shadowOffset = CGSize(width: 0, height: 10)
         cardContainer.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(cardContainer)
 
-        // Preview (live PDFView) or, for remote/unpreviewable links, a
-        // placeholder so the open actions still appear.
         let preview = Self.previewView(document: document, target: target, scale: contentScale)
         preview.translatesAutoresizingMaskIntoConstraints = false
         preview.layer.cornerRadius = 14
         preview.layer.cornerCurve = .continuous
-        preview.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         preview.clipsToBounds = true
         cardContainer.addSubview(preview)
 
+        // Buttons sit BELOW the preview, floating on the backdrop (no bar
+        // behind them), with a gap matching the padding around them.
         let toolbar = makeToolbar(splitAxes: splitAxes)
-        toolbar.translatesAutoresizingMaskIntoConstraints = false
-        cardContainer.addSubview(toolbar)
+
+        let group = UIStackView(arrangedSubviews: [cardContainer, toolbar])
+        group.axis = .vertical
+        group.alignment = .center
+        group.spacing = 14  // padding above the button row
+        group.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(group)
+        contentGroup = group
 
         let cardWidth = Self.cardWidth(document: document, target: target, scale: contentScale)
         let previewHeight = Self.previewHeight(remote: target.remoteFileURL != nil)
@@ -67,20 +78,15 @@ final class LinkPeekOverlayIOS: UIView {
             backdrop.topAnchor.constraint(equalTo: topAnchor),
             backdrop.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            cardContainer.centerXAnchor.constraint(equalTo: centerXAnchor),
-            cardContainer.centerYAnchor.constraint(equalTo: centerYAnchor),
-            cardContainer.widthAnchor.constraint(equalToConstant: cardWidth),
+            group.centerXAnchor.constraint(equalTo: centerXAnchor),
+            group.centerYAnchor.constraint(equalTo: centerYAnchor),
 
+            cardContainer.widthAnchor.constraint(equalToConstant: cardWidth),
+            cardContainer.heightAnchor.constraint(equalToConstant: previewHeight),
             preview.topAnchor.constraint(equalTo: cardContainer.topAnchor),
             preview.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor),
             preview.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor),
-            preview.heightAnchor.constraint(equalToConstant: previewHeight),
-
-            toolbar.topAnchor.constraint(equalTo: preview.bottomAnchor),
-            toolbar.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: 10),
-            toolbar.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -10),
-            toolbar.bottomAnchor.constraint(equalTo: cardContainer.bottomAnchor, constant: -10),
-            toolbar.heightAnchor.constraint(equalToConstant: 46),
+            preview.bottomAnchor.constraint(equalTo: cardContainer.bottomAnchor),
         ])
 
         // Scroll the live preview to the destination once it has a frame.
@@ -93,8 +99,6 @@ final class LinkPeekOverlayIOS: UIView {
 
     // MARK: - Sizing
 
-    private static let maxCardWidth: CGFloat = 560
-
     private static func cardWidth(
         document: PDFDocument?, target: LinkTarget, scale: CGFloat
     ) -> CGFloat {
@@ -105,7 +109,9 @@ final class LinkPeekOverlayIOS: UIView {
         else { return min(360, screen * 0.86) }
         let column = LinkPreview.textColumnBounds(on: page)?.width
             ?? page.bounds(for: .cropBox).width
-        return min(column * scale, screen * 0.92, maxCardWidth)
+        // Text column at book scale + a gutter on each side (centered column),
+        // capped so the card never runs to the screen edges.
+        return min(column * scale + LinkPreview.gutter * 2, screen * 0.94)
     }
 
     private static func previewHeight(remote: Bool) -> CGFloat {
@@ -145,10 +151,10 @@ final class LinkPeekOverlayIOS: UIView {
     // MARK: - Toolbar
 
     private func makeToolbar(splitAxes: [SplitAxis]) -> UIStackView {
-        let open = Self.primaryButton()
+        let open = primaryButton()
         open.addTarget(self, action: #selector(chooseOpen), for: .touchUpInside)
 
-        let newTab = Self.iconButton(systemImage: "plus.rectangle.on.rectangle")
+        let newTab = iconButton(systemImage: "plus.rectangle.on.rectangle")
         newTab.addTarget(self, action: #selector(chooseNewTab), for: .touchUpInside)
 
         let stack = UIStackView(arrangedSubviews: [open, newTab])
@@ -156,7 +162,7 @@ final class LinkPeekOverlayIOS: UIView {
         // top-and-bottom (1x2). iPhone offers only vertical (top/bottom).
         for axis in splitAxes {
             let icon = axis == .vertical ? "rectangle.split.1x2" : "rectangle.split.2x1"
-            let button = Self.iconButton(systemImage: icon)
+            let button = iconButton(systemImage: icon)
             button.addAction(UIAction { [weak self] _ in
                 self?.dismiss { self?.onChoose(.split(axis)) }
             }, for: .touchUpInside)
@@ -164,31 +170,35 @@ final class LinkPeekOverlayIOS: UIView {
         }
         stack.axis = .horizontal
         stack.spacing = 8
-        stack.distribution = .fill
-        open.setContentHuggingPriority(.defaultLow, for: .horizontal)  // Open takes the slack
+        stack.distribution = .fill  // buttons keep natural widths, row is centered
         return stack
     }
 
-    private static func primaryButton() -> UIButton {
+    private func primaryButton() -> UIButton {
         var config = UIButton.Configuration.filled()
         config.title = "Open"
         config.image = UIImage(systemName: "arrow.right")
+        config.baseBackgroundColor = accent       // theme accent
+        config.baseForegroundColor = .white
         config.imagePadding = 6
-        config.cornerStyle = .large
+        config.cornerStyle = .capsule
         config.buttonSize = .large
         let button = UIButton(configuration: config)
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
     }
 
-    private static func iconButton(systemImage: String) -> UIButton {
-        var config = UIButton.Configuration.gray()
+    /// Accent-filled icon button with a white glyph — matches the Open button.
+    private func iconButton(systemImage: String) -> UIButton {
+        var config = UIButton.Configuration.filled()
         config.image = UIImage(systemName: systemImage)
-        config.cornerStyle = .large
+        config.baseBackgroundColor = accent       // theme accent
+        config.baseForegroundColor = .white
+        config.cornerStyle = .capsule
         config.buttonSize = .large
         let button = UIButton(configuration: config)
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.widthAnchor.constraint(equalToConstant: 52).isActive = true
+        button.widthAnchor.constraint(equalToConstant: 54).isActive = true
         return button
     }
 
@@ -204,25 +214,27 @@ final class LinkPeekOverlayIOS: UIView {
 
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
+        let group = contentGroup ?? cardContainer
         backdrop.alpha = 0
-        cardContainer.alpha = 0
-        let dx = anchorPoint.x - cardContainer.center.x
-        let dy = anchorPoint.y - cardContainer.center.y
-        cardContainer.transform = CGAffineTransform(translationX: dx * 0.35, y: dy * 0.35)
+        group.alpha = 0
+        let dx = anchorPoint.x - group.center.x
+        let dy = anchorPoint.y - group.center.y
+        group.transform = CGAffineTransform(translationX: dx * 0.35, y: dy * 0.35)
             .scaledBy(x: 0.86, y: 0.86)
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.82,
                        initialSpringVelocity: 0.5) {
             self.backdrop.alpha = 1
-            self.cardContainer.alpha = 1
-            self.cardContainer.transform = .identity
+            group.alpha = 1
+            group.transform = .identity
         }
     }
 
     private func dismiss(then action: (() -> Void)? = nil) {
+        let group = contentGroup ?? cardContainer
         UIView.animate(withDuration: 0.16, animations: {
             self.backdrop.alpha = 0
-            self.cardContainer.alpha = 0
-            self.cardContainer.transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
+            group.alpha = 0
+            group.transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
         }, completion: { _ in
             self.removeFromSuperview()
             action?()
@@ -240,6 +252,7 @@ extension LinkPeekOverlayIOS: @MainActor UIGestureRecognizerDelegate {
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch
     ) -> Bool {
-        !cardContainer.frame.contains(touch.location(in: self))
+        let group = contentGroup ?? cardContainer
+        return !group.frame.contains(touch.location(in: self))
     }
 }
