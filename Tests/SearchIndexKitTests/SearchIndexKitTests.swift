@@ -320,7 +320,7 @@ private let standardPageTexts = [
 
 // MARK: - OCR fallback (M13b)
 
-@Test func scannedPDFIsNotSearchableWithOCRDisabled() async throws {
+@Test(.requiresScannedPDFSupport) func scannedPDFIsNotSearchableWithOCRDisabled() async throws {
     let dir = try TempDir()
     let file = dir.file("scanned.pdf")
     try makeScannedPDF(at: file, pageTexts: ["scanned page with token qwjzxv"])
@@ -331,7 +331,7 @@ private let standardPageTexts = [
     #expect(result == .notSearchable)
 }
 
-@Test(.requiresVisionOCR) func scannedPDFIsIndexedViaOCR() async throws {
+@Test(.requiresScannedPDFSupport) func scannedPDFIsIndexedViaOCR() async throws {
     let dir = try TempDir()
     let file = dir.file("scanned.pdf")
     try makeScannedPDF(at: file, pageTexts: ["scanned page with token qwjzxv"])
