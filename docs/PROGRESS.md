@@ -657,6 +657,26 @@ below is self-contained.
   uses the macOS crosshair symbols (`scope` / `circle.dashed`) instead of the
   location arrow. **Owner hand-tested drag-to-split on the iPad Pro 13" sim —
   works.** 513 tests green, both schemes build. Shipped as `8a39ae7`.
+- [~] **M16i** Round 7 (2026-07-12, owner feedback): **swipe-to-turn in the
+  non-continuous modes**. With `usePageViewController(false)`, PDFKit only
+  scrolls across a page boundary in the two *continuous* modes; in
+  `.singlePage`/`.twoUp` it snaps one screen and never advances on touch, so
+  pages could only be turned with a hardware keyboard — no gesture worked.
+  Added four `UISwipeGestureRecognizer`s to `ReaderPDFViewIOS` (flick
+  left/up = next, right/down = previous). Three details each mattered:
+  (1) **one recognizer per direction** — a single recognizer with a combined
+  `[.left, .up]` direction mask only fired for one of its directions (left
+  turned the page, up silently didn't). (2) Gated to the paged modes in
+  `gestureRecognizerShouldBegin` (`isPaged`) and whitelisted in
+  `shouldRecognizeSimultaneouslyWith` so PDFKit's own recognizers don't block
+  them. (3) The inner scroll view claims a *vertical* drag for in-page
+  scrolling and cancels the swipe, so its `panGestureRecognizer` now
+  `require(toFail:)`s each page swipe — a fast flick turns the page, a normal
+  (slower) scroll drag fails the swipe instantly and scrolls; harmless in the
+  continuous modes where the swipes are gated off and fail at once.
+  **Simulator-verified 2026-07-12** (iPad Pro 11", single-page): left→677,
+  up→677, down→676 all turn; two-up 661/662→663/664; continuous-mode
+  scrolling unaffected (664→665 drag).
 - [~] **M17** XCUITest smoke suite EXISTS (`App/macOSUITests/`, `BluefoldUITests` target hand-added to the pbxproj + shared scheme). Passing END-TO-END locally: quit-and-relaunch session restore, drag-reorder (real synthesized drag), and the assert-only render smokes (`RenderSmokeUITests`: two-row strip + group header, split view from a restored session). Tear-off and cross-window drag tests are written but locally synthesized input can't drive them reliably (see XCUITest notes below) — they're unit-tested at the state-machine level (`TabStripDragTests`) and left to CI for end-to-end. Run locally with a fresh app bundle ID: `xcodebuild ... test BLUEFOLD_BUNDLE_ID_SUFFIX=.uitest$(date +%s)`; full-suite local runs can degrade mid-run (see XCUITest notes below) — spot-check single tests locally, full passes belong to CI. `VERIFY_UITESTS=1 ./scripts/verify.sh` runs the suite as opt-in step 5. Remaining: CI job B (xcodebuild UI tests + iOS sim build) once the CI hang below is resolved.
 - [~] **M18** code side DONE (2026-07-08): Settings window ⌘, (AppSettings:
   LRU capacity live-applied via SessionCoordinator, indexing + OCR toggles
@@ -807,7 +827,9 @@ destinations/crops before theorizing.
    BLUEFOLD_SESSION_DIR so harnessed launches stay quiet) — shipped in
    v0.2. VERIFIED 2026-07-12 (M16h): iOS drag-to-split (tab chip / sidebar
    section onto a page half, all of L/R/T/B) after the hit-transparent
-   drop-target fix.
+   drop-target fix. VERIFIED 2026-07-12 (M16i): iOS swipe-to-turn in the
+   non-continuous modes — single-page left/right/up/down all turn the page,
+   two-up advances, continuous-mode scrolling unaffected (iPad Pro 11" sim).
 3. After billing: CI job B (XCUITest + iOS sim build) and wire UI tests
    into scripts/verify.sh (M17's CI side).
 4. Then M18 v0.1 remainder: mint Developer ID cert + notary

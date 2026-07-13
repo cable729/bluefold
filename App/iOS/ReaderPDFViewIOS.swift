@@ -35,6 +35,18 @@ final class ReaderPDFViewIOS: PDFView {
 
     private let linkTap = UITapGestureRecognizer()
     private let linkPress = UILongPressGestureRecognizer()
+    /// Swipe-to-turn for the snap-one-screen modes (single page / two-up).
+    /// Those modes never scroll across a page boundary, so PDFKit offers no
+    /// touch way to advance — without these, pages only turn via a hardware
+    /// keyboard. Flick left/up = forward, right/down = back. One recognizer
+    /// per direction: a single recognizer with a combined direction mask
+    /// only fires reliably for one of its directions. Gated to the paged
+    /// modes in `gestureRecognizerShouldBegin` so they never hijack a flick
+    /// in the continuous modes (where the up/down flick belongs to scrolling).
+    private let pageSwipes: [UISwipeGestureRecognizer] = [
+        UISwipeGestureRecognizer(), UISwipeGestureRecognizer(),
+        UISwipeGestureRecognizer(), UISwipeGestureRecognizer(),
+    ]
     /// Chrome show/hide toggle (iPhone). Separate recognizer that never
     /// cancels touches and recognizes alongside PDFKit's own taps — a
     /// touchesEnded override never fired (PDFKit's subviews consume the
@@ -75,6 +87,14 @@ final class ReaderPDFViewIOS: PDFView {
         chromeTap.require(toFail: linkTap)  // links never toggle chrome
         addGestureRecognizer(chromeTap)
 
+        let directions: [UISwipeGestureRecognizer.Direction] = [.left, .right, .up, .down]
+        for (recognizer, direction) in zip(pageSwipes, directions) {
+            recognizer.direction = direction
+            recognizer.addTarget(self, action: #selector(handlePageSwipe(_:)))
+            recognizer.delegate = self
+            addGestureRecognizer(recognizer)
+        }
+
         addInteraction(linkMenu)
 
         // Links are draggable onto the tab strip / split drop zone.
@@ -105,6 +125,17 @@ final class ReaderPDFViewIOS: PDFView {
            observedPans.insert(ObjectIdentifier(scrollView)).inserted {
             scrollView.panGestureRecognizer.addTarget(
                 self, action: #selector(handleScrollPan(_:)))
+            // On a page taller than the viewport the inner scroll view claims
+            // the vertical drag for in-page scrolling and cancels the swipe
+            // before it recognizes — so an up/down flick never turned the
+            // page. Make the scroll pan wait for the page-turn swipes to
+            // fail: a fast straight flick recognizes and turns the page, a
+            // normal (slower) scroll drag fails them instantly and scrolls.
+            // Harmless in the continuous modes, where the swipes are gated
+            // off in gestureRecognizerShouldBegin and fail immediately.
+            for swipe in pageSwipes {
+                scrollView.panGestureRecognizer.require(toFail: swipe)
+            }
         }
         for subview in view.subviews {
             deferOtherTapRecognizers(in: subview)
@@ -121,20 +152,27 @@ final class ReaderPDFViewIOS: PDFView {
             return onContentTap != nil
                 && linkTarget(at: gestureRecognizer.location(in: self)) == nil
         }
+        if pageSwipes.contains(where: { $0 === gestureRecognizer }) {
+            return isPaged
+        }
         guard gestureRecognizer === linkTap || gestureRecognizer === linkPress else {
             return super.gestureRecognizerShouldBegin(gestureRecognizer)
         }
         return linkTarget(at: gestureRecognizer.location(in: self)) != nil
     }
 
-    /// The chrome tap observes without claiming: it must fire alongside
-    /// PDFKit's own taps (selection-clearing etc.), never instead of them.
+    /// The chrome tap and the page swipes observe without claiming: they
+    /// must fire alongside PDFKit's own recognizers, never instead of them.
+    /// PDFKit's inner scroll-view pan would otherwise block the swipe, so a
+    /// horizontal flick would do nothing in the snap-one-screen modes.
     override func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
     ) -> Bool {
-        if gestureRecognizer === chromeTap || other === chromeTap {
-            return true
+        for ours in [chromeTap] + pageSwipes as [UIGestureRecognizer] {
+            if gestureRecognizer === ours || other === ours {
+                return true
+            }
         }
         return super.gestureRecognizer(
             gestureRecognizer, shouldRecognizeSimultaneouslyWith: other)
@@ -203,6 +241,23 @@ final class ReaderPDFViewIOS: PDFView {
 
     @objc private func pageNext() {
         if canGoToNextPage { goToNextPage(nil) }
+    }
+
+    // MARK: - Swipe: turn pages in the snap-one-screen modes
+
+    /// The non-continuous modes, where PDFKit shows a fixed screen of pages
+    /// and never scrolls across a page boundary on its own.
+    private var isPaged: Bool {
+        displayMode == .singlePage || displayMode == .twoUp
+    }
+
+    @objc private func handlePageSwipe(_ recognizer: UISwipeGestureRecognizer) {
+        switch recognizer.direction {
+        case .left, .up:
+            if canGoToNextPage { goToNextPage(nil) }
+        default:  // .right, .down
+            if canGoToPreviousPage { goToPreviousPage(nil) }
+        }
     }
 }
 
