@@ -21,6 +21,7 @@ import Observation
 @MainActor
 public final class AutosaveObserver {
     private let delay: Duration
+    private let clock: any Clock<Duration>
     private let track: () -> Void
     private let save: () -> Void
     private var pending: Task<Void, Never>?
@@ -30,14 +31,19 @@ public final class AutosaveObserver {
 
     /// - Parameters:
     ///   - delay: how long to coalesce mutations before writing (default 1s).
+    ///   - clock: the clock the debounce sleeps on; defaults to the continuous
+    ///     clock. Injectable so tests can substitute a `TestClock` and drive the
+    ///     debounce deterministically instead of racing real time.
     ///   - track: reads the observable state to watch.
     ///   - save: performs the write. Always invoked on the main actor.
     public init(
         delay: Duration = .seconds(1),
+        clock: any Clock<Duration> = ContinuousClock(),
         track: @escaping () -> Void,
         save: @escaping () -> Void
     ) {
         self.delay = delay
+        self.clock = clock
         self.track = track
         self.save = save
     }
@@ -68,7 +74,7 @@ public final class AutosaveObserver {
         pending?.cancel()
         pending = Task { @MainActor [weak self] in
             guard let self else { return }
-            try? await Task.sleep(for: self.delay)
+            try? await self.clock.sleep(for: self.delay)
             guard !Task.isCancelled else { return }
             self.pending = nil
             self.save()
