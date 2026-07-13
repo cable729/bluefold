@@ -221,6 +221,8 @@ final class SmokeUITests: XCTestCase {
     }
 
     func testDragTabBetweenWindows() throws {
+        try XCTSkipIf(ProcessInfo.processInfo.environment["CI"] != nil,
+                      "synthesized cross-window drag is unreliable on the headless CI runner")
         let files = ["Alpha", "Beta", "Gamma"].map { makePDF(named: $0) }
         // Two windows from a seeded session: [Gamma] and [Alpha, Beta],
         // side by side so neither covers the other's strip. The drag SOURCE

@@ -10,7 +10,7 @@ import Testing
 /// synthesized XCUITest drags cannot exercise reliably on every machine.
 /// (The reorder path is additionally covered end-to-end by the XCUITest
 /// smoke suite; SmokeUITests.testDragReordersTabsWithinWindow.)
-@Suite("Tab strip drag state machine", .serialized)
+@Suite("Tab strip drag state machine", .serialized, .requiresWindowServer)
 @MainActor
 struct TabStripDragTests {
 

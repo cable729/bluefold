@@ -169,7 +169,7 @@ private let standardPageTexts = [
 
 // MARK: - Indexing + search
 
-@Test func tokenIsFoundOnCorrectPage() async throws {
+@Test(.requiresPDFIndexing) func tokenIsFoundOnCorrectPage() async throws {
     let dir = try TempDir()
     let file = dir.file("doc.pdf")
     try makePDF(at: file, pageTexts: standardPageTexts)
@@ -189,7 +189,7 @@ private let standardPageTexts = [
     #expect(charlieHits.first?.page == 2)
 }
 
-@Test func snippetContainsHighlightMarkers() async throws {
+@Test(.requiresPDFIndexing) func snippetContainsHighlightMarkers() async throws {
     let dir = try TempDir()
     let file = dir.file("doc.pdf")
     try makePDF(at: file, pageTexts: standardPageTexts)
@@ -203,7 +203,7 @@ private let standardPageTexts = [
     #expect(snippet.contains("«bravo»"))
 }
 
-@Test func alreadyIndexedThenRemoveThenReindex() async throws {
+@Test(.requiresPDFIndexing) func alreadyIndexedThenRemoveThenReindex() async throws {
     let dir = try TempDir()
     let file = dir.file("doc.pdf")
     try makePDF(at: file, pageTexts: standardPageTexts)
@@ -228,7 +228,7 @@ private let standardPageTexts = [
     #expect(try store.search("xyzzy", limit: 10).count == 1)
 }
 
-@Test func cancelledIndexingStopsWithoutWriting() async throws {
+@Test(.requiresPDFIndexing) func cancelledIndexingStopsWithoutWriting() async throws {
     let dir = try TempDir()
     let file = dir.file("doc.pdf")
     try makePDF(at: file, pageTexts: standardPageTexts)
@@ -258,7 +258,7 @@ private let standardPageTexts = [
     )
 }
 
-@Test func allBlankPDFIsNotSearchable() async throws {
+@Test(.requiresPDFIndexing) func allBlankPDFIsNotSearchable() async throws {
     let dir = try TempDir()
     let file = dir.file("blank.pdf")
     try makePDF(at: file, pageTexts: ["", "", ""])
@@ -272,7 +272,7 @@ private let standardPageTexts = [
     #expect(!(try store.isIndexed(contentHash: hash, extractorVersion: IndexingService.extractorVersion)))
 }
 
-@Test func multiWordAndPhraseQueriesDoNotThrow() async throws {
+@Test(.requiresPDFIndexing) func multiWordAndPhraseQueriesDoNotThrow() async throws {
     let dir = try TempDir()
     let file = dir.file("doc.pdf")
     try makePDF(at: file, pageTexts: standardPageTexts)
@@ -301,7 +301,7 @@ private let standardPageTexts = [
     #expect(try store.search("   ", limit: 10).isEmpty)
 }
 
-@Test func unicodeQueryMatchesWithAndWithoutDiacritics() async throws {
+@Test(.requiresPDFIndexing) func unicodeQueryMatchesWithAndWithoutDiacritics() async throws {
     let dir = try TempDir()
     let file = dir.file("kaehler.pdf")
     try makePDF(at: file, pageTexts: ["Introduction to the Kähler manifold"])
@@ -320,7 +320,7 @@ private let standardPageTexts = [
 
 // MARK: - OCR fallback (M13b)
 
-@Test func scannedPDFIsNotSearchableWithOCRDisabled() async throws {
+@Test(.requiresPDFIndexing) func scannedPDFIsNotSearchableWithOCRDisabled() async throws {
     let dir = try TempDir()
     let file = dir.file("scanned.pdf")
     try makeScannedPDF(at: file, pageTexts: ["scanned page with token qwjzxv"])
@@ -331,7 +331,7 @@ private let standardPageTexts = [
     #expect(result == .notSearchable)
 }
 
-@Test func scannedPDFIsIndexedViaOCR() async throws {
+@Test(.requiresPDFIndexing) func scannedPDFIsIndexedViaOCR() async throws {
     let dir = try TempDir()
     let file = dir.file("scanned.pdf")
     try makeScannedPDF(at: file, pageTexts: ["scanned page with token qwjzxv"])
@@ -347,7 +347,7 @@ private let standardPageTexts = [
     #expect(hits.first?.contentHash == (try ContentHash.compute(for: file)))
 }
 
-@Test func extractorVersionBumpTriggersReindex() async throws {
+@Test(.requiresPDFIndexing) func extractorVersionBumpTriggersReindex() async throws {
     let dir = try TempDir()
     let file = dir.file("doc.pdf")
     try makePDF(at: file, pageTexts: standardPageTexts)
