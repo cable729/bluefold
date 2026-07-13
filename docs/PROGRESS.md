@@ -695,6 +695,26 @@ below is self-contained.
   (refuses unnotarized DMGs via `stapler validate`); docs/RELEASING.md is
   the runbook. Still open: README/site screenshots, Gatekeeper spot-check
   on a second Mac, release workflow secrets for CI releases (optional).
+- [~] **M19** Session-persistence hardening (2026-07-12, owner): the iOS
+  session now autosaves ~1s after any change (tabs, active tab, split layout,
+  scroll position) via a re-arming `withObservationTracking` + a cancelable
+  debounce — `AutosaveObserver` in ReaderCore, driven by the state
+  `ReaderSessionModel.save()`'s snapshot reads, `AutosaveObserverTests` (7)
+  green under `swift test`. So an in-progress session survives an ABRUPT kill
+  (SIGKILL from Xcode Stop, a jetsam kill, a crash) — the M16-era code flushed
+  only on the clean scenePhase `.inactive`/`.background`, which a SIGKILL
+  skips, so a relaunch reverted to the last cleanly-backgrounded snapshot.
+  Extracted the mechanism (rather than sprinkling `save()` across ~15 mutation
+  methods) so a nested `tabs[i].pageIndex` scroll write still trips the array
+  observation — the test that guards it. **Simulator-verified 2026-07-12**
+  (iPhone 17 Pro + iPad Pro 11"): open/rearrange → `simctl terminate`
+  (SIGKILL) → relaunch, session.json byte-identical and restored. Reader UI
+  prefs now persist via the UserDefaults/`@AppStorage` convention (ThemeStore
+  pattern): chrome **UI lock**, **sidebar mode** (Contents/Bookmarks; a stale
+  Find coerces to Contents), and **sidebar follow-scroll** (now shared between
+  the iPad panel and iPhone sheet). Newly opened books always start in
+  single-page continuous. Closes the M16c-deferred "reading-state persistence
+  on iOS / sidebar follow-mode toggle" items.
 
 ## ⚠️ CI: BLOCKED ON BILLING; underlying deadlock diagnosed but not yet pinpointed (2026-07-08)
 Chronology of findings, most important first:

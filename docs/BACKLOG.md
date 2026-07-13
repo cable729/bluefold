@@ -45,6 +45,15 @@ the repo goes public.
   tightened to a flush hairline + floating grab handle (no gap band), and
   the sidebar follow-section icon switched to the macOS crosshair
   (`scope` / `circle.dashed`). Owner hand-tested drag-to-split — works.
+  **Session & settings persistence DONE 2026-07-12** (M19): the iOS session
+  autosaves ~1s after any change (new `AutosaveObserver` in ReaderCore +
+  tests), so it survives a SIGKILL / jetsam / crash — not only the clean
+  scenePhase `.background` flush. Reader prefs persist via
+  UserDefaults/`@AppStorage`: chrome UI lock, sidebar mode, sidebar
+  follow-scroll (shared iPad panel ↔ iPhone sheet); new books always open
+  single-page continuous. Clears the deferred "reading-state persistence /
+  sidebar follow-mode toggle" items above. Simulator-verified (iPhone 17 Pro
+  + iPad Pro 11": kill-relaunch keeps session.json byte-identical).
 - **Split 2-D grid (desktop) — NOT STARTED.** Owner wants desktop to split
   left/right AND top/bottom at the SAME time (a 2×2 / quadrant layout).
   Today the model is one primary + one secondary pane (single axis); this
