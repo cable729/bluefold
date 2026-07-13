@@ -56,6 +56,12 @@ final class LinkPreviewPanel: NSPanel {
     /// of the pointer drives it (mouse-moved events don't reach a non-key
     /// window reliably); geometry, not a time grace.
     private var pollTimer: Timer?
+    /// Local monitor that dismisses the peek the moment the user scrolls the
+    /// main reader (or anything else in the app). Scrolling INSIDE the preview
+    /// keeps it open so the target can be read — a `PDFView` swallows its own
+    /// scroll in its inner scroll view, so the reader's `scrollWheel` never sees
+    /// it and can't drive this; a monitor catches every scroll app-wide.
+    private var scrollMonitor: Any?
     private var linkScreenRect: NSRect = .zero
     private static let safePadding: CGFloat = 4
 
@@ -196,6 +202,7 @@ final class LinkPreviewPanel: NSPanel {
         linkScreenRect = anchorScreenRect
         installTracking()
         startPoll()
+        startScrollDismiss()
         // Scroll to the destination once the view has taken its frame.
         DispatchQueue.main.async { [weak self] in
             guard let self, let document = self.shownDocument, let target = self.shownTarget
@@ -221,8 +228,28 @@ final class LinkPreviewPanel: NSPanel {
         pollTimer = nil
     }
 
+    /// Dismiss on the first scroll anywhere but inside the preview itself.
+    private func startScrollDismiss() {
+        stopScrollDismiss()
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self, self.panelShown else { return }
+                // `event.window` is the panel only when the pointer is over the
+                // preview (scrolling to read the target) — keep it open then.
+                if event.window !== self { self.hideNow() }
+            }
+            return event
+        }
+    }
+
+    private func stopScrollDismiss() {
+        if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
+        scrollMonitor = nil
+    }
+
     func hideNow() {
         stopPoll()
+        stopScrollDismiss()
         parent?.removeChildWindow(self)
         orderOut(nil)
         shownTarget = nil
