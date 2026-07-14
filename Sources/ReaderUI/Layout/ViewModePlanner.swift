@@ -308,6 +308,112 @@ public enum ViewModePlanner {
         )
     }
 
+    // MARK: SIZE-1..SIZE-5 — different-size pages
+
+    /// Which slot of a two-up spread a page occupies. The GEOMETRIC side is what
+    /// matters for alignment (independent of `rtl`, which only swaps which
+    /// content page lands in which slot): the `.left` slot's spine is on its
+    /// RIGHT, the `.right` slot's spine on its LEFT.
+    public enum SpreadSide: Sendable { case left, right }
+
+    /// Vertical alignment of a page's content within its uniform two-up cell.
+    ///
+    /// OWNER-CONFIRM: SIZE-3 and SIZE-4 both use `.center` for now — the safe,
+    /// symmetric reading of "aligned toward the middle". The vertical choice is
+    /// ISOLATED here so switching SIZE-3 (double fixed) to `.bottom`/`.top`
+    /// later, once the owner confirms the exact alignment against a diagram, is a
+    /// one-line change at the `twoUpBoxOverrides` / applier call site.
+    public enum CellVAlign: Sendable { case center, bottom, top }
+
+    /// SIZE-3/4/5 — the enlarged page box that makes a mixed-size page fill a
+    /// uniform two-up `cell` by BLANK PADDING (docs/PDFKIT-FACTS.md Fact 3),
+    /// keeping the content at natural size (never scaled — SIZE-5), flush toward
+    /// the spine horizontally and per `vAlign` vertically. PURE rect arithmetic.
+    ///
+    /// Horizontal (spine-ward): `.left` slot ⇒ content flush RIGHT
+    /// (`box.minX = content.maxX − cell.w`); `.right` slot ⇒ content flush LEFT
+    /// (`box.minX = content.minX`). Vertical: `.center` splits the slack;
+    /// `.bottom` pins the content's bottom edge; `.top` pins its top edge. The
+    /// box keeps `cell`'s size; the content sits inside as an off-center sub-rect.
+    ///
+    /// Enlarge-only: callers pass `cell` ≥ `content` (the spread/document max),
+    /// so the box always CONTAINS the content — nothing is clipped. `PageBoxStore`
+    /// enforces this again as a cover guard.
+    public static func cellBox(
+        content: CGRect, cell: CGSize, side: SpreadSide, vAlign: CellVAlign
+    ) -> CGRect {
+        let minX: CGFloat
+        switch side {
+        case .left:  minX = content.maxX - cell.width      // content flush right
+        case .right: minX = content.minX                   // content flush left
+        }
+        let minY: CGFloat
+        switch vAlign {
+        case .center: minY = content.minY - (cell.height - content.height) / 2
+        case .bottom: minY = content.minY                  // content flush bottom
+        case .top:    minY = content.maxY - cell.height    // content flush top
+        }
+        return CGRect(x: minX, y: minY, width: cell.width, height: cell.height)
+    }
+
+    /// SIZE-3/4 — the in-memory box overrides that align an entire document's
+    /// pages for two-up. Every cell is the DOCUMENT-wide max content size
+    /// (`spreadCell`) so every column is identical and every spread abuts its
+    /// central gutter regardless of per-page size; each page's content is placed
+    /// spine-ward + per `vAlign`. `pageContents[i]` is page i's ORIGINAL box (page
+    /// space); `layout` decides each page's slot (which side of its spread).
+    /// PURE — the caller applies the result through `PageBoxStore`.
+    public static func twoUpBoxOverrides(
+        pageContents: [CGRect], layout: BookLayout, vAlign: CellVAlign
+    ) -> [Int: CGRect] {
+        guard !pageContents.isEmpty else { return [:] }
+        let cell = spreadCell(contents: pageContents)
+        var map: [Int: CGRect] = [:]
+        for index in pageContents.indices {
+            let p = pair(containing: index, layout: layout)
+            let side: SpreadSide = (p.left == index) ? .left : .right
+            map[index] = cellBox(
+                content: pageContents[index], cell: cell, side: side, vAlign: vAlign)
+        }
+        return map
+    }
+
+    /// The uniform cell size for a set of pages: the max content width and height
+    /// (enlarge-only — the cell is never smaller than any page in either axis).
+    public static func spreadCell(contents: [CGRect]) -> CGSize {
+        var w: CGFloat = 0
+        var h: CGFloat = 0
+        for c in contents {
+            w = max(w, c.width)
+            h = max(h, c.height)
+        }
+        return CGSize(width: w, height: h)
+    }
+
+    /// SIZE-1/2 — the fit scale for a SINGLE mode comes from the CURRENT page
+    /// only, NEVER the document-widest page (regression against the autoScales
+    /// "fit the widest page" bug): `.singleFixed` → whole-page fit;
+    /// `.singleContinuous` → width fit. Two-up modes don't use this (they fit the
+    /// uniform cell, not a single page).
+    public static func singlePageScale(
+        mode: ViewMode, viewport: CGSize, currentPageSize: CGSize
+    ) -> CGFloat {
+        switch mode {
+        case .singleFixed:
+            return fixedFitScale(
+                viewport: viewport, pageSize: currentPageSize, margin: ReaderLayout.margin)
+        case .singleContinuous:
+            return widthFitScale(
+                viewportWidth: viewport.width, pageWidth: currentPageSize.width,
+                margin: ReaderLayout.margin)
+        case .doubleFixed, .doubleContinuous:
+            // Two-up fit uses the uniform cell width, not a lone page.
+            return twoUpWidthFitScale(
+                viewportWidth: viewport.width, pageWidth: currentPageSize.width,
+                margin: ReaderLayout.margin)
+        }
+    }
+
     /// Which axis a fit button fills. `width` fills the viewport width leaving
     /// M left/right (FIT-1); `height` fits `pageH·scale + 2M == viewportH`
     /// (FIT-2).

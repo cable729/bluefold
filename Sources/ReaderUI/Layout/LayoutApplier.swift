@@ -78,6 +78,31 @@ public enum LayoutApplier {
         }
     }
 
+    /// SIZE-1 — re-fit the CURRENT page of a single-FIXED view to its OWN
+    /// whole-page standard fit (margins ≥ M). Because pages differ in size and a
+    /// PDFView applies ONE `scaleFactor`, the fit must be recomputed from the
+    /// page that just became current — the Coordinator reuses its
+    /// `PDFViewPageChanged` observer to call this. No-op unless the view is in
+    /// single-page (fixed) mode. Returns the scale it set (nil if it didn't act)
+    /// for tests/logs.
+    @discardableResult
+    @MainActor
+    public static func refitSingleFixed(_ view: PDFView, log: AppLogger) -> CGFloat? {
+        guard view.displayMode == .singlePage, let page = view.currentPage else { return nil }
+        let pageSize = page.bounds(for: view.displayBox).size
+        let scale = ViewModePlanner.singlePageScale(
+            mode: .singleFixed, viewport: view.bounds.size, currentPageSize: pageSize)
+        view.autoScales = false
+        view.scaleFactor = scale
+        view.layoutDocumentView()
+        log.debug(
+            .layout,
+            "refitSingleFixed page=\(view.document?.index(for: page) ?? -1) "
+                + "pageSize=\(pageSize) vp=\(view.bounds.size) → scale=\(scale)"
+        )
+        return scale
+    }
+
     /// Applies a `ModeTransition` (mode button / mode switch — VM-1..4,
     /// SW-1..5) with the rewind pattern (docs/PDFKIT-FACTS.md): a display-mode
     /// change loses scroll position, so we set the new mode + scale + margins,

@@ -48,11 +48,11 @@ single/double × fixed/continuous (PDFDisplayMode raw 0–3).
 
 ## Different-size pages
 
-- SIZE-1 (PENDING) single fixed: every page centered both axes, margins ≥ M
-- SIZE-2 (PENDING) single continuous: zoom from current page only; others keep it (overflow clips / smaller pages get bigger margins)
-- SIZE-3 (PENDING) double fixed: pages align toward the middle (top-left page → bottom-right of its cell, etc.)
-- SIZE-4 (PENDING) double continuous: same, vertically center-aligned (top-left page → right-center of cell)
-- SIZE-5 (PENDING) double modes: pages full-size, small pages never over-zoomed
+- SIZE-1 single fixed: every page centered both axes, margins ≥ M
+- SIZE-2 single continuous: zoom from current page only; others keep it (overflow clips / smaller pages get bigger margins)
+- SIZE-3 double fixed: pages align toward the middle (top-left page → bottom-right of its cell, etc.)
+- SIZE-4 double continuous: same, vertically center-aligned (top-left page → right-center of cell)
+- SIZE-5 double modes: pages full-size, small pages never over-zoomed
 
 ## Trim margins (a real crop, orthogonal to zoom)
 

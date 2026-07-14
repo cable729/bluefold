@@ -133,6 +133,9 @@ struct ActivePDFView: NSViewRepresentable {
     static func dismantleNSView(_ view: ReaderPDFView, coordinator: Coordinator) {
         view.cancelLinkHover()
         coordinator.captureNow()
+        // Revert any two-up box overrides so the shared in-memory document is
+        // restored to its original page boxes (never persisted).
+        coordinator.revertPageBoxes()
         if coordinator.model?.primaryController === coordinator {
             coordinator.model?.primaryController = nil
         }
@@ -154,6 +157,10 @@ struct ActivePDFView: NSViewRepresentable {
         @Dependency(\.appLogger) private var log
         /// Strong: PDFView holds its overlay provider weakly.
         var anchorProvider: AnchorOverlayProvider?
+        /// In-memory page-box overrides for two-up alignment of different-size
+        /// pages (SIZE-3/4). Applied on entering a two-up mode, reverted on
+        /// leaving it or on teardown — never writes the file (Calibre read-only).
+        private let pageBoxStore = PageBoxStore()
         // nonisolated(unsafe): written on main; read in deinit.
         private nonisolated(unsafe) var pageObserver: NSObjectProtocol?
         private nonisolated(unsafe) var scrollObserver: NSObjectProtocol?
@@ -193,6 +200,11 @@ struct ActivePDFView: NSViewRepresentable {
                         tabID: self.tabID,
                         pageIndex: document.index(for: page)
                     )
+                    // SIZE-1: single fixed applies ONE scaleFactor, but pages
+                    // differ in size — re-fit the page that just became current
+                    // so it stays centered with margins ≥ M (no-op in other
+                    // modes).
+                    LayoutApplier.refitSingleFixed(view, log: self.log)
                 }
             }
         }
@@ -310,11 +322,21 @@ struct ActivePDFView: NSViewRepresentable {
                 return
             }
             let currentIndex = document.index(for: page)
-            let pageSize = page.bounds(for: view.displayBox).size
             // The document's own even/odd pairing (from its /PageLayout
             // catalog entry) drives the spread anchor and the live book/RTL
             // flags (VM-5/VM-6).
             let bookLayout = ViewModePlanner.bookLayout(of: document)
+            // SIZE-3/4: entering a two-up mode enlarges every page to a uniform
+            // cell (blank padding, content spine-ward) so mixed-size spreads
+            // abut the central gutter; leaving two-up reverts to the raw boxes.
+            // Apply/revert BEFORE reading pageSize so the transition's two-up fit
+            // is computed from the uniform cell (== currentPage box once applied).
+            if to.isTwoUp {
+                applyTwoUpBoxes(to: document, layout: bookLayout)
+            } else if from.isTwoUp {
+                pageBoxStore.revert(document: document)
+            }
+            let pageSize = page.bounds(for: view.displayBox).size
             let transition = ViewModePlanner.transition(
                 from: from, to: to,
                 currentPageIndex: currentIndex, currentScale: view.scaleFactor,
@@ -328,6 +350,33 @@ struct ActivePDFView: NSViewRepresentable {
                     + "target=\(transition.targetPageIndex) anchor=\(transition.scrollAnchor)"
             )
             LayoutApplier.apply(transition, to: view, log: log)
+        }
+
+        /// SIZE-3/4 — enlarge every page to the document's uniform cell so a
+        /// two-up spread abuts its central gutter regardless of per-page size,
+        /// aligning each page's content spine-ward and vertically centered
+        /// (`.center`; the OWNER-CONFIRM point lives in `ViewModePlanner`). The
+        /// overrides are in-memory only (`PageBoxStore` never writes the file).
+        private func applyTwoUpBoxes(to document: PDFDocument, layout: BookLayout) {
+            let contents = (0..<document.pageCount).map {
+                document.page(at: $0)?.bounds(for: .cropBox) ?? .zero
+            }
+            let overrides = ViewModePlanner.twoUpBoxOverrides(
+                pageContents: contents, layout: layout, vAlign: .center)
+            pageBoxStore.apply(overrides: overrides, to: document)
+            log.debug(
+                .viewmode,
+                "applyTwoUpBoxes pages=\(document.pageCount) "
+                    + "cell=\(ViewModePlanner.spreadCell(contents: contents))"
+            )
+        }
+
+        /// Reverts any two-up box overrides — called when leaving two-up and on
+        /// teardown so the shared in-memory document is left in its original box
+        /// state.
+        func revertPageBoxes() {
+            guard let document = view?.document, pageBoxStore.isActive else { return }
+            pageBoxStore.revert(document: document)
         }
 
         /// FIT-1 — fit the current page to the viewport width within the current
