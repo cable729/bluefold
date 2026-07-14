@@ -274,6 +274,15 @@ struct ActivePDFView: NSViewRepresentable {
             }
         }
 
+        /// Realizes a standard-fit `LayoutPlan` (from `ViewModePlanner`) on the
+        /// live view: page-break insets, explicit scale, deferred re-centering.
+        /// Toolbar/button wiring stays in a later phase — this is the applier
+        /// those callers will route through.
+        func applyLayoutPlan(_ plan: LayoutPlan) {
+            guard let view else { return }
+            LayoutApplier.apply(plan, to: view, log: log)
+        }
+
         func apply(displayModeRaw: Int) {
             guard let view else { return }
             let before = view.displayMode.rawValue

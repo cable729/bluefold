@@ -16,10 +16,10 @@ single/double × fixed/continuous (PDFDisplayMode raw 0–3).
 
 ## Margin (uniform M)
 
-- M-1 (PENDING) two-page continuous: vertical row gap == horizontal page gap == M
-- M-2 (PENDING) two-page fixed: gap between the two pages == M
-- M-3 (PENDING) fixed modes (1- and 2-page): margin above and below page == M
-- M-4 (PENDING) fit width: left/right margins == M; fit height: top/bottom == M
+- M-1 two-page continuous: vertical row gap == horizontal page gap == M
+- M-2 two-page fixed: gap between the two pages == M
+- M-3 fixed modes (1- and 2-page): margin above and below page == M
+- M-4 fit width: left/right margins == M; fit height: top/bottom == M
 
 ## Mode buttons (entry behavior)
 
