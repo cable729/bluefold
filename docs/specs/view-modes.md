@@ -23,18 +23,18 @@ single/double × fixed/continuous (PDFDisplayMode raw 0–3).
 
 ## Mode buttons (entry behavior)
 
-- VM-1 (PENDING) single fixed: page centered, M all around, same page as before
-- VM-2 (PENDING) single continuous: zoom from current page (viewportW = pageW·s + 2M), centered, y-scroll unchanged
-- VM-3 (PENDING) double fixed: spread centered, M around and between, same page kept, even/odd placement
-- VM-4 (PENDING) double continuous: M between pages both axes, even/odd placement, y-scroll unchanged
+- VM-1 single fixed: page centered, M all around, same page as before
+- VM-2 single continuous: zoom from current page (viewportW = pageW·s + 2M), centered, y-scroll unchanged
+- VM-3 double fixed: spread centered, M around and between, same page kept, even/odd placement
+- VM-4 double continuous: M between pages both axes, even/odd placement, y-scroll unchanged
 
 ## Mode switches
 
-- SW-1 (PENDING) single→double→single (and inverse) returns the viewport to the same place after two switches
-- SW-2 (PENDING) double→single: page's on-screen width = the spread's former on-screen width (2×page + M); lands on former top-left page
-- SW-3 (PENDING) single→double: current page takes its even/odd slot top row; scroll to its top with margin M
-- SW-4 (PENDING) single→double with viewport too wide for a full page: keep left page scrolled where the user was
-- SW-5 (PENDING) mode switches reset non-standard zoom/pan to the target standard; pan/zoom never persisted per-mode
+- SW-1 single→double→single (and inverse) returns the viewport to the same place after two switches
+- SW-2 double→single: page's on-screen width = the spread's former on-screen width (2×page + M); lands on former top-left page
+- SW-3 single→double: current page takes its even/odd slot top row; scroll to its top with margin M
+- SW-4 single→double with viewport too wide for a full page: keep left page scrolled where the user was
+- SW-5 mode switches reset non-standard zoom/pan to the target standard; pan/zoom never persisted per-mode
 
 ## Fit buttons
 

@@ -182,5 +182,70 @@ import Testing
                 "page not fitted to height: \(onScreenH)")
         #expect(abs(topGap - bottomGap) <= 1.5, "page not vertically centered")
     }
+
+    /// SW-3 (live) — single→double continuous through the applier: the pair's
+    /// top-left page must land with its top exactly M below the viewport top,
+    /// and STAY there past PDFKit's late relayout pass (the whole point of the
+    /// rewind). Proves the pure `pageTopMargin` anchor resolves to a concrete
+    /// clip origin the applier can hold.
+    ///
+    /// GIVEN 12 pages 400×600 in an 824×1000 viewport, singlePageContinuous at a
+    ///   known scale, showing page 5 (a MID-document row, so a full viewport of
+    ///   content sits below it and the row CAN be scrolled to the top — the last
+    ///   rows bottom out against the document end and cannot).
+    /// WHEN transition(singleContinuous → doubleContinuous, page 5) is applied:
+    ///   twoUpWidthFit = (824-24)/800 = 1.0; pageH·scale = 600 ≤ 1000 (full page
+    ///   fits) → anchor = pageTopMargin(leftIndex = (5/2)*2 = 4).
+    /// THEN after settling 8 turns, page 4's on-screen top gap ≈ M (≤2pt), the
+    ///   current page is the pair (4 or 5), and the clip origin did not drift
+    ///   between the immediate and the settled reads (rewind held).
+    @Test func sw3_live_singleToDouble_landsPageTopAtMargin_andHolds() {
+        let m = ReaderLayout.margin
+        let doc = PDFKitProbe.makeDocument(
+            pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 12))
+        let (view, _) = PDFKitProbe.makeView(
+            document: doc, viewport: CGSize(width: 824, height: 1000),
+            mode: .singlePageContinuous)
+        view.autoScales = false
+        view.scaleFactor = 2.02                 // singleContinuous width fit
+        view.go(to: doc.page(at: 5)!)
+        PDFKitProbe.settle()
+
+        let transition = ViewModePlanner.transition(
+            from: .singleContinuous, to: .doubleContinuous,
+            currentPageIndex: 5, currentScale: view.scaleFactor,
+            viewport: view.bounds.size,
+            pageSize: doc.page(at: 5)!.bounds(for: view.displayBox).size)
+        #expect(transition.scaleFactor == 1.0)
+        #expect(transition.targetPageIndex == 4)
+        #expect(transition.scrollAnchor == .pageTopMargin(pageIndex: 4))
+
+        let clip = PDFKitProbe.scrollView(in: view)!.contentView
+        let box = CapturedLogs()
+        withDependencies { $0.appLogger = .captured(into: box) } operation: {
+            LayoutApplier.apply(transition, to: view, log: AppLogger.captured(into: box))
+        }
+        let immediateOriginY = clip.bounds.origin.y
+        PDFKitProbe.settle(8)                   // past PDFKit's late relayout pass
+        let settledOriginY = clip.bounds.origin.y
+
+        let page4 = doc.page(at: 4)!
+        let rect = view.convert(page4.bounds(for: view.displayBox), from: page4)
+        let topGap = view.bounds.height - rect.maxY
+        let currentIndex = doc.index(for: view.currentPage!)
+        print("PROBE sw3 live: scale=\(view.scaleFactor) topGap=\(topGap) " +
+              "immediateY=\(immediateOriginY) settledY=\(settledOriginY) " +
+              "currentIndex=\(currentIndex) (expect topGap ≈ \(m), pair 4/5)")
+
+        #expect(abs(view.scaleFactor - 1.0) <= 0.001)
+        #expect(abs(topGap - m) <= 2.0,
+                "page-4 top not at margin M: topGap=\(topGap)")
+        #expect(currentIndex == 4 || currentIndex == 5,
+                "did not land on the pair: currentIndex=\(currentIndex)")
+        #expect(abs(settledOriginY - immediateOriginY) <= 1.0,
+                "clip drifted after relayout (rewind failed): \(immediateOriginY) → \(settledOriginY)")
+        #expect(!box.messages(.viewmode).isEmpty,
+                "applier did not instrument via .viewmode")
+    }
 }
 #endif

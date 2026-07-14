@@ -283,16 +283,46 @@ struct ActivePDFView: NSViewRepresentable {
             LayoutApplier.apply(plan, to: view, log: log)
         }
 
+        /// Applies a view-mode button / mode switch (VM-1..4, SW-1..5): builds
+        /// a pure `ModeTransition` from the LIVE state (current mode, page,
+        /// scale, viewport, page size) and hands it to the applier, which
+        /// realizes the destination fit + margins and lands the reading
+        /// position with the rewind pattern. Non-standard zoom/pan is not
+        /// persisted per mode (SW-5) — the transition targets are standard.
         func apply(displayModeRaw: Int) {
             guard let view else { return }
             let before = view.displayMode.rawValue
-            view.displayMode = PDFDisplayMode(rawValue: displayModeRaw) ?? .singlePageContinuous
+            guard
+                let document = view.document,
+                let from = ViewMode(displayModeRaw: before),
+                let to = ViewMode(displayModeRaw: displayModeRaw),
+                let page = view.currentPage
+            else {
+                // No live geometry yet (no document/page): fall back to a plain
+                // display-mode set so the mode still changes.
+                view.displayMode = PDFDisplayMode(rawValue: displayModeRaw)
+                    ?? .singlePageContinuous
+                log.debug(
+                    .viewmode,
+                    "apply displayMode \(before)→\(view.displayMode.rawValue) "
+                        + "(no live geometry; plain set)"
+                )
+                return
+            }
+            let currentIndex = document.index(for: page)
+            let pageSize = page.bounds(for: view.displayBox).size
+            let transition = ViewModePlanner.transition(
+                from: from, to: to,
+                currentPageIndex: currentIndex, currentScale: view.scaleFactor,
+                viewport: view.bounds.size, pageSize: pageSize)
             log.debug(
                 .viewmode,
-                "apply displayMode \(before)→\(view.displayMode.rawValue) "
-                    + "vp=\(view.bounds.size) scale=\(view.scaleFactor) "
-                    + "autoScales=\(view.autoScales)"
+                "apply displayMode \(before)→\(displayModeRaw) page=\(currentIndex) "
+                    + "vp=\(view.bounds.size) pageSize=\(pageSize) "
+                    + "liveScale=\(view.scaleFactor) → transition scale=\(transition.scaleFactor) "
+                    + "target=\(transition.targetPageIndex) anchor=\(transition.scrollAnchor)"
             )
+            LayoutApplier.apply(transition, to: view, log: log)
         }
 
         /// FIT-1 — fit the current page to the viewport width within the current

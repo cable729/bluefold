@@ -23,6 +23,53 @@ public struct LayoutPlan: Equatable, Sendable {
     }
 }
 
+/// Where a `ModeTransition` parks the reading position after the switch. The
+/// applier resolves this into a concrete clip origin from live documentView
+/// geometry (docs/PDFKIT-FACTS.md: non-flipped documentView, page-point scroll
+/// offset) — the pure planner only names the intent.
+public enum ScrollAnchor: Equatable, Sendable {
+    /// Scroll so `pageIndex`'s top edge sits exactly `ReaderLayout.margin` below
+    /// the viewport top. In a fixed mode where the page fits, PDFKit's own
+    /// centering wins (there is no scroll slack), so this reads as "centered".
+    case pageTopMargin(pageIndex: Int)
+    /// Keep the current clip-origin y — the reading position must not jump
+    /// (VM-2/VM-4 continuous entry, SW-4 too-wide single→double).
+    case preserveY
+}
+
+/// The decision a mode switch resolves to: the destination PDFView settings PLUS
+/// where to land the reading position. PURE data (like `LayoutPlan`) — computed
+/// with no live view, so the transition math is unit-testable to the number.
+///
+/// `pageBreakMarginInset` renders the between-page gap as `ReaderLayout.margin`
+/// at `scaleFactor` (see `ViewModePlanner.marginInset`); `targetPageIndex` is
+/// the page PDFKit should make current; `scrollAnchor` is the post-relayout
+/// scroll intent the applier realizes with the rewind pattern.
+public struct ModeTransition: Equatable, Sendable {
+    /// `PDFDisplayMode` raw value (== destination `ViewMode.displayModeRaw`).
+    public var displayMode: Int
+    /// The explicit `scaleFactor` to set (with `autoScales = false`).
+    public var scaleFactor: CGFloat
+    /// Symmetric per-side `pageBreakMargins` inset, in PAGE POINTS.
+    public var pageBreakMarginInset: CGFloat
+    /// The page to land on (fixed mode makes it current; continuous scrolls to
+    /// its row) — the pair's top-left index for cross-family switches.
+    public var targetPageIndex: Int
+    /// Where to park the reading position after relayout.
+    public var scrollAnchor: ScrollAnchor
+
+    public init(
+        displayMode: Int, scaleFactor: CGFloat, pageBreakMarginInset: CGFloat,
+        targetPageIndex: Int, scrollAnchor: ScrollAnchor
+    ) {
+        self.displayMode = displayMode
+        self.scaleFactor = scaleFactor
+        self.pageBreakMarginInset = pageBreakMarginInset
+        self.targetPageIndex = targetPageIndex
+        self.scrollAnchor = scrollAnchor
+    }
+}
+
 /// Pure margin/fit arithmetic for the four view modes. No PDFKit — every value
 /// is derived from `ReaderLayout.margin` (the one on-screen margin) and the
 /// viewport/page geometry, so the math is unit-testable without a live view.
@@ -116,6 +163,86 @@ public enum ViewModePlanner {
             displayMode: mode.displayModeRaw,
             pageBreakMarginInset: marginInset(onScreenGap: margin, scale: scale),
             scaleFactor: scale
+        )
+    }
+
+    /// The pair's top-left (lower) page index under simple even/odd-agnostic
+    /// pairing: `(index / 2) * 2`. Phase 5 refines this for `displaysAsBook`
+    /// odd-first layouts; for now pages pair (0,1) (2,3) (4,5)….
+    static func leftIndex(of pageIndex: Int) -> Int {
+        (max(0, pageIndex) / 2) * 2
+    }
+
+    /// The decision table for a mode-button press or mode switch (VM-1..4,
+    /// SW-1..5). PURE: the destination scale/anchor are derived only from the
+    /// standard-fit rules and the geometry — a non-standard LIVE zoom must NOT
+    /// leak through (SW-5), so `currentScale` is intentionally NOT read; it is
+    /// accepted only for call-site symmetry with the live view's state.
+    ///
+    /// Three branches:
+    /// - **same single/double family** (fixed↔continuous flip): the
+    ///   destination's `standardPlan` scale, the SAME page; continuous
+    ///   destinations preserve y (VM-2/VM-4), fixed destinations anchor the
+    ///   page top at M (VM-1/VM-3, centered when it fits).
+    /// - **double→single** (SW-2): `newScale = 2·oldScale + M/pageW`, where
+    ///   `oldScale` is the FROM mode's two-up STANDARD fit (not the live zoom),
+    ///   so the single page's on-screen width equals the spread's former width.
+    ///   Lands on the pair's top-left index, top anchored at M.
+    /// - **single→double** (SW-3/SW-4): the destination two-up standard fit,
+    ///   land on the pair's top-left index; anchor the row top at M UNLESS the
+    ///   viewport is too wide to show a full page height (`pageH·scale >
+    ///   viewportH`), in which case keep y (SW-4).
+    public static func transition(
+        from: ViewMode, to: ViewMode,
+        currentPageIndex: Int, currentScale: CGFloat,
+        viewport: CGSize, pageSize: CGSize
+    ) -> ModeTransition {
+        _ = currentScale                       // SW-5: live zoom must not leak.
+        let margin = ReaderLayout.margin
+        let pageW = pageSize.width
+        let pageH = pageSize.height
+
+        let scale: CGFloat
+        let targetPageIndex: Int
+        let anchor: ScrollAnchor
+
+        switch (from.isTwoUp, to.isTwoUp) {
+        case (false, true):
+            // single → double (SW-3 / SW-4).
+            scale = standardPlan(mode: to, viewport: viewport, pageSize: pageSize)
+                .scaleFactor
+            targetPageIndex = leftIndex(of: currentPageIndex)
+            // Too wide to show a full page height → keep the reading position.
+            anchor = (pageH * scale > viewport.height)
+                ? .preserveY
+                : .pageTopMargin(pageIndex: targetPageIndex)
+
+        case (true, false):
+            // double → single (SW-2): match the spread's FORMER on-screen width.
+            // oldScale is the FROM mode's two-up STANDARD fit (SW-5: not the
+            // live zoom) — 2·oldScale·pageW + M == newScale·pageW.
+            let oldScale = standardPlan(mode: from, viewport: viewport, pageSize: pageSize)
+                .scaleFactor
+            scale = pageW > 0 ? 2 * oldScale + margin / pageW : 2 * oldScale
+            targetPageIndex = leftIndex(of: currentPageIndex)
+            anchor = .pageTopMargin(pageIndex: targetPageIndex)
+
+        case (false, false), (true, true):
+            // Same single/double family — a fixed↔continuous flip (VM-1..4).
+            scale = standardPlan(mode: to, viewport: viewport, pageSize: pageSize)
+                .scaleFactor
+            targetPageIndex = currentPageIndex
+            anchor = to.isContinuous
+                ? .preserveY
+                : .pageTopMargin(pageIndex: currentPageIndex)
+        }
+
+        return ModeTransition(
+            displayMode: to.displayModeRaw,
+            scaleFactor: scale,
+            pageBreakMarginInset: marginInset(onScreenGap: margin, scale: scale),
+            targetPageIndex: targetPageIndex,
+            scrollAnchor: anchor
         )
     }
 

@@ -264,4 +264,214 @@ import Testing
             #expect(2 * plan.pageBreakMarginInset * plan.scaleFactor == ReaderLayout.margin)
         }
     }
+
+    // MARK: VM-1 .. VM-4 — mode-button entry (same-family fixed↔continuous)
+    //
+    // A mode button pressed WITHIN the same column count (single↔single or
+    // double↔double) is a fixed/continuous flip: the destination's standard fit
+    // with the SAME current page. Continuous destinations preserve the reading
+    // y (VM-2/VM-4); fixed destinations anchor the (single/spread) page top at
+    // margin M (VM-1/VM-3) — which PDFKit renders centered when the page fits.
+
+    /// VM-1 — single fixed entry (from single continuous): standard fixed fit,
+    /// SAME page, page-top anchored at M (centered when it fits).
+    /// GIVEN viewport 800×616, page 400×600, current page 2, mode → singleFixed.
+    ///   fixedFit = min((800-16)/400=1.96, (616-16)/600=1.0) = 1.0.
+    ///   inset = 8/(2·1) = 4.
+    @Test func vm1_singleFixedEntry_standardFit_samePage_pageTopMargin() {
+        let t = ViewModePlanner.transition(
+            from: .singleContinuous, to: .singleFixed,
+            currentPageIndex: 2, currentScale: 1.0,
+            viewport: CGSize(width: 800, height: 616),
+            pageSize: CGSize(width: 400, height: 600))
+        #expect(t.displayMode == 0)
+        #expect(t.scaleFactor == 1.0)
+        #expect(t.pageBreakMarginInset == 4)
+        #expect(t.targetPageIndex == 2)
+        #expect(t.scrollAnchor == .pageTopMargin(pageIndex: 2))
+    }
+
+    /// VM-2 — single continuous entry (from single fixed): width fit, centered,
+    /// y-scroll UNCHANGED (preserveY).
+    /// GIVEN viewport 816×1000, page 400×600, current page 2, → singleContinuous.
+    ///   widthFit = (816-16)/400 = 2.0; inset = 8/(2·2) = 2.
+    @Test func vm2_singleContinuousEntry_widthFit_preservesY() {
+        let t = ViewModePlanner.transition(
+            from: .singleFixed, to: .singleContinuous,
+            currentPageIndex: 2, currentScale: 1.0,
+            viewport: CGSize(width: 816, height: 1000),
+            pageSize: CGSize(width: 400, height: 600))
+        #expect(t.displayMode == 1)
+        #expect(t.scaleFactor == 2.0)
+        #expect(t.pageBreakMarginInset == 2)
+        #expect(t.targetPageIndex == 2)
+        #expect(t.scrollAnchor == .preserveY)
+    }
+
+    /// VM-3 — double fixed entry (from double continuous): two-up standard fit,
+    /// SAME page kept, spread top anchored at M.
+    /// GIVEN viewport 824×2000, page 400×600, current page 3, → doubleFixed.
+    ///   twoUpWidthFit = (824-24)/800 = 1.0; heightFit = (2000-16)/600 = 3.306…
+    ///   → min = 1.0; inset = 4. Same page kept (currentPageIndex 3).
+    @Test func vm3_doubleFixedEntry_twoUpStandardFit_samePage_pageTopMargin() {
+        let t = ViewModePlanner.transition(
+            from: .doubleContinuous, to: .doubleFixed,
+            currentPageIndex: 3, currentScale: 1.0,
+            viewport: CGSize(width: 824, height: 2000),
+            pageSize: CGSize(width: 400, height: 600))
+        #expect(t.displayMode == 2)
+        #expect(t.scaleFactor == 1.0)
+        #expect(t.pageBreakMarginInset == 4)
+        #expect(t.targetPageIndex == 3)
+        #expect(t.scrollAnchor == .pageTopMargin(pageIndex: 3))
+    }
+
+    /// VM-4 — double continuous entry (from double fixed): two-up width fit,
+    /// y-scroll UNCHANGED (preserveY).
+    /// GIVEN viewport 824×1000, page 400×600, current page 3, → doubleContinuous.
+    ///   twoUpWidthFit = (824-24)/800 = 1.0; inset = 4.
+    @Test func vm4_doubleContinuousEntry_twoUpWidthFit_preservesY() {
+        let t = ViewModePlanner.transition(
+            from: .doubleFixed, to: .doubleContinuous,
+            currentPageIndex: 3, currentScale: 1.0,
+            viewport: CGSize(width: 824, height: 1000),
+            pageSize: CGSize(width: 400, height: 600))
+        #expect(t.displayMode == 3)
+        #expect(t.scaleFactor == 1.0)
+        #expect(t.pageBreakMarginInset == 4)
+        #expect(t.targetPageIndex == 3)
+        #expect(t.scrollAnchor == .preserveY)
+    }
+
+    // MARK: SW-1 .. SW-5 — cross-family mode switches
+
+    /// SW-2 — double→single: the single page's on-screen width equals the whole
+    /// spread's FORMER on-screen width. Spread width = 2·(pageW·oldScale) + M, so
+    /// newScale = 2·oldScale + M/pageW. Lands on the pair's top-left (lower)
+    /// index and anchors its top at margin M.
+    /// GIVEN viewport 824×1000, page 400×600, current page 3, oldScale (the
+    ///   two-up STANDARD scale) = twoUpWidthFit = (824-24)/800 = 1.0.
+    ///   newScale = 2·1.0 + 8/400 = 2.02.
+    ///   leftIndex = (3/2)*2 = 2.
+    /// THEN newScale·pageW (808) == 2·oldScale·pageW + M (2·400 + 8 = 808).
+    @Test func sw2_doubleToSingle_pageWidthEqualsFormerSpreadWidth() {
+        let m = ReaderLayout.margin
+        let pageW: CGFloat = 400
+        let t = ViewModePlanner.transition(
+            from: .doubleContinuous, to: .singleContinuous,
+            currentPageIndex: 3, currentScale: 1.0,
+            viewport: CGSize(width: 824, height: 1000),
+            pageSize: CGSize(width: pageW, height: 600))
+        #expect(t.displayMode == 1)
+        #expect(abs(t.scaleFactor - 2.02) <= 1e-9)
+        #expect(t.targetPageIndex == 2)
+        #expect(t.scrollAnchor == .pageTopMargin(pageIndex: 2))
+
+        // The load-bearing identity: former spread width == new single width.
+        let oldScale: CGFloat = 1.0                       // two-up standard fit
+        let formerSpreadWidth = 2 * (pageW * oldScale) + m   // 808
+        let newSingleWidth = pageW * t.scaleFactor           // 400·2.02 = 808
+        #expect(abs(newSingleWidth - formerSpreadWidth) <= 1e-9)
+    }
+
+    /// SW-3 — single→double (viewport NOT too wide): current page takes the
+    /// spread's top-left slot; scroll so its top is at margin M.
+    /// GIVEN viewport 824×1000, page 400×600, current page 5, → doubleContinuous.
+    ///   twoUpWidthFit = (824-24)/800 = 1.0; pageH·scale = 600·1 = 600 ≤ 1000
+    ///   (a full page shows), so anchor = pageTopMargin, NOT preserveY.
+    ///   leftIndex = (5/2)*2 = 4.
+    @Test func sw3_singleToDouble_currentPageTopLeftScrolledToMargin() {
+        let t = ViewModePlanner.transition(
+            from: .singleContinuous, to: .doubleContinuous,
+            currentPageIndex: 5, currentScale: 1.0,
+            viewport: CGSize(width: 824, height: 1000),
+            pageSize: CGSize(width: 400, height: 600))
+        #expect(t.displayMode == 3)
+        #expect(t.scaleFactor == 1.0)
+        #expect(t.targetPageIndex == 4)
+        #expect(t.scrollAnchor == .pageTopMargin(pageIndex: 4))
+    }
+
+    /// SW-4 — single→double, viewport TOO WIDE to show a full page height: keep
+    /// the user's previous y-scroll (preserveY) instead of snapping to page top.
+    /// GIVEN viewport 2424×300, page 400×600, current page 2, → doubleContinuous.
+    ///   twoUpWidthFit = (2424-24)/800 = 3.0; pageH·scale = 600·3 = 1800 > 300
+    ///   → a full page can't be shown → preserveY.
+    @Test func sw4_singleToDouble_wideViewport_preservesY() {
+        let t = ViewModePlanner.transition(
+            from: .singleContinuous, to: .doubleContinuous,
+            currentPageIndex: 2, currentScale: 1.0,
+            viewport: CGSize(width: 2424, height: 300),
+            pageSize: CGSize(width: 400, height: 600))
+        #expect(t.displayMode == 3)
+        #expect(t.scaleFactor == 3.0)
+        #expect(t.targetPageIndex == 2)
+        #expect(t.scrollAnchor == .preserveY)
+    }
+
+    /// SW-1 — round trip: single→double→single (and double→single→double) return
+    /// to the same page, scale, and anchor. Falls out of SW-2/SW-3 being inverses
+    /// (double snaps to the pair's left page, so start on an even page for an
+    /// exact match). Composes the two transitions and asserts the endpoint.
+    @Test func sw1_roundTripReturnsToStart() {
+        let viewport = CGSize(width: 824, height: 1000)
+        let pageSize = CGSize(width: 400, height: 600)
+
+        // single → double → single, starting on an even page.
+        let s0 = ViewModePlanner.widthFitScale(
+            viewportWidth: viewport.width, pageWidth: pageSize.width,
+            margin: ReaderLayout.margin)                 // (824-16)/400 = 2.02
+        let toDouble = ViewModePlanner.transition(
+            from: .singleContinuous, to: .doubleContinuous,
+            currentPageIndex: 4, currentScale: s0,
+            viewport: viewport, pageSize: pageSize)
+        let backToSingle = ViewModePlanner.transition(
+            from: .doubleContinuous, to: .singleContinuous,
+            currentPageIndex: toDouble.targetPageIndex, currentScale: toDouble.scaleFactor,
+            viewport: viewport, pageSize: pageSize)
+        #expect(backToSingle.targetPageIndex == 4)
+        #expect(abs(backToSingle.scaleFactor - s0) <= 1e-9)
+        #expect(backToSingle.scrollAnchor == .pageTopMargin(pageIndex: 4))
+
+        // double → single → double, starting on an even page.
+        let d0 = ViewModePlanner.twoUpWidthFitScale(
+            viewportWidth: viewport.width, pageWidth: pageSize.width,
+            margin: ReaderLayout.margin)                 // (824-24)/800 = 1.0
+        let toSingle = ViewModePlanner.transition(
+            from: .doubleContinuous, to: .singleContinuous,
+            currentPageIndex: 4, currentScale: d0,
+            viewport: viewport, pageSize: pageSize)
+        let backToDouble = ViewModePlanner.transition(
+            from: .singleContinuous, to: .doubleContinuous,
+            currentPageIndex: toSingle.targetPageIndex, currentScale: toSingle.scaleFactor,
+            viewport: viewport, pageSize: pageSize)
+        #expect(backToDouble.targetPageIndex == 4)
+        #expect(abs(backToDouble.scaleFactor - d0) <= 1e-9)
+    }
+
+    /// SW-5 — a non-standard live zoom must NOT leak into the destination: the
+    /// transition output depends only on the standard rule (nothing is persisted
+    /// per-mode). Feeding a wild currentScale yields the SAME targets as the
+    /// standard scale.
+    @Test func sw5_nonStandardZoomDoesNotLeak() {
+        let viewport = CGSize(width: 824, height: 1000)
+        let pageSize = CGSize(width: 400, height: 600)
+
+        // single→double is a standard fit regardless of the live zoom.
+        let up = ViewModePlanner.transition(
+            from: .singleContinuous, to: .doubleContinuous,
+            currentPageIndex: 3, currentScale: 5.7,      // wild user zoom
+            viewport: viewport, pageSize: pageSize)
+        #expect(up.scaleFactor == 1.0)                    // twoUpWidthFit, not 5.7-derived
+        #expect(up.targetPageIndex == 2)
+
+        // double→single derives from the two-up STANDARD scale (1.0), not the
+        // live zoom (4.2): newScale = 2·1.0 + 8/400 = 2.02.
+        let down = ViewModePlanner.transition(
+            from: .doubleContinuous, to: .singleContinuous,
+            currentPageIndex: 3, currentScale: 4.2,       // wild user zoom
+            viewport: viewport, pageSize: pageSize)
+        #expect(abs(down.scaleFactor - 2.02) <= 1e-9)
+        #expect(down.targetPageIndex == 2)
+    }
 }
