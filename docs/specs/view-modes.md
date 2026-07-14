@@ -66,5 +66,5 @@ single/double × fixed/continuous (PDFDisplayMode raw 0–3).
 
 ## Navigation
 
-- NAV-1 (PENDING) single continuous arrows: page steps land like fixed mode (fit-height ⇒ equal top/bottom margins, else top margin M)
-- NAV-2 (PENDING) double continuous arrows: one row per step, top margin M
+- NAV-1 single continuous arrows: page steps land like fixed mode (fit-height ⇒ equal top/bottom margins, else top margin M)
+- NAV-2 double continuous arrows: one row per step, top margin M

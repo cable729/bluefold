@@ -414,6 +414,97 @@ public enum ViewModePlanner {
         }
     }
 
+    // MARK: NAV-1 / NAV-2 — arrow-key stepping in continuous modes
+
+    /// The content top of the page/row at `stackIndex` in the NON-FLIPPED
+    /// documentView (page-point coords, docs/PDFKIT-FACTS.md): content top =
+    /// maximum y, so `docHeight − stackIndex·pitch − topInset`. In a uniform
+    /// continuous layout `pitch = pageH + top + bottom` (a two-up row is one
+    /// page tall, so its pitch is the same) and `topInset` is the outer/per-page
+    /// top inset. `stackIndex` is the page index in single modes, the ROW index
+    /// in two-up modes.
+    public static func stackTopDoc(
+        stackIndex: Int, pitch: CGFloat, topInset: CGFloat, docHeight: CGFloat
+    ) -> CGFloat {
+        docHeight - CGFloat(max(0, stackIndex)) * pitch - topInset
+    }
+
+    /// The clip-origin.y (page points) that positions a page/row whose content
+    /// top sits at `pageTopDoc` so that top is `topGap` (view points) below the
+    /// viewport top. The visible-region top (doc coords) maps to the viewport
+    /// top, and the clip is `viewportHeight / scale` page-points tall, so
+    /// `targetY = pageTopDoc − viewportH/scale + topGap/scale`. Clamped to
+    /// `[0, docHeight − clipHeight]` (can't scroll past either end). A
+    /// non-positive scale yields 0.
+    public static func clipOriginY(
+        pageTopDoc: CGFloat, docHeight: CGFloat, viewportHeight: CGFloat,
+        topGap: CGFloat, scale: CGFloat
+    ) -> CGFloat {
+        guard scale > 0 else { return 0 }
+        let clipHeight = viewportHeight / scale
+        let targetY = pageTopDoc - clipHeight + topGap / scale
+        let maxOriginY = max(0, docHeight - clipHeight)
+        return min(max(0, targetY), maxOriginY)
+    }
+
+    /// NAV-1/NAV-2 — the clip-origin.y that lands the page/row at `stackIndex`
+    /// with its top exactly `margin` (view points) below the viewport top, in a
+    /// uniform continuous layout. (For NAV-1's fit-height "equal margins" case,
+    /// resolve the gap with `stepTopGap` and call `clipOriginY` directly.)
+    public static func pageTopScrollY(
+        stackIndex: Int, pitch: CGFloat, topInset: CGFloat, docHeight: CGFloat,
+        viewportHeight: CGFloat, margin: CGFloat, scale: CGFloat
+    ) -> CGFloat {
+        clipOriginY(
+            pageTopDoc: stackTopDoc(
+                stackIndex: stackIndex, pitch: pitch, topInset: topInset, docHeight: docHeight),
+            docHeight: docHeight, viewportHeight: viewportHeight,
+            topGap: margin, scale: scale)
+    }
+
+    /// NAV-1 — the top gap (view points) a single-continuous step lands the page
+    /// top at: when the page is FULLY VISIBLE (its on-screen height ≤ the
+    /// viewport) center it with EQUAL top/bottom margins `(viewportH − pageH·s)/2`
+    /// (the fit-height case — equals M exactly when `pageH·s + 2M == viewportH`);
+    /// otherwise pin the top at `margin`. NAV-2 rows always use `margin`.
+    public static func stepTopGap(
+        onScreenPageHeight: CGFloat, viewportHeight: CGFloat, margin: CGFloat
+    ) -> CGFloat {
+        onScreenPageHeight <= viewportHeight
+            ? (viewportHeight - onScreenPageHeight) / 2
+            : margin
+    }
+
+    /// The first CONTENT index of the two-up row (spread) containing `index`
+    /// under `layout` — the row's canonical anchor. `displaysAsBook` leaves page
+    /// 0 in a row of its own; `rtl` does not change which pages share a row (only
+    /// their left/right placement), so it is irrelevant to row identity.
+    static func rowStart(of index: Int, layout: BookLayout) -> Int {
+        let i = max(0, index)
+        if layout.displaysAsBook {
+            return i == 0 ? 0 : ((i - 1) / 2) * 2 + 1
+        }
+        return (i / 2) * 2
+    }
+
+    /// NAV-2 — the anchor (first content index) of the NEXT two-up row, one full
+    /// spread forward from a page currently in some row. The caller clamps to the
+    /// page count (this pure math has none) and relies on `canGoToNextPage`.
+    public static func nextRowLeftIndex(currentIndex: Int, layout: BookLayout) -> Int {
+        let start = rowStart(of: currentIndex, layout: layout)
+        if layout.displaysAsBook && start == 0 { return 1 }   // {0} → {1,2}
+        return start + 2
+    }
+
+    /// NAV-2 — the anchor (first content index) of the PREVIOUS two-up row.
+    public static func previousRowLeftIndex(currentIndex: Int, layout: BookLayout) -> Int {
+        let start = rowStart(of: currentIndex, layout: layout)
+        if layout.displaysAsBook {
+            return start <= 1 ? 0 : start - 2                 // {1,2} → {0}
+        }
+        return max(0, start - 2)
+    }
+
     /// Which axis a fit button fills. `width` fills the viewport width leaving
     /// M left/right (FIT-1); `height` fits `pageH·scale + 2M == viewportH`
     /// (FIT-2).

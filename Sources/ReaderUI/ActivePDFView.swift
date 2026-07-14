@@ -85,6 +85,10 @@ struct ActivePDFView: NSViewRepresentable {
                 axis: axis
             )
         }
+        // Bare arrow keys step through this pane's Coordinator (NAV-1/NAV-2),
+        // matching the status-bar arrows and palette commands.
+        view.onStepForward = { [weak coordinator] in coordinator?.goToNextPage() }
+        view.onStepBackward = { [weak coordinator] in coordinator?.goToPreviousPage() }
 
         // Defer until after the view has a size, or the point lands wrong.
         DispatchQueue.main.async { [weak view] in
@@ -144,6 +148,8 @@ struct ActivePDFView: NSViewRepresentable {
         }
         view.onLinkActivated = nil
         view.onLinkSplit = nil
+        view.onStepForward = nil
+        view.onStepBackward = nil
         view.onInteract = nil
         view.pageOverlayViewProvider = nil
         view.document = nil
@@ -481,16 +487,68 @@ struct ActivePDFView: NSViewRepresentable {
             LayoutApplier.apply(plan, to: view, log: log, preserveVerticalScroll: false)
         }
 
-        /// PDFView's own page turns respect the display mode (a "page" is a
-        /// spread in two-up modes) and scroll position in continuous modes.
+        /// A "step" back/forward (arrow keys, status-bar arrows, palette). In
+        /// FIXED modes we defer to PDFView's own paging (a "page" is a spread in
+        /// two-up). In CONTINUOUS modes PDFKit's paging lands the page top one
+        /// inset down (Fact 4) — NAV-1/NAV-2 instead land the target page/row's
+        /// top at margin M (single) or, when the page fully fits, centered — so
+        /// stepping matches FIXED mode. The target index is computed here (next/
+        /// prev page for single; the next/prev ROW's anchor for double, honoring
+        /// the book pairing), then handed to the applier's rewind-pattern scroll.
         func goToPreviousPage() {
             guard let view, view.canGoToPreviousPage else { return }
-            view.goToPreviousPage(nil)
+            guard
+                let mode = ViewMode(displayModeRaw: view.displayMode.rawValue),
+                mode.isContinuous
+            else {
+                view.goToPreviousPage(nil)
+                return
+            }
+            stepContinuous(mode: mode, forward: false)
         }
 
         func goToNextPage() {
             guard let view, view.canGoToNextPage else { return }
-            view.goToNextPage(nil)
+            guard
+                let mode = ViewMode(displayModeRaw: view.displayMode.rawValue),
+                mode.isContinuous
+            else {
+                view.goToNextPage(nil)
+                return
+            }
+            stepContinuous(mode: mode, forward: true)
+        }
+
+        /// Computes the continuous-mode step target and drives the applier.
+        /// Single: next/prev PAGE, landing top at M (or centered if fit-height).
+        /// Double: next/prev ROW anchor via the Phase-5 pairing, top at M.
+        private func stepContinuous(mode: ViewMode, forward: Bool) {
+            guard
+                let view,
+                let document = view.document,
+                let page = view.currentPage
+            else { return }
+            let currentIndex = document.index(for: page)
+            let targetIndex: Int
+            let centeredIfFits: Bool
+            if mode == .doubleContinuous {
+                let layout = ViewModePlanner.bookLayout(of: document)
+                targetIndex = forward
+                    ? ViewModePlanner.nextRowLeftIndex(currentIndex: currentIndex, layout: layout)
+                    : ViewModePlanner.previousRowLeftIndex(currentIndex: currentIndex, layout: layout)
+                centeredIfFits = false          // NAV-2 rows always land top at M
+            } else {
+                targetIndex = forward ? currentIndex + 1 : currentIndex - 1
+                centeredIfFits = true           // NAV-1 fit-height ⇒ equal margins
+            }
+            let clamped = min(max(0, targetIndex), max(0, document.pageCount - 1))
+            log.debug(
+                .nav,
+                "step \(forward ? "next" : "prev") mode=\(mode.rawValue) "
+                    + "from=\(currentIndex) → target=\(clamped) centeredIfFits=\(centeredIfFits)"
+            )
+            LayoutApplier.stepContinuous(
+                toPageIndex: clamped, centeredIfFits: centeredIfFits, in: view, log: log)
         }
 
         /// Persists the exact reading position back into the tab.

@@ -171,6 +171,81 @@ public enum LayoutApplier {
         }
     }
 
+    /// NAV-1/NAV-2 — an arrow-key STEP within a CONTINUOUS mode: scroll so the
+    /// target page/row's top sits `ReaderLayout.margin` (view points) below the
+    /// viewport top, overriding PDFKit's default one-inset landing (Fact 4). For
+    /// NAV-1 (`centeredIfFits == true`) a page that fully fits the viewport is
+    /// vertically CENTERED with equal top/bottom margins instead (the fit-height
+    /// case); NAV-2 rows always pin the top at M. The scroll target is computed
+    /// from the live documentView page-point geometry (non-flipped) and re-asserted
+    /// with the rewind pattern (sync + deferred + late) so a large scroll that
+    /// needs a second hop still settles. Instrumented via `.nav`.
+    @MainActor
+    public static func stepContinuous(
+        toPageIndex targetIndex: Int, centeredIfFits: Bool,
+        in view: PDFView, log: AppLogger
+    ) {
+        guard let document = view.document else { return }
+        let clamped = min(max(0, targetIndex), max(0, document.pageCount - 1))
+        // Make the target page/row current so `currentPage` (and the
+        // PDFViewPageChanged breadcrumb) tracks the step — a bare scroll via
+        // setBoundsOrigin does NOT update PDFKit's currentPage. go(to:) lands
+        // PDFKit's own position (one inset down); the scroll override below
+        // corrects it to margin M on the SAME turn, before the runloop yields,
+        // so there is no visible intermediate jump.
+        if let page = document.page(at: clamped) { view.go(to: page) }
+        view.layoutDocumentView()
+        assertStepScroll(toPageIndex: clamped, centeredIfFits: centeredIfFits, in: view, log: log)
+        DispatchQueue.main.async { [weak view] in
+            guard let view else { return }
+            view.layoutDocumentView()
+            assertStepScroll(toPageIndex: clamped, centeredIfFits: centeredIfFits, in: view, log: log)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak view] in
+            guard let view else { return }
+            assertStepScroll(toPageIndex: clamped, centeredIfFits: centeredIfFits, in: view, log: log)
+        }
+    }
+
+    /// One pass of the NAV step: recompute the target clip origin.y from LIVE
+    /// geometry (docView frame can grow across relayout passes) and set it,
+    /// keeping PDFKit's horizontally-centered x.
+    @MainActor
+    private static func assertStepScroll(
+        toPageIndex index: Int, centeredIfFits: Bool, in view: PDFView, log: AppLogger
+    ) {
+        guard
+            let document = view.document,
+            let page = document.page(at: index),
+            let clip = firstScrollView(in: view)?.contentView,
+            let docView = clip.documentView
+        else { return }
+        let scale = view.scaleFactor
+        let margin = ReaderLayout.margin
+        // The target page rect in documentView (page-point) space — absolute, so
+        // it is stable regardless of the current scroll offset.
+        let pageRectView = view.convert(page.bounds(for: view.displayBox), from: page)
+        let pageRectDoc = docView.convert(pageRectView, from: view)
+        let onScreenPageH = pageRectView.height   // == pageH · scale
+        let topGap = centeredIfFits
+            ? ViewModePlanner.stepTopGap(
+                onScreenPageHeight: onScreenPageH, viewportHeight: view.bounds.height, margin: margin)
+            : margin
+        let targetY = ViewModePlanner.clipOriginY(
+            pageTopDoc: pageRectDoc.maxY, docHeight: docView.frame.height,
+            viewportHeight: view.bounds.height, topGap: topGap, scale: scale)
+        var origin = clip.bounds.origin           // keep PDFKit's centered x
+        origin.y = targetY
+        clip.setBoundsOrigin(origin)
+        clip.enclosingScrollView?.reflectScrolledClipView(clip)
+        log.debug(
+            .nav,
+            "stepScroll page=\(index) scale=\(scale) topGap=\(topGap) "
+                + "pageTopDoc=\(pageRectDoc.maxY) docH=\(docView.frame.height) "
+                + "onScreenPageH=\(onScreenPageH) vp=\(view.bounds.size) → origin.y=\(targetY)"
+        )
+    }
+
     /// Realizes a `ScrollAnchor` as a concrete clip origin. `preserveY` keeps
     /// the pre-switch y; `pageTopMargin` scrolls so the page's top sits
     /// `ReaderLayout.margin` (view points) below the viewport top — computed

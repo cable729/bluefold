@@ -474,4 +474,87 @@ import Testing
         #expect(abs(down.scaleFactor - 2.02) <= 1e-9)
         #expect(down.targetPageIndex == 2)
     }
+
+    // MARK: NAV-1 / NAV-2 — arrow-key stepping in continuous modes
+
+    /// NAV-1 — a single-continuous arrow step lands the target page's TOP a
+    /// consistent margin below the viewport top (like FIXED mode). Uniform doc:
+    /// 12 pages 400×600, per-side inset 4 (renders M=8 at scale 1), so
+    /// pitch = pageH + 2·inset = 608 and docHeight = 12·608 = 7296; topInset = 4.
+    ///
+    /// The non-flipped documentView (docs/PDFKIT-FACTS.md): page i's content top
+    /// sits at `docHeight − i·pitch − topInset`; the visible-region top (doc
+    /// coords) maps to the viewport top, so the clip origin.y that puts that top
+    /// `topGap` (view points) below the viewport top is
+    /// `pageTopDoc − viewportH/scale + topGap/scale`.
+    ///
+    /// GIVEN target page 5, scale 2, viewport 1000 tall, M=8. The page is TALLER
+    ///   than the viewport (600·2 = 1200 > 1000), so the step pins the top at M.
+    ///   pageTopDoc(5) = 7296 − 5·608 − 4 = 4252; clipH = 1000/2 = 500;
+    ///   targetY = 4252 − 500 + 8/2 = 3756.
+    /// WHEN the page FULLY FITS (viewport 1400 tall: 1200 ≤ 1400) the step
+    ///   CENTERS it with equal top/bottom margins instead: gap = (1400−1200)/2 =
+    ///   100; clipH = 700; targetY = 4252 − 700 + 100/2 = 3602.
+    @Test func nav1_singleContinuous_stepLandsTopAtMargin() {
+        let pitch: CGFloat = 608, topInset: CGFloat = 4, docHeight: CGFloat = 7296
+        let m: CGFloat = 8
+
+        // (a) taller-than-viewport page → top pinned at M.
+        #expect(ViewModePlanner.stepTopGap(
+            onScreenPageHeight: 1200, viewportHeight: 1000, margin: m) == 8)
+        let topAtM = ViewModePlanner.pageTopScrollY(
+            stackIndex: 5, pitch: pitch, topInset: topInset, docHeight: docHeight,
+            viewportHeight: 1000, margin: m, scale: 2)
+        #expect(topAtM == 3756)
+
+        // (b) fit-height / fully-visible page → equal top+bottom margins (center).
+        #expect(ViewModePlanner.stepTopGap(
+            onScreenPageHeight: 1200, viewportHeight: 1400, margin: m) == 100)
+        let centered = ViewModePlanner.clipOriginY(
+            pageTopDoc: ViewModePlanner.stackTopDoc(
+                stackIndex: 5, pitch: pitch, topInset: topInset, docHeight: docHeight),
+            docHeight: docHeight, viewportHeight: 1400, topGap: 100, scale: 2)
+        #expect(centered == 3602)
+
+        // At exact fit-height (pageH·s + 2M == viewportH) the centered gap == M,
+        // so the two branches agree — no discontinuity.
+        #expect(ViewModePlanner.stepTopGap(
+            onScreenPageHeight: 1200, viewportHeight: 1216, margin: m) == 8)
+
+        // Near the document top the target clamps to maxOriginY (can't scroll
+        // past the top): stackIndex 0 → maxOriginY = 7296 − 500 = 6796.
+        let clampedTop = ViewModePlanner.pageTopScrollY(
+            stackIndex: 0, pitch: pitch, topInset: topInset, docHeight: docHeight,
+            viewportHeight: 1000, margin: m, scale: 2)
+        #expect(clampedTop == 6796)
+    }
+
+    /// NAV-2 — a double-continuous arrow step advances one ROW (a full spread,
+    /// the Phase-5 pairing) and lands the row's top at margin M.
+    ///
+    /// Default pairing rows: (0,1),(2,3),(4,5)… From a page in row (2,3) the next
+    /// row is (4,5); the previous is (0,1).
+    @Test func nav2_doubleContinuous_stepsOneRow() {
+        // Row stepping advances/retreats by a full pair.
+        #expect(ViewModePlanner.nextRowLeftIndex(currentIndex: 3, layout: .default) == 4)
+        #expect(ViewModePlanner.nextRowLeftIndex(currentIndex: 2, layout: .default) == 4)
+        #expect(ViewModePlanner.previousRowLeftIndex(currentIndex: 3, layout: .default) == 0)
+        #expect(ViewModePlanner.previousRowLeftIndex(currentIndex: 1, layout: .default) == 0)
+
+        // displaysAsBook leaves page 0 alone: rows {0},{1,2},{3,4}…
+        let book = BookLayout(displaysAsBook: true, rtl: false)
+        #expect(ViewModePlanner.nextRowLeftIndex(currentIndex: 0, layout: book) == 1)
+        #expect(ViewModePlanner.nextRowLeftIndex(currentIndex: 1, layout: book) == 3)
+        #expect(ViewModePlanner.previousRowLeftIndex(currentIndex: 2, layout: book) == 0)
+
+        // Row-top scroll target: 12 pages → 6 rows, rowPitch 608, docHeight
+        // 6·608 = 3648, topInset 4. Target row (4,5) is row index 2; at scale 1
+        // in a 1000-tall viewport the top pins at M=8.
+        //   rowTopDoc(2) = 3648 − 2·608 − 4 = 2428; clipH = 1000;
+        //   targetY = 2428 − 1000 + 8/1 = 1436.
+        let rowTop = ViewModePlanner.pageTopScrollY(
+            stackIndex: 2, pitch: 608, topInset: 4, docHeight: 3648,
+            viewportHeight: 1000, margin: 8, scale: 1)
+        #expect(rowTop == 1436)
+    }
 }
