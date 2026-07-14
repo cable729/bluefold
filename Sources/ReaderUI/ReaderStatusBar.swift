@@ -121,6 +121,16 @@ struct ReaderStatusBar: View {
                     .foregroundStyle(palette.inkColor.opacity(0.5))
             }
             .instantHint("Fit height")
+            // Trim margins: a persistent per-tab toggle, blue when active.
+            // Crops each page to its detected text column (Phase 7 / #18).
+            Button {
+                model.toggleTrimMargins()
+            } label: {
+                layoutIcon("arrow.right.and.line.vertical.and.arrow.left")
+                    .foregroundStyle(model.trimMarginsActive
+                        ? palette.accentColor : palette.inkColor.opacity(0.5))
+            }
+            .instantHint(model.trimMarginsActive ? "Trim margins — on" : "Trim margins")
         }
         .buttonStyle(.borderless)
         .padding(.leading, 2)
