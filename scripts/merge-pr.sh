@@ -80,4 +80,19 @@ restore
 trap - EXIT
 
 echo "== all local gates green — merging =="
-gh pr merge "$PR" "$STRATEGY" --delete-branch
+# --delete-branch is avoided: in a git worktree it makes gh switch the current
+# worktree to the base branch, which fails when the base (main) is checked out
+# in another worktree. Merge on the server, confirm MERGED, then delete the
+# remote branch directly.
+gh pr merge "$PR" "$STRATEGY"
+if [ "$(gh pr view "$PR" --json state -q .state)" = "MERGED" ]; then
+    HEAD_REF="$(gh pr view "$PR" --json headRefName -q .headRefName)"
+    if gh api -X DELETE "repos/{owner}/{repo}/git/refs/heads/$HEAD_REF" >/dev/null 2>&1; then
+        echo "merged; deleted remote branch $HEAD_REF"
+    else
+        echo "merged; leave remote branch $HEAD_REF for manual cleanup"
+    fi
+else
+    echo "error: PR #$PR did not reach MERGED state — check manually." >&2
+    exit 1
+fi
