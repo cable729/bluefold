@@ -24,9 +24,10 @@ import Testing
     @Test func pageBreakMarginsArePageSpace() {
         let doc = PDFKitProbe.makeDocument(
             pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 3))
-        let (view, _) = PDFKitProbe.makeView(
+        let (view, window) = PDFKitProbe.makeView(
             document: doc, viewport: CGSize(width: 800, height: 1000),
             mode: .singlePageContinuous)
+        defer { PDFKitProbe.teardown(view, window) }
         view.displaysPageBreaks = true
         view.pageBreakMargins = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
         view.layoutDocumentView()
@@ -59,8 +60,9 @@ import Testing
         func measure(inset: CGFloat) -> (docWidth: CGFloat, gap: CGFloat) {
             let doc = PDFKitProbe.makeDocument(
                 pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 4))
-            let (view, _) = PDFKitProbe.makeView(
+            let (view, window) = PDFKitProbe.makeView(
                 document: doc, viewport: CGSize(width: 1200, height: 800), mode: .twoUp)
+            defer { PDFKitProbe.teardown(view, window) }
             view.displaysPageBreaks = true
             view.pageBreakMargins = NSEdgeInsets(
                 top: inset, left: inset, bottom: inset, right: inset)
@@ -136,9 +138,10 @@ import Testing
     @Test func goToNextPageAnchorsTopBelowInset() {
         let doc = PDFKitProbe.makeDocument(
             pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 5))
-        let (view, _) = PDFKitProbe.makeView(
+        let (view, window) = PDFKitProbe.makeView(
             document: doc, viewport: CGSize(width: 800, height: 500),
             mode: .singlePageContinuous)
+        defer { PDFKitProbe.teardown(view, window) }
         view.displaysPageBreaks = true
         view.pageBreakMargins = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
         view.scaleFactor = 1.0
@@ -178,9 +181,10 @@ import Testing
     @Test func destinationMathIgnoresContentInsets() {
         let doc = PDFKitProbe.makeDocument(
             pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 2))
-        let (view, _) = PDFKitProbe.makeView(
+        let (view, window) = PDFKitProbe.makeView(
             document: doc, viewport: CGSize(width: 800, height: 500),
             mode: .singlePageContinuous)
+        defer { PDFKitProbe.teardown(view, window) }
         guard let scroll = PDFKitProbe.scrollView(in: view) else {
             Issue.record("no internal NSScrollView found")
             return

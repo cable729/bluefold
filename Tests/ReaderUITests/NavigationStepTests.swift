@@ -29,6 +29,7 @@ import Testing
         let window = NSWindow(
             contentRect: CGRect(origin: CGPoint(x: -10_000, y: -10_000), size: viewport),
             styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false     // we hold a strong ref; teardown calls close()
         window.contentView = view
         view.displayMode = mode
         view.document = document
@@ -57,10 +58,10 @@ import Testing
         let m = ReaderLayout.margin
         let doc = PDFKitProbe.makeDocument(
             pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 12))
-        let (view, _) = Self.makeReaderView(
+        let (view, window) = Self.makeReaderView(
             document: doc, viewport: CGSize(width: 816, height: 1000),
             mode: .singlePageContinuous)
-        defer { view.document = nil; PDFKitProbe.settle(2) }
+        defer { PDFKitProbe.teardown(view, window) }
         view.displaysPageBreaks = true
         view.pageBreakMargins = NSEdgeInsets(top: 2, left: 2, bottom: 2, right: 2)
         view.autoScales = false
@@ -93,10 +94,10 @@ import Testing
         let m = ReaderLayout.margin
         let doc = PDFKitProbe.makeDocument(
             pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 12))
-        let (view, _) = Self.makeReaderView(
+        let (view, window) = Self.makeReaderView(
             document: doc, viewport: CGSize(width: 816, height: 1000),
             mode: .singlePageContinuous)
-        defer { view.document = nil; PDFKitProbe.settle(2) }
+        defer { PDFKitProbe.teardown(view, window) }
         view.displaysPageBreaks = true
         view.pageBreakMargins = NSEdgeInsets(top: 2, left: 2, bottom: 2, right: 2)
         view.autoScales = false
@@ -132,10 +133,10 @@ import Testing
         let m = ReaderLayout.margin
         let doc = PDFKitProbe.makeDocument(
             pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 12))
-        let (view, _) = Self.makeReaderView(
+        let (view, window) = Self.makeReaderView(
             document: doc, viewport: CGSize(width: 824, height: 1000),
             mode: .twoUpContinuous)
-        defer { view.document = nil; PDFKitProbe.settle(2) }
+        defer { PDFKitProbe.teardown(view, window) }
         view.displaysAsBook = false
         view.displaysRTL = false
         view.displaysPageBreaks = true

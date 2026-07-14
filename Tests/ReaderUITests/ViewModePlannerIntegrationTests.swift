@@ -24,9 +24,10 @@ import Testing
     @Test func standardPlanRendersInnerGapEqualToMargin() {
         let doc = PDFKitProbe.makeDocument(
             pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 4))
-        let (view, _) = PDFKitProbe.makeView(
+        let (view, window) = PDFKitProbe.makeView(
             document: doc, viewport: CGSize(width: 824, height: 1000),
             mode: .twoUpContinuous)
+        defer { PDFKitProbe.teardown(view, window) }
 
         let plan = ViewModePlanner.standardPlan(
             mode: .doubleContinuous,
@@ -90,9 +91,10 @@ import Testing
         // clip origin.y is unchanged (reading position preserved).
         let doc = PDFKitProbe.makeDocument(
             pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 5))
-        let (view, _) = PDFKitProbe.makeView(
+        let (view, window) = PDFKitProbe.makeView(
             document: doc, viewport: CGSize(width: 800, height: 500),
             mode: .singlePageContinuous)
+        defer { PDFKitProbe.teardown(view, window) }
         view.displaysPageBreaks = true
         view.pageBreakMargins = NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
         view.autoScales = false
@@ -152,9 +154,10 @@ import Testing
         // (b) integration — fit-height re-fits the CURRENT page without jumping.
         let doc = PDFKitProbe.makeDocument(
             pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 4))
-        let (view, _) = PDFKitProbe.makeView(
+        let (view, window) = PDFKitProbe.makeView(
             document: doc, viewport: CGSize(width: 800, height: 1216),
             mode: .singlePage)
+        defer { PDFKitProbe.teardown(view, window) }
         view.go(to: doc.page(at: 2)!)
         PDFKitProbe.settle()
         let beforeIndex = doc.index(for: view.currentPage!)
@@ -210,9 +213,10 @@ import Testing
         let m = ReaderLayout.margin
         let doc = PDFKitProbe.makeDocument(
             pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 12))
-        let (view, _) = PDFKitProbe.makeView(
+        let (view, window) = PDFKitProbe.makeView(
             document: doc, viewport: CGSize(width: 824, height: 1000),
             mode: .singlePageContinuous)
+        defer { PDFKitProbe.teardown(view, window) }
         view.autoScales = false
         view.scaleFactor = 2.02                 // singleContinuous width fit
         view.go(to: doc.page(at: 5)!)

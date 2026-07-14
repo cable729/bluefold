@@ -85,9 +85,10 @@ import Testing
             viewportWidth: 824, pageWidth: cellW, margin: ReaderLayout.margin)
         #expect(scale == 1.0)
 
-        let (view, _) = PDFKitProbe.makeView(
+        let (view, window) = PDFKitProbe.makeView(
             document: doc, viewport: CGSize(width: 824, height: 1000),
             mode: .twoUpContinuous)
+        defer { PDFKitProbe.teardown(view, window) }
         let plan = LayoutPlan(
             displayMode: ViewMode.doubleContinuous.displayModeRaw,
             pageBreakMarginInset: ViewModePlanner.marginInset(
@@ -130,9 +131,10 @@ import Testing
             CGSize(width: 400, height: 600),
             CGSize(width: 800, height: 600),
         ])
-        let (view, _) = PDFKitProbe.makeView(
+        let (view, window) = PDFKitProbe.makeView(
             document: doc, viewport: CGSize(width: 800, height: 616),
             mode: .singlePage)
+        defer { PDFKitProbe.teardown(view, window) }
         let box = CapturedLogs()
 
         view.go(to: doc.page(at: 0)!)

@@ -156,7 +156,7 @@ import Testing
         // Detach + drain before the offscreen view/window deallocate: mutating
         // page boxes schedules a PDFKit async `layoutDocumentView`; letting it
         // fire after teardown segfaults. Keep `window` alive to scope end.
-        defer { view.document = nil; PDFKitProbe.settle(2); _ = window }
+        defer { PDFKitProbe.teardown(view, window) }
         let box = CapturedLogs()
 
         // Standard single-continuous fit on the FULL page first.
@@ -211,7 +211,7 @@ import Testing
         let vp = CGSize(width: 400, height: 800)
         let (view, window) = PDFKitProbe.makeView(
             document: doc, viewport: vp, mode: .singlePage)
-        defer { view.document = nil; PDFKitProbe.settle(2); _ = window }
+        defer { PDFKitProbe.teardown(view, window) }
         let box = CapturedLogs()
 
         view.go(to: doc.page(at: 2)!)
@@ -261,7 +261,7 @@ import Testing
         let vp = CGSize(width: 400, height: 800)
         let (view, window) = PDFKitProbe.makeView(
             document: doc, viewport: vp, mode: .singlePage)
-        defer { view.document = nil; PDFKitProbe.settle(2); _ = window }
+        defer { PDFKitProbe.teardown(view, window) }
         let box = CapturedLogs()
 
         view.go(to: doc.page(at: 1)!)
