@@ -180,7 +180,14 @@ import Testing
         #expect(afterIndex == beforeIndex, "fit-height jumped to a different page")
         #expect(abs(onScreenH - (view.bounds.height - 2 * m)) <= 1.5,
                 "page not fitted to height: \(onScreenH)")
-        #expect(abs(topGap - bottomGap) <= 1.5, "page not vertically centered")
+        // Centering is exact on a 2× (Retina) backing (top == bottom == M) but
+        // rounds to a 1px split on a 1× runner (7/9). The robust invariants:
+        // the two gaps sum to 2·M (centering conserves the total), and each is
+        // within ~1px of M. Do NOT assert top == bottom tightly — that carries
+        // the backing-scale sub-pixel term (see docs/PDFKIT-FACTS.md).
+        #expect(abs((topGap + bottomGap) - 2 * m) <= 1.5, "top+bottom margins ≠ 2·M")
+        #expect(abs(topGap - m) <= 1.5 && abs(bottomGap - m) <= 1.5,
+                "page not vertically centered (top=\(topGap) bottom=\(bottomGap))")
     }
 
     /// SW-3 (live) — single→double continuous through the applier: the pair's
