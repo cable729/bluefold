@@ -46,9 +46,32 @@ level above is impossible.
   (`LibraryStore.inMemory()`, `IndexStore.inMemory()`) are the entry points.
   Keep it that way.
 - **Geometry/layout code is TDD.** The failing test with expected numbers
-  comes first (enforced by the Probity hook on the layout paths). Spec-ID
-  tests (`m1_…`, `sw2_…`) are the executable spec — see
+  comes first (rule: `.claude/rules/tdd-geometry.md`). Spec-ID tests
+  (`m1_…`, `sw2_…`) are the executable spec — see
   [specs/view-modes.md](specs/view-modes.md).
+
+### How TDD/testing is actually enforced (deterministic only)
+
+The guarantees below all work in sub-agents, headless CI, and cron runs —
+which an AI-validated hook does not:
+
+- **Stop hook** (`.claude/hooks/test-gate.sh`) runs the affected module's
+  tests when a turn ends; red tests block finishing. This is the real
+  tests-must-pass guarantee.
+- **Probity `requireCommand`** blocks `git commit` unless `swift test` ran
+  since the last file write.
+- **CI + Codecov patch gate** block merging changes whose new lines aren't
+  covered.
+- **Test-first ordering** is discipline (the rule above + this doc), not a
+  blocking hook.
+
+Probity's AI-validated `enforceTdd()` was tried and **removed**: it validates
+each production write with a nested Claude SDK call that can't authenticate in
+a sub-agent / headless context and fails *closed*, blocking every layout-path
+write regardless of compliance. A deterministic test-first guard (without an
+LLM or a Swift test-reporter, neither of which exists) would be gameable; the
+post-hoc guarantees above are the honest, robust substitute. If a deterministic
+first-fails-then-passes guard becomes feasible, revisit.
 
 ## Dependency injection
 
