@@ -76,6 +76,27 @@ final class SplitDropZoneRegistry {
         return nil
     }
 
+    /// Every eligible window resolved to screen geometry, frontmost first —
+    /// the input `TabDropResolver` decides split targeting over. A window with
+    /// no registered content area carries a nil `contentRect` but still appears
+    /// so it can OCCLUDE a zone window behind it, exactly as `zone(at:)`'s
+    /// frontmost-window-decides rule. Uses the same registered `windowID` as
+    /// the entry so `dropIntoSplit` targets the right window.
+    func resolvedWindows() -> [DropWindow] {
+        var result: [DropWindow] = []
+        for window in NSApp.orderedWindows {
+            guard window.isVisible, !window.ignoresMouseEvents else { continue }
+            let resolved = entry(in: window).map { id, view -> (UUID, CGRect) in
+                (id, window.convertToScreen(view.convert(view.bounds, to: nil)))
+            }
+            result.append(DropWindow(
+                id: resolved?.0 ?? UUID(),
+                frame: window.frame,
+                contentRect: resolved?.1))
+        }
+        return result
+    }
+
     private func entry(in window: NSWindow) -> (UUID, NSView)? {
         for (id, entry) in entries {
             if let view = entry.view, view.window === window {

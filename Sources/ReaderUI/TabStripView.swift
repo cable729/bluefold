@@ -796,23 +796,32 @@ final class TabStripNSView: NSView {
 
         guard drag.didMove else { return } // plain click; select already ran
 
-        if drag.isTornOff {
-            if let (targetID, targetStrip) = TabStripRegistry.shared.strip(at: screen) {
-                if targetID == stripID {
-                    return // dropped back on our own strip: no-op
-                }
-                let index = targetStrip.insertionIndex(forScreenPoint: screen)
-                actions.moveToStrip(drag.tabID, targetID, index)
-            } else if let zone = splitDropZone(atScreen: screen) {
-                // Dropped on a reader window's content-area half: open as
-                // that window's split on that side (cross-window drops move
-                // the tab first, exactly like strip drops).
-                actions.dropIntoSplit(drag.tabID, zone.windowID, zone.side)
-            } else {
-                actions.detachToNewWindow(drag.tabID, screen)
-            }
-        } else {
-            actions.reorder(drag.tabID, drag.previewIndex)
+        // The decision is pure geometry over the strips/windows resolved to
+        // screen rects; TabDropResolver is unit-tested headlessly (the
+        // cross-window cases the CI runner can't drive with real windows —
+        // #25/#49) and reused here so both paths can never disagree.
+        let outcome = TabDropResolver.outcome(
+            tornOff: drag.isTornOff,
+            previewIndex: drag.previewIndex,
+            at: screen,
+            sourceStripID: stripID,
+            sourceWindowID: windowID,
+            sourceItemCount: items.count,
+            strips: TabStripRegistry.shared.resolvedStrips(),
+            windows: SplitDropZoneRegistry.shared.resolvedWindows()
+        )
+        switch outcome {
+        case .reorder(let index):
+            actions.reorder(drag.tabID, index)
+        case .moveToStrip(let targetID, let index):
+            actions.moveToStrip(drag.tabID, targetID, index)
+        case .dropIntoSplit(let targetWindowID, let side):
+            // Cross-window drops move the tab first, exactly like strip drops.
+            actions.dropIntoSplit(drag.tabID, targetWindowID, side)
+        case .detach:
+            actions.detachToNewWindow(drag.tabID, screen)
+        case .ownStrip:
+            break // dropped back on our own strip
         }
     }
 
@@ -824,6 +833,17 @@ final class TabStripNSView: NSView {
             return index
         }
         return items.count
+    }
+
+    /// Each cell's mid-X in screen space, left to right — the screen-space
+    /// counterpart of the cell frames `insertionIndex(forScreenPoint:)`
+    /// compares against, for `TabDropResolver` to compute the same slot.
+    func itemScreenMidXs() -> [CGFloat] {
+        guard let window else { return [] }
+        return itemViews.map { view in
+            let midInWindow = convert(CGPoint(x: view.frame.midX, y: view.frame.midY), to: nil)
+            return window.convertPoint(toScreen: midInWindow).x
+        }
     }
 
     func setDropTargetHighlight(_ on: Bool) {
@@ -1770,6 +1790,25 @@ final class TabStripRegistry {
             }
         }
         return nil
+    }
+
+    /// All registered strips resolved to screen geometry, frontmost window
+    /// first — the window-dependent input `TabDropResolver` decides over. Same
+    /// grace-rect math as `strip(at:)`.
+    func resolvedStrips() -> [DropStrip] {
+        var result: [DropStrip] = []
+        for window in NSApp.orderedWindows {
+            for (id, entry) in entries where entry.strip?.window === window {
+                guard let strip = entry.strip, let stripWindow = strip.window else { continue }
+                let container: NSView = strip.enclosingScrollView ?? strip
+                var rect = container.convert(container.bounds, to: nil)
+                rect = stripWindow.convertToScreen(rect)
+                let graceRect = rect.insetBy(dx: 0, dy: -TabStripNSView.tearOffDistance / 2)
+                result.append(DropStrip(
+                    id: id, graceRect: graceRect, itemMidXs: strip.itemScreenMidXs()))
+            }
+        }
+        return result
     }
 
     /// Highlights the strip under the pointer during a tear-off drag.
