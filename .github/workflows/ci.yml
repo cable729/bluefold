@@ -169,18 +169,29 @@ jobs:
         env:
           BLUEFOLD_REAL_DISPLAY: "1"
         run: |
-          set -o pipefail
           command -v gtimeout >/dev/null 2>&1 || brew install -q coreutils
           status=0
           for target in ReaderUITests SearchIndexKitTests; do
             echo "::group::${target} (BLUEFOLD_REAL_DISPLAY=1, xcodebuild)"
+            # Full output to a file (not truncated) so the exact failing test
+            # names survive; a GUI session runs most gated tests, so we care
+            # WHICH few fail, to narrow the gate precisely (issue #51).
             if gtimeout --signal=KILL 600 xcodebuild test \
                 -scheme pdf-app-Package -destination 'platform=macOS' \
-                -only-testing:"${target}" 2>&1 | tee "spike-${target}.log" | tail -120; then
-              echo "::notice title=#25 spike::${target}: PASSED in GUI session — candidate to un-gate"
+                -only-testing:"${target}" > "spike-${target}.log" 2>&1; then
+              echo "::notice title=#25 spike::${target}: PASSED in GUI session — safe to un-gate"
             else
-              echo "::warning title=#25 spike::${target}: FAILED/HUNG in GUI session — keep gated, needs Tier-3 refactor"
+              echo "::warning title=#25 spike::${target}: FAILED/HUNG in GUI session"
               status=1
+            fi
+            # Test-run summary + every failing test name (deduped).
+            grep -E "Test run with|Suite .* (failed|passed)|Killed" "spike-${target}.log" | tail -20 || true
+            fails="$(grep -oE "✘ Test [A-Za-z0-9_]+\(\)" "spike-${target}.log" | sort -u || true)"
+            if [ -n "$fails" ]; then
+              echo "--- failing tests in ${target} (the ones that truly need a real display / refactor) ---"
+              echo "$fails" | while read -r t; do
+                echo "::warning title=#25 spike fail::${target}: ${t}"
+              done
             fi
             echo "::endgroup::"
           done
