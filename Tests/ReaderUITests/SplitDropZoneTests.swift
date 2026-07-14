@@ -163,7 +163,7 @@ struct SplitDropZoneTests {
 
     // MARK: - Drag outcomes
 
-    @Test func dropOnAnotherWindowsLeftHalfSplitsLeading() {
+    @Test(.requiresCrossWindowServer) func dropOnAnotherWindowsLeftHalfSplitsLeading() {
         let source = Harness(
             frame: NSRect(x: 100, y: 300, width: 600, height: 400),
             tabs: ["Alpha", "Beta"]
@@ -282,7 +282,7 @@ struct SplitDropZoneTests {
         #expect(!SplitDropZoneRegistry.shared.isHighlightVisible)
     }
 
-    @Test func stripDropStillWinsOverTheContentAreaBeneathIt() {
+    @Test(.requiresCrossWindowServer) func stripDropStillWinsOverTheContentAreaBeneathIt() {
         // The strip's grace band reaches into the content area; a drop there
         // must stay a strip drop (tab move), not become a surprise split.
         let source = Harness(

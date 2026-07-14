@@ -11,6 +11,18 @@ extension Trait where Self == ConditionTrait {
         .enabled(if: isRealDisplayAvailable,
                  "needs a window server; skipped on headless CI")
     }
+
+    /// Stricter than `.requiresWindowServer`: cross-window drag/drop drives a
+    /// SOURCE and a TARGET NSWindow and converts the drop point through both
+    /// windows' screen frames. The #25 spike proved these fail on the CI runner
+    /// even in an xcodebuild GUI session (windows are placed unreliably), while
+    /// every single-window drag passes. So these get NO `BLUEFOLD_REAL_DISPLAY`
+    /// opt-in — they stay off all CI until the drop decision is extracted into a
+    /// pure function (#49); they still run locally and via `merge-pr.sh`.
+    static var requiresCrossWindowServer: ConditionTrait {
+        .enabled(if: ProcessInfo.processInfo.environment["CI"] == nil,
+                 "cross-window drag is unreliable on CI even with a window server (#49)")
+    }
 }
 
 /// True when a window server is available: either we are not under CI at all

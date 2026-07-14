@@ -147,23 +147,25 @@ jobs:
             echo "::notice title=Skipped on CI (runs locally via merge-pr.sh)::${line}"
           done || true
 
-  # Spike (issue #25): the `.requiresWindowServer` ReaderUITests suites, skipped
-  # on the plain `swift test` job, re-run here via `xcodebuild test` — which
-  # launches the xctest bundle in the runner's GUI session rather than a bare
-  # SPM process. BLUEFOLD_REAL_DISPLAY=1 flips the gate back on (see
-  # WindowServerTrait). Earlier runs proved a GUI session runs ~412/419 green;
-  # this job names the few that still fail so the gate can be narrowed to
-  # exactly those (issue #51). EVIDENCE-GATHERING, not a merge gate:
-  # continue-on-error keeps it from blocking PRs. Drives the package scheme
-  # directly — no App/Bluefold.xcodeproj changes.
+  # Window-server lane (issue #25): the `.requiresWindowServer` ReaderUITests
+  # suites are skipped on the plain `swift test` job because a bare SPM test
+  # process has no window server. Here `xcodebuild test` launches the same xctest
+  # bundle in the runner's GUI session, and BLUEFOLD_REAL_DISPLAY=1 flips the
+  # gate back on (see WindowServerTrait). The #25 spike proved this runs the
+  # single-window drag / hit-test / layout tests green; the only failures were
+  # three genuine CROSS-window drags (windows are placed unreliably on the
+  # runner), now carved out via `.requiresCrossWindowServer` and tracked in #49.
+  # So this lane is expected GREEN. It stays `continue-on-error` for now (one
+  # confirming green run before we make it a required check); flip to blocking
+  # once observed stable. Drives the package scheme directly — no
+  # App/Bluefold.xcodeproj changes.
   #
-  # SearchIndexKitTests (`.requiresPDFIndexing`) is deliberately NOT re-run
-  # here: two spike runs showed PDFKit/Vision indexing HANGS in the GUI session
-  # too (KILLed at the timeout), so it is not a window-server problem — that
-  # hang is tracked in #50, and re-running it would waste ~10 min of runner
-  # time every push for no new signal.
-  windowserver-spike:
-    name: window-server spike (non-blocking, #25)
+  # SearchIndexKitTests (`.requiresPDFIndexing`) is deliberately NOT run here:
+  # spike runs showed PDFKit/Vision indexing HANGS in the GUI session too
+  # (KILLed at the timeout), so it is not a window-server problem — tracked in
+  # #50; re-running it would waste ~10 min of runner time per push.
+  windowserver-tests:
+    name: window-server UI tests (GUI session, #25)
     runs-on: macos-26
     continue-on-error: true
     timeout-minutes: 20
@@ -176,36 +178,34 @@ jobs:
           BLUEFOLD_REAL_DISPLAY: "1"
         run: |
           command -v gtimeout >/dev/null 2>&1 || brew install -q coreutils
-          target=ReaderUITests
-          echo "::group::${target} (BLUEFOLD_REAL_DISPLAY=1, xcodebuild)"
           status=0
-          # Full output to a file (not TTY, not truncated) so every failure line
-          # survives for the reclassification list.
+          # Only the two window-server-gated suites — the rest of ReaderUITests
+          # already runs on the plain `swift test` job.
           gtimeout --signal=KILL 300 xcodebuild test \
               -scheme pdf-app-Package -destination 'platform=macOS' \
-              -only-testing:"${target}" > "spike-${target}.log" 2>&1 || status=1
-          grep -E "Test run with|Suite .* (failed|passed)|Killed" "spike-${target}.log" | tail -20 || true
+              -only-testing:ReaderUITests/TabStripDragTests \
+              -only-testing:ReaderUITests/SplitDropZoneTests \
+              > windowserver-tests.log 2>&1 || status=1
+          echo "::group::results"
+          grep -E "Test run with|Suite .* (failed|passed)|Killed" windowserver-tests.log | tail -20 || true
           echo "::endgroup::"
-          # Print EVERY failing-test line and emit one annotation per unique
-          # test name — this is the narrow-the-gate deliverable.
-          echo "::group::Failing tests (need a real display → gate / refactor)"
-          grep -E "Test [A-Za-z0-9_]+\(\) (failed|recorded an issue)" "spike-${target}.log" || echo "(none parsed — see file above)"
-          grep -oE "Test [A-Za-z0-9_]+\(\)" "spike-${target}.log" \
-            | grep -vE "Test run" | sort -u | while read -r _t t; do
-              echo "::warning title=#25 spike fail::${target}: ${t}"
+          if [ "$status" != 0 ]; then
+            # If anything fails, name it — a regression here means a formerly
+            # GUI-session-safe test now needs a real display (→ narrow further).
+            echo "::group::failures"
+            grep -E "Test [A-Za-z0-9_]+\(\) (failed|recorded an issue)" windowserver-tests.log || true
+            echo "::endgroup::"
+            grep -oE "✘ Test [A-Za-z0-9_]+\(\)" windowserver-tests.log | sort -u | while read -r _x _t t; do
+              echo "::warning title=#25 window-server fail::${t}"
             done || true
-          echo "::endgroup::"
-          if [ "$status" = 0 ]; then
-            echo "::notice title=#25 spike::${target}: all green in GUI session"
-          else
-            echo "::warning title=#25 spike::${target}: some tests failed in GUI session (names above)"
           fi
-      - name: Upload spike log
+          exit "$status"
+      - name: Upload test log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: windowserver-spike-log
-          path: spike-ReaderUITests.log
+          name: windowserver-tests-log
+          path: windowserver-tests.log
           if-no-files-found: warn
 
   # iOS still has to compile (shared ReaderCore changes routinely touch it).

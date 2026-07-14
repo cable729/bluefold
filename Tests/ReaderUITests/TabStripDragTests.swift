@@ -146,7 +146,7 @@ struct TabStripDragTests {
         #expect(h.reorders.isEmpty && h.moves.isEmpty)
     }
 
-    @Test func dropOnAnotherStripMovesTab() {
+    @Test(.requiresCrossWindowServer) func dropOnAnotherStripMovesTab() {
         let source = Harness(
             frame: NSRect(x: 100, y: 300, width: 600, height: 400),
             tabs: ["Alpha", "Beta"]
