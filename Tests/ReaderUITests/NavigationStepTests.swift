@@ -74,7 +74,11 @@ import Testing
         withDependencies { $0.appLogger = .captured(into: box) } operation: {
             coordinator.goToNextPage()
         }
-        PDFKitProbe.settle(8)
+        // Settle PAST the applier's 0.25s late re-assert. settle(8)=0.16s measured
+        // the PRE-correction position, which is already correct for single-page
+        // nav but off on the 1× CI runner for a two-up row step (#53). settle(20)
+        // ≈0.4s lets the deferred re-assert fire → the final settled position.
+        PDFKitProbe.settle(20)
 
         let page6 = doc.page(at: 6)!
         let rect = view.convert(page6.bounds(for: view.displayBox), from: page6)
@@ -109,7 +113,11 @@ import Testing
         withDependencies { $0.appLogger = .noop } operation: {
             coordinator.goToPreviousPage()
         }
-        PDFKitProbe.settle(8)
+        // Settle PAST the applier's 0.25s late re-assert. settle(8)=0.16s measured
+        // the PRE-correction position, which is already correct for single-page
+        // nav but off on the 1× CI runner for a two-up row step (#53). settle(20)
+        // ≈0.4s lets the deferred re-assert fire → the final settled position.
+        PDFKitProbe.settle(20)
 
         let page4 = doc.page(at: 4)!
         let rect = view.convert(page4.bounds(for: view.displayBox), from: page4)
@@ -152,7 +160,11 @@ import Testing
         withDependencies { $0.appLogger = .captured(into: box) } operation: {
             coordinator.goToNextPage()
         }
-        PDFKitProbe.settle(8)
+        // Settle PAST the applier's 0.25s late re-assert. settle(8)=0.16s measured
+        // the PRE-correction position, which is already correct for single-page
+        // nav but off on the 1× CI runner for a two-up row step (#53). settle(20)
+        // ≈0.4s lets the deferred re-assert fire → the final settled position.
+        PDFKitProbe.settle(20)
 
         let page4 = doc.page(at: 4)!
         let rect = view.convert(page4.bounds(for: view.displayBox), from: page4)
