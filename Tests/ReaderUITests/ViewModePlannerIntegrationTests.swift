@@ -24,9 +24,10 @@ import Testing
     @Test func standardPlanRendersInnerGapEqualToMargin() {
         let doc = PDFKitProbe.makeDocument(
             pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 4))
-        let (view, _) = PDFKitProbe.makeView(
+        let (view, window) = PDFKitProbe.makeView(
             document: doc, viewport: CGSize(width: 824, height: 1000),
             mode: .twoUpContinuous)
+        defer { PDFKitProbe.teardown(view, window) }
 
         let plan = ViewModePlanner.standardPlan(
             mode: .doubleContinuous,
@@ -90,9 +91,10 @@ import Testing
         // clip origin.y is unchanged (reading position preserved).
         let doc = PDFKitProbe.makeDocument(
             pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 5))
-        let (view, _) = PDFKitProbe.makeView(
+        let (view, window) = PDFKitProbe.makeView(
             document: doc, viewport: CGSize(width: 800, height: 500),
             mode: .singlePageContinuous)
+        defer { PDFKitProbe.teardown(view, window) }
         view.displaysPageBreaks = true
         view.pageBreakMargins = NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
         view.autoScales = false
@@ -152,9 +154,10 @@ import Testing
         // (b) integration — fit-height re-fits the CURRENT page without jumping.
         let doc = PDFKitProbe.makeDocument(
             pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 4))
-        let (view, _) = PDFKitProbe.makeView(
+        let (view, window) = PDFKitProbe.makeView(
             document: doc, viewport: CGSize(width: 800, height: 1216),
             mode: .singlePage)
+        defer { PDFKitProbe.teardown(view, window) }
         view.go(to: doc.page(at: 2)!)
         PDFKitProbe.settle()
         let beforeIndex = doc.index(for: view.currentPage!)
@@ -210,9 +213,10 @@ import Testing
         let m = ReaderLayout.margin
         let doc = PDFKitProbe.makeDocument(
             pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 12))
-        let (view, _) = PDFKitProbe.makeView(
+        let (view, window) = PDFKitProbe.makeView(
             document: doc, viewport: CGSize(width: 824, height: 1000),
             mode: .singlePageContinuous)
+        defer { PDFKitProbe.teardown(view, window) }
         view.autoScales = false
         view.scaleFactor = 2.02                 // singleContinuous width fit
         view.go(to: doc.page(at: 5)!)
@@ -253,6 +257,59 @@ import Testing
                 "clip drifted after relayout (rewind failed): \(immediateOriginY) → \(settledOriginY)")
         #expect(!box.messages(.viewmode).isEmpty,
                 "applier did not instrument via .viewmode")
+    }
+
+    /// VM-6 — a PDF whose catalog carries `/PageLayout /TwoPageRight` is read as
+    /// a book (`displaysAsBook == true`); PDFKit does NOT auto-apply `/PageLayout`
+    /// (docs/PDFKIT-FACTS.md §3), so we read it ourselves from the CGPDF catalog.
+    /// The fixture is a hand-assembled minimal PDF (four objects + a byte-exact
+    /// xref) so the catalog key is provably present; a `/TwoPageLeft` control
+    /// PDF must map to the default.
+    @Test func vm6_pageLayoutRight_honored_fromCatalog() {
+        let bookDoc = PDFDocument(data: Self.minimalPDF(pageLayout: "TwoPageRight"))
+        #expect(bookDoc != nil, "fixture PDF failed to parse")
+        #expect(bookDoc?.pageCount == 2, "fixture should have 2 pages")
+        let bookLayout = ViewModePlanner.bookLayout(of: bookDoc!)
+        #expect(bookLayout.displaysAsBook == true,
+                "/TwoPageRight should read as displaysAsBook = true")
+        #expect(bookLayout.rtl == false)
+
+        // Control: /TwoPageLeft (odd pages on the left) → not a book.
+        let leftDoc = PDFDocument(data: Self.minimalPDF(pageLayout: "TwoPageLeft"))
+        #expect(ViewModePlanner.bookLayout(of: leftDoc!) == .default)
+
+        // A PDF with no /PageLayout key at all → default.
+        let plainDoc = PDFKitProbe.makeDocument(
+            pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 2))
+        #expect(ViewModePlanner.bookLayout(of: plainDoc) == .default)
+    }
+
+    /// A minimal, byte-exact PDF: catalog (obj 1) carries `/PageLayout`, a pages
+    /// node (obj 2) and two page objects (3, 4). The xref offsets are computed
+    /// from the assembled bytes so CGPDFDocument parses it without rebuilding.
+    static func minimalPDF(pageLayout: String) -> Data {
+        let bodyObjects = [
+            "<< /Type /Catalog /Pages 2 0 R /PageLayout /\(pageLayout) >>",
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 600] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 600] >>",
+        ]
+        var pdf = "%PDF-1.4\n"
+        var offsets: [Int] = []
+        for (i, obj) in bodyObjects.enumerated() {
+            offsets.append(pdf.utf8.count)
+            pdf += "\(i + 1) 0 obj\n\(obj)\nendobj\n"
+        }
+        let xrefOffset = pdf.utf8.count
+        let count = bodyObjects.count + 1                 // + the free object 0
+        pdf += "xref\n0 \(count)\n"
+        pdf += "0000000000 65535 f \n"                    // 20 bytes incl. EOL
+        for off in offsets {
+            pdf += String(format: "%010d 00000 n \n", off)
+        }
+        pdf += "trailer\n<< /Size \(count) /Root 1 0 R >>\n"
+        pdf += "startxref\n\(xrefOffset)\n%%EOF\n"
+        return Data(pdf.utf8)
     }
 }
 #endif

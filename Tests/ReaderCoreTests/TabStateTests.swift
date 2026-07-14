@@ -29,6 +29,38 @@ import Testing
         #expect(tab.destinationPoint == nil)
     }
 
+    @Test func trimMarginsDefaultsFalse() {
+        let tab = TabState(pathHint: "/tmp/book.pdf")
+        #expect(tab.trimMargins == false)
+    }
+
+    /// Old session files predate `trimMargins` — decoding must default it to
+    /// false rather than throwing (hand-rolled decoder).
+    @Test func decodingOldSessionWithoutTrimMarginsDefaultsFalse() throws {
+        let json = """
+        {
+          "id": "\(UUID().uuidString)",
+          "pathHint": "/tmp/book.pdf",
+          "pageIndex": 3,
+          "scaleFactor": 1.0,
+          "autoScales": true,
+          "displayModeRaw": 1,
+          "history": { "back": [], "forward": [] }
+        }
+        """
+        let tab = try JSONDecoder().decode(TabState.self, from: Data(json.utf8))
+        #expect(tab.trimMargins == false)
+        #expect(tab.pageIndex == 3)
+    }
+
+    @Test func trimMarginsRoundTripsThroughCodec() throws {
+        var tab = TabState(pathHint: "/tmp/book.pdf")
+        tab.trimMargins = true
+        let data = try JSONEncoder().encode(tab)
+        let decoded = try JSONDecoder().decode(TabState.self, from: data)
+        #expect(decoded.trimMargins == true)
+    }
+
     @Test func themePageFilters() {
         #expect(AppTheme.light.pageRenderFilter == .none)
         #expect(AppTheme.dark.pageRenderFilter == .invert)
