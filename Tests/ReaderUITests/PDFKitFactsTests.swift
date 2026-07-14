@@ -48,12 +48,13 @@ import Testing
     }
 
     /// FACT 2 — two-up horizontal geometry, derived by varying the insets.
-    /// Measured (macOS 26): with symmetric insets i, the documentView width
-    /// is 2·pageW + 4i − 1 and the INNER gap between the pair is 2i − 1 pt.
-    /// There is a constant −1 pt offset at the spine (even at i = 0 the pages
-    /// overlap by 1 pt, docWidth 799 not 800) — so a uniform on-screen gap M
-    /// between the pair is achieved with left/right inset (M + 1) / 2, not
-    /// M / 2. Outer edges get i each; row height = pageH + 2i.
+    /// With symmetric insets i: documentView width ≈ 2·pageW + 4i and the
+    /// INNER gap between the pair ≈ 2i (the two adjacent per-page insets sum).
+    /// There is a sub-pixel spine loss (~0.5–1 pt) that depends on the display
+    /// backing scale — 2× rounds it to −1 (gap 19 at i=10), 1× to −0.5
+    /// (gap 19.5) — so it is NOT worth compensating: a uniform on-screen gap M
+    /// between the pair uses left/right inset M/2. Outer edges get i each;
+    /// row height = pageH + 2i. Tolerances below straddle both backing scales.
     @Test func twoUpGapAndOuterEdges() {
         func measure(inset: CGFloat) -> (docWidth: CGFloat, gap: CGFloat) {
             let doc = PDFKitProbe.makeDocument(
@@ -82,12 +83,16 @@ import Testing
         print("PROBE twoUp: inset0=\(at0) inset10=\(at10) inset20=\(at20) " +
               "(2×400w pages, scale 1)")
 
-        #expect(near(at0.gap, -1) && near(at0.docWidth, 799),
-                "two-up spine offset (−1) at zero insets changed")
-        #expect(near(at10.gap, 19) && near(at10.docWidth, 859),
-                "two-up inner gap formula (2i−1) changed at inset 10")
-        #expect(near(at20.gap, 39) && near(at20.docWidth, 919),
-                "two-up inner gap formula (2i−1) changed at inset 20")
+        // gap ≈ 2i and width ≈ 2·400 + 4i, within ~1.5pt to absorb the
+        // backing-scale spine rounding (measured: 2× → −1/19/39, 1× → −0.5/
+        // 19.5/39.5; widths 799–800 / 859–860 / 919–920).
+        let tol: CGFloat = 1.5
+        #expect(near(at0.gap, 0, tol) && near(at0.docWidth, 800, tol),
+                "two-up zero-inset geometry changed")
+        #expect(near(at10.gap, 20, tol) && near(at10.docWidth, 860, tol),
+                "two-up inner gap (≈2i) / width (≈2·pageW+4i) changed at inset 10")
+        #expect(near(at20.gap, 40, tol) && near(at20.docWidth, 920, tol),
+                "two-up inner gap (≈2i) / width (≈2·pageW+4i) changed at inset 20")
     }
 
     /// FACT 3 — enlarged page boxes ARE honored: setBounds with a media+crop

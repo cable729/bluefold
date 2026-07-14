@@ -39,23 +39,34 @@ whenever the scale changes, OR accept that the gap scales with zoom. The
 planner owns this conversion — `ReaderLayout.margin` is the screen target;
 `pageBreakMargins` is derived from it and the current scale.
 
-## Fact 2 — two-up horizontal geometry has a −1 pt spine offset
+## Fact 2 — two-up horizontal geometry ≈ 2·pageW + 4·inset (sub-pixel spine loss)
 
-Two-up row width = `2·pageW + 4·inset − 1`; inner gap between the pair =
-`2·inset − 1` pt. Measured (pages 400 wide, scale 1):
+Two-up row width ≈ `2·pageW + 4·inset`; inner gap between the pair ≈
+`2·inset` (the two adjacent per-page insets sum). There is a **sub-pixel spine
+loss (~0.5–1 pt) that depends on the display backing scale** — it is not a real
+design quantity. Measured (pages 400 wide, scale 1):
 
-| inset | docWidth | inner gap |
-|------:|---------:|----------:|
-| 0 | 799 | −1 (1 pt overlap) |
-| 10 | 859 | 19 |
-| 20 | 919 | 39 |
+| inset | docWidth (2×/1×) | inner gap (2×/1×) |
+|------:|-----------------:|------------------:|
+| 0 | 799 / 800 | −1.0 / −0.5 |
+| 10 | 859 / 860 | 19.0 / 19.5 |
+| 20 | 919 / 920 | 39.0 / 39.5 |
+
+(2× = local Retina, 1× = the headless CI runner. The probe asserts the clean
+formulas within ~1.5 pt so it holds on both.)
 
 **Consequence:** for a uniform on-screen gap **M** between the two pages, use
-left/right inset `(M + 1) / 2`, not `M / 2`. Outer edges get one inset each;
-row height = `pageH + 2·inset`. There is no separate inner-gutter vs
-outer-margin control — only the four per-page insets — so "uniform gap
-everywhere" = symmetric insets plus (if needed) an outer compensation (see
-Fact 5 before reaching for `contentInsets`).
+left/right inset **`M / 2`** — the sub-pixel spine loss is backing-scale-
+dependent and not worth compensating. Outer edges get one inset each; row
+height = `pageH + 2·inset`. There is no separate inner-gutter vs outer-margin
+control — only the four per-page insets — so "uniform gap everywhere" =
+symmetric insets plus (if needed) an outer compensation computed into the
+scroll target (see Fact 5 before reaching for `contentInsets`).
+
+**Lesson pinned here too:** absolute documentView dimensions carry a
+backing-scale-dependent sub-pixel term; the planner must reason in terms of the
+robust quantities (gaps = sums of insets) and tolerate ≤1 pt on totals, never
+hard-code a per-machine pixel value.
 
 ## Fact 3 — enlarged page boxes ARE honored (mixed-size alignment is viable)
 
