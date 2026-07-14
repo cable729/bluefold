@@ -31,6 +31,16 @@ jobs:
     # ever sits queued (image retired/renamed), fall back to macos-latest —
     # the code also compiles under Swift 6.0.
     runs-on: macos-26
+    # SNAPSHOT_ARTIFACTS tells swift-snapshot-testing where to drop the
+    # reference/failure/difference PNGs when a Phase-9 view-mode snapshot
+    # (ViewModeLayoutSnapshotTests) diverges, so a failed run uploads a
+    # downloadable visual diff (see the "Upload snapshot diffs" step). The
+    # snapshot references are backing-scale-INDEPENDENT (composed into a
+    # fixed-size bitmap, never a live PDFView screenshot — see the suite doc
+    # and docs/TESTING.md), so they assert on the 1× CI runner exactly as on a
+    # 2× dev Mac; the suite is a full CI gate, not local-only.
+    env:
+      SNAPSHOT_ARTIFACTS: ${{ github.workspace }}/snapshot-artifacts
     # id-token: write lets the Codecov step mint an OIDC token (tokenless
     # upload for public repos); contents: read is the default checkout scope.
     permissions:
@@ -86,6 +96,17 @@ jobs:
             echo "::endgroup::"
           done
           exit "${status}"
+      - name: Upload snapshot diffs
+        # On a snapshot mismatch, swift-snapshot-testing writes the
+        # reference/failure/difference PNGs under $SNAPSHOT_ARTIFACTS. Publish
+        # them so a reviewer can eyeball the visual diff without reproducing
+        # locally. Only present when a snapshot failed → guard on failure().
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-diffs
+          path: ${{ github.workspace }}/snapshot-artifacts
+          if-no-files-found: ignore
       - name: Export coverage (lcov)
         # Merged across the per-module runs; Tests/ and .build excluded so
         # the report answers "which PRODUCTION code is untested".
