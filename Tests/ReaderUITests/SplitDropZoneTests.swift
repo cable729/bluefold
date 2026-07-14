@@ -163,7 +163,10 @@ struct SplitDropZoneTests {
 
     // MARK: - Drag outcomes
 
-    @Test(.requiresCrossWindowServer) func dropOnAnotherWindowsLeftHalfSplitsLeading() {
+    // Cross-window (source + target NSWindow): excluded from the
+    // windowserver-tests CI lane via -skip-testing — the runner places the
+    // target window unreliably; runs locally. Fix via #49.
+    @Test func dropOnAnotherWindowsLeftHalfSplitsLeading() {
         let source = Harness(
             frame: NSRect(x: 100, y: 300, width: 600, height: 400),
             tabs: ["Alpha", "Beta"]
@@ -282,7 +285,9 @@ struct SplitDropZoneTests {
         #expect(!SplitDropZoneRegistry.shared.isHighlightVisible)
     }
 
-    @Test(.requiresCrossWindowServer) func stripDropStillWinsOverTheContentAreaBeneathIt() {
+    // Cross-window (source + target NSWindow): excluded from the
+    // windowserver-tests CI lane via -skip-testing; runs locally. Fix via #49.
+    @Test func stripDropStillWinsOverTheContentAreaBeneathIt() {
         // The strip's grace band reaches into the content area; a drop there
         // must stay a strip drop (tab move), not become a surprise split.
         let source = Harness(
