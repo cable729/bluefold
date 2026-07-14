@@ -147,55 +147,66 @@ jobs:
             echo "::notice title=Skipped on CI (runs locally via merge-pr.sh)::${line}"
           done || true
 
-  # Spike (issue #25): the suites normally skipped on the plain `swift test`
-  # job — `.requiresWindowServer` (ReaderUITests) and `.requiresPDFIndexing`
-  # (SearchIndexKitTests) — re-run here via `xcodebuild test`, which launches
-  # the xctest bundle in the runner's GUI session rather than a bare SPM
-  # process. BLUEFOLD_REAL_DISPLAY=1 flips those gates back on (see
-  # WindowServerTrait / HeadlessCITrait). This is EVIDENCE-GATHERING, not a
-  # merge gate: continue-on-error keeps a red result from blocking PRs while we
-  # learn which tests actually survive a GUI session on GitHub's runner. Drives
-  # the package scheme directly, so it needs no App/Bluefold.xcodeproj changes.
+  # Spike (issue #25): the `.requiresWindowServer` ReaderUITests suites, skipped
+  # on the plain `swift test` job, re-run here via `xcodebuild test` — which
+  # launches the xctest bundle in the runner's GUI session rather than a bare
+  # SPM process. BLUEFOLD_REAL_DISPLAY=1 flips the gate back on (see
+  # WindowServerTrait). Earlier runs proved a GUI session runs ~412/419 green;
+  # this job names the few that still fail so the gate can be narrowed to
+  # exactly those (issue #51). EVIDENCE-GATHERING, not a merge gate:
+  # continue-on-error keeps it from blocking PRs. Drives the package scheme
+  # directly — no App/Bluefold.xcodeproj changes.
+  #
+  # SearchIndexKitTests (`.requiresPDFIndexing`) is deliberately NOT re-run
+  # here: two spike runs showed PDFKit/Vision indexing HANGS in the GUI session
+  # too (KILLed at the timeout), so it is not a window-server problem — that
+  # hang is tracked in #50, and re-running it would waste ~10 min of runner
+  # time every push for no new signal.
   windowserver-spike:
     name: window-server spike (non-blocking, #25)
     runs-on: macos-26
     continue-on-error: true
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Select latest Xcode
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
-      - name: Run gated suites in a GUI session
+      - name: Run window-server suites in a GUI session
         env:
           BLUEFOLD_REAL_DISPLAY: "1"
         run: |
           command -v gtimeout >/dev/null 2>&1 || brew install -q coreutils
+          target=ReaderUITests
+          echo "::group::${target} (BLUEFOLD_REAL_DISPLAY=1, xcodebuild)"
           status=0
-          for target in ReaderUITests SearchIndexKitTests; do
-            echo "::group::${target} (BLUEFOLD_REAL_DISPLAY=1, xcodebuild)"
-            # Full output to a file (not truncated) so the exact failing test
-            # names survive; a GUI session runs most gated tests, so we care
-            # WHICH few fail, to narrow the gate precisely (issue #51).
-            if gtimeout --signal=KILL 600 xcodebuild test \
-                -scheme pdf-app-Package -destination 'platform=macOS' \
-                -only-testing:"${target}" > "spike-${target}.log" 2>&1; then
-              echo "::notice title=#25 spike::${target}: PASSED in GUI session — safe to un-gate"
-            else
-              echo "::warning title=#25 spike::${target}: FAILED/HUNG in GUI session"
-              status=1
-            fi
-            # Test-run summary + every failing test name (deduped).
-            grep -E "Test run with|Suite .* (failed|passed)|Killed" "spike-${target}.log" | tail -20 || true
-            fails="$(grep -oE "✘ Test [A-Za-z0-9_]+\(\)" "spike-${target}.log" | sort -u || true)"
-            if [ -n "$fails" ]; then
-              echo "--- failing tests in ${target} (the ones that truly need a real display / refactor) ---"
-              echo "$fails" | while read -r t; do
-                echo "::warning title=#25 spike fail::${target}: ${t}"
-              done
-            fi
-            echo "::endgroup::"
-          done
-          exit "${status}"
+          # Full output to a file (not TTY, not truncated) so every failure line
+          # survives for the reclassification list.
+          gtimeout --signal=KILL 300 xcodebuild test \
+              -scheme pdf-app-Package -destination 'platform=macOS' \
+              -only-testing:"${target}" > "spike-${target}.log" 2>&1 || status=1
+          grep -E "Test run with|Suite .* (failed|passed)|Killed" "spike-${target}.log" | tail -20 || true
+          echo "::endgroup::"
+          # Print EVERY failing-test line and emit one annotation per unique
+          # test name — this is the narrow-the-gate deliverable.
+          echo "::group::Failing tests (need a real display → gate / refactor)"
+          grep -E "Test [A-Za-z0-9_]+\(\) (failed|recorded an issue)" "spike-${target}.log" || echo "(none parsed — see file above)"
+          grep -oE "Test [A-Za-z0-9_]+\(\)" "spike-${target}.log" \
+            | grep -vE "Test run" | sort -u | while read -r _t t; do
+              echo "::warning title=#25 spike fail::${target}: ${t}"
+            done || true
+          echo "::endgroup::"
+          if [ "$status" = 0 ]; then
+            echo "::notice title=#25 spike::${target}: all green in GUI session"
+          else
+            echo "::warning title=#25 spike::${target}: some tests failed in GUI session (names above)"
+          fi
+      - name: Upload spike log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windowserver-spike-log
+          path: spike-ReaderUITests.log
+          if-no-files-found: warn
 
   # iOS still has to compile (shared ReaderCore changes routinely touch it).
   ios-build:
