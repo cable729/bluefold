@@ -172,6 +172,20 @@ import Testing
         let currentIndex = doc.index(for: view.currentPage!)
         print("PROBE nav2 row step: currentIndex=\(currentIndex) topGap=\(topGap) " +
               "(expect row 4/5, topGap ≈ \(m))")
+        // DIAG (#53): reveal the actual two-up row geometry on the 1× CI runner
+        // vs local 2× (where this reads 8.0). If docH / row pitch differs, the
+        // pure row-top math is using the wrong pitch for two-up.
+        if let docView = view.documentView,
+           let clip = PDFKitProbe.scrollView(in: view)?.contentView {
+            func docTop(_ i: Int) -> CGFloat {
+                let p = doc.page(at: i)!
+                return docView.convert(p.bounds(for: view.displayBox), from: p).maxY
+            }
+            print("PROBE nav2 DIAG: docH=\(docView.frame.height) scale=\(view.scaleFactor) " +
+                  "clipY=\(clip.bounds.origin.y) clipH=\(clip.bounds.height) " +
+                  "p0Top=\(docTop(0)) p2Top=\(docTop(2)) p4Top=\(docTop(4)) " +
+                  "rowPitch02=\(docTop(0) - docTop(2)) rowPitch24=\(docTop(2) - docTop(4))")
+        }
 
         #expect(currentIndex == 4 || currentIndex == 5,
                 "row step did not advance to the (4,5) row: \(currentIndex)")
