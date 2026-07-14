@@ -175,16 +175,17 @@ import Testing
         // DIAG (#53): reveal the actual two-up row geometry on the 1× CI runner
         // vs local 2× (where this reads 8.0). If docH / row pitch differs, the
         // pure row-top math is using the wrong pitch for two-up.
-        if let docView = view.documentView {
-            func docTop(_ i: Int) -> CGFloat {
-                let p = doc.page(at: i)!
-                return docView.convert(p.bounds(for: view.displayBox), from: p).maxY
-            }
-            print("PROBE nav2 DIAG: docH=\(docView.frame.height) scale=\(view.scaleFactor) " +
-                  "p0Top=\(docTop(0)) p2Top=\(docTop(2)) p4Top=\(docTop(4)) " +
-                  "rowPitch02=\(docTop(0) - docTop(2)) rowPitch24=\(docTop(2) - docTop(4)) " +
-                  "page4ViewMaxY=\(rect.maxY) vpH=\(view.bounds.height)")
+        // page tops in VIEW coords (PDFView.convert(_:from: PDFPage)); at scale 1
+        // view pts == page pts, and the row-to-row pitch is directly readable.
+        func viewTop(_ i: Int) -> CGFloat {
+            let p = doc.page(at: i)!
+            return view.convert(p.bounds(for: view.displayBox), from: p).maxY
         }
+        let docH = view.documentView?.frame.height ?? -1
+        print("PROBE nav2 DIAG: docH=\(docH) scale=\(view.scaleFactor) " +
+              "p0ViewTop=\(viewTop(0)) p2ViewTop=\(viewTop(2)) p4ViewTop=\(viewTop(4)) " +
+              "rowPitch02=\(viewTop(2) - viewTop(0)) rowPitch24=\(viewTop(4) - viewTop(2)) " +
+              "vpH=\(view.bounds.height)")
 
         #expect(currentIndex == 4 || currentIndex == 5,
                 "row step did not advance to the (4,5) row: \(currentIndex)")
