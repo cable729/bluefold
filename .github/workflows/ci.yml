@@ -31,6 +31,11 @@ jobs:
     # ever sits queued (image retired/renamed), fall back to macos-latest —
     # the code also compiles under Swift 6.0.
     runs-on: macos-26
+    # id-token: write lets the Codecov step mint an OIDC token (tokenless
+    # upload for public repos); contents: read is the default checkout scope.
+    permissions:
+      contents: read
+      id-token: write
     # The known CI failure mode is a WHOLE-RUNNER deadlock: the PTY probe
     # showed all 116 tests "started" in the same instant and not one
     # completed in 23 minutes. Running each test target separately with its
@@ -100,6 +105,11 @@ jobs:
         with:
           files: coverage.lcov
           use_oidc: true
+          # Coverage is informational infra, not a correctness gate — a
+          # missing Codecov app install or a transient upload error must
+          # never fail the build. (The patch-coverage MERGE gate is enforced
+          # by Codecov's own status check, not by this step.)
+          fail_ci_if_error: false
 
   # Job B (M17): the app built and driven for real — XCUITest smoke flows
   # (session restore, tab dragging) that unit tests cannot see. Runs in
