@@ -45,6 +45,30 @@ public final class PageBoxStore {
     /// stored originals are captured once, so re-applying re-positions from the
     /// true originals rather than compounding.
     public func apply(overrides: [Int: CGRect], to document: PDFDocument) {
+        setBoxes(overrides, to: document, unionWithOriginalCrop: true)
+    }
+
+    /// TRIM — SHRINKS each listed page's media + crop box to the override rect
+    /// (the detected content box), stashing the page's original boxes on first
+    /// touch. UNLIKE `apply`, the override is NOT unioned with the original crop:
+    /// trim deliberately crops the cropBox SMALLER than the publisher's page, so
+    /// the enlarge-only cover guard must be bypassed. The caller is responsible
+    /// for passing a box that contains the real ink (`PageContentDetector` grows
+    /// the ink box by padding), so content is never clipped.
+    ///
+    /// Composes with the two-up enlarge path: for double + trim the caller feeds
+    /// the CROPPED content boxes through `ViewModePlanner.twoUpBoxOverrides` to
+    /// get uniform-cell boxes and passes THOSE here — cropping to a cell that is
+    /// ≥ the content box but built from content (never the publisher's margins),
+    /// so the spread still abuts the gutter. Idempotent from the true originals
+    /// (captured once); `revert` restores them for BOTH paths.
+    public func crop(overrides: [Int: CGRect], to document: PDFDocument) {
+        setBoxes(overrides, to: document, unionWithOriginalCrop: false)
+    }
+
+    private func setBoxes(
+        _ overrides: [Int: CGRect], to document: PDFDocument, unionWithOriginalCrop: Bool
+    ) {
         for (index, rawBox) in overrides {
             guard let page = document.page(at: index) else { continue }
             if originals[index] == nil {
@@ -53,8 +77,10 @@ public final class PageBoxStore {
                     crop: page.bounds(for: .cropBox))
             }
             let original = originals[index]!
-            // Cover guard: never smaller than the original content (crop) box.
-            let box = rawBox.union(original.crop)
+            // Enlarge path (SIZE-3/4): cover guard — never smaller than the
+            // original content (crop) box. Crop path (TRIM): set the smaller box
+            // directly.
+            let box = unionWithOriginalCrop ? rawBox.union(original.crop) : rawBox
             page.setBounds(box, for: .mediaBox)
             page.setBounds(box, for: .cropBox)
         }

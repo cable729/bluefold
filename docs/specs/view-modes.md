@@ -56,13 +56,13 @@ single/double × fixed/continuous (PDFDisplayMode raw 0–3).
 
 ## Trim margins (a real crop, orthogonal to zoom)
 
-- TRIM-1 (PENDING) single fixed: after trim, single-fixed standard again (M all around)
-- TRIM-2 (PENDING) single continuous: same y-scroll; page keeps its viewport fraction
-- TRIM-3 (PENDING) double fixed: TRIM-1 behavior for the spread
-- TRIM-4 (PENDING) double continuous: TRIM-2 behavior
-- TRIM-5 (PENDING) untrim reverses all four
-- TRIM-6 (PENDING) mixed sizes: trim page-by-page; SIZE rules apply to cropped boxes
-- TRIM-7 (PENDING) visible pages crop synchronously, rest in background
+- TRIM-1 single fixed: after trim, single-fixed standard again (M all around)
+- TRIM-2 single continuous: same y-scroll; page keeps its viewport fraction
+- TRIM-3 double fixed: TRIM-1 behavior for the spread
+- TRIM-4 double continuous: TRIM-2 behavior
+- TRIM-5 untrim reverses all four
+- TRIM-6 mixed sizes: trim page-by-page; SIZE rules apply to cropped boxes
+- TRIM-7 whole-doc detection cached once per page (measured ~1.4 ms/page); current page detected synchronously so trim appears at once
 
 ## Navigation
 
