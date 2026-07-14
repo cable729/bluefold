@@ -221,7 +221,11 @@ final class SmokeUITests: XCTestCase {
     }
 
     func testDragTabBetweenWindows() throws {
-        try XCTSkipIf(ProcessInfo.processInfo.environment["CI"] != nil,
+        // Skipped on the headless CI runner, but a real-display lane can opt
+        // back in by forwarding TEST_RUNNER_BLUEFOLD_REAL_DISPLAY=1 (the runner
+        // sees it without the prefix, like TEST_RUNNER_CI below).
+        let env = ProcessInfo.processInfo.environment
+        try XCTSkipIf(env["CI"] != nil && env["BLUEFOLD_REAL_DISPLAY"] == nil,
                       "synthesized cross-window drag is unreliable on the headless CI runner")
         let files = ["Alpha", "Beta", "Gamma"].map { makePDF(named: $0) }
         // Two windows from a seeded session: [Gamma] and [Alpha, Beta],

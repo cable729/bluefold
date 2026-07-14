@@ -147,6 +147,45 @@ jobs:
             echo "::notice title=Skipped on CI (runs locally via merge-pr.sh)::${line}"
           done || true
 
+  # Spike (issue #25): the suites normally skipped on the plain `swift test`
+  # job — `.requiresWindowServer` (ReaderUITests) and `.requiresPDFIndexing`
+  # (SearchIndexKitTests) — re-run here via `xcodebuild test`, which launches
+  # the xctest bundle in the runner's GUI session rather than a bare SPM
+  # process. BLUEFOLD_REAL_DISPLAY=1 flips those gates back on (see
+  # WindowServerTrait / HeadlessCITrait). This is EVIDENCE-GATHERING, not a
+  # merge gate: continue-on-error keeps a red result from blocking PRs while we
+  # learn which tests actually survive a GUI session on GitHub's runner. Drives
+  # the package scheme directly, so it needs no App/Bluefold.xcodeproj changes.
+  windowserver-spike:
+    name: window-server spike (non-blocking, #25)
+    runs-on: macos-26
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select latest Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+      - name: Run gated suites in a GUI session
+        env:
+          BLUEFOLD_REAL_DISPLAY: "1"
+        run: |
+          set -o pipefail
+          command -v gtimeout >/dev/null 2>&1 || brew install -q coreutils
+          status=0
+          for target in ReaderUITests SearchIndexKitTests; do
+            echo "::group::${target} (BLUEFOLD_REAL_DISPLAY=1, xcodebuild)"
+            if gtimeout --signal=KILL 600 xcodebuild test \
+                -scheme pdf-app-Package -destination 'platform=macOS' \
+                -only-testing:"${target}" 2>&1 | tee "spike-${target}.log" | tail -120; then
+              echo "::notice title=#25 spike::${target}: PASSED in GUI session — candidate to un-gate"
+            else
+              echo "::warning title=#25 spike::${target}: FAILED/HUNG in GUI session — keep gated, needs Tier-3 refactor"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "${status}"
+
   # iOS still has to compile (shared ReaderCore changes routinely touch it).
   ios-build:
     name: iOS simulator build

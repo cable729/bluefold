@@ -122,28 +122,6 @@ struct SplitDropZoneTests {
         }
     }
 
-    // MARK: - Pure geometry
-
-    @Test func sideIsDecidedByTheHalfHoldingThePointer() {
-        let rect = CGRect(x: 100, y: 100, width: 600, height: 400)
-        #expect(SplitDropZoneRegistry.side(
-            for: CGPoint(x: 101, y: 300), in: rect) == .leading)
-        #expect(SplitDropZoneRegistry.side(
-            for: CGPoint(x: 399, y: 300), in: rect) == .leading)
-        #expect(SplitDropZoneRegistry.side(
-            for: CGPoint(x: 400, y: 300), in: rect) == .trailing)
-        #expect(SplitDropZoneRegistry.side(
-            for: CGPoint(x: 699, y: 300), in: rect) == .trailing)
-    }
-
-    @Test func halfRectsCoverTheirHalves() {
-        let rect = CGRect(x: 100, y: 100, width: 600, height: 400)
-        #expect(SplitDropZoneRegistry.halfRect(of: rect, side: .leading)
-            == CGRect(x: 100, y: 100, width: 300, height: 400))
-        #expect(SplitDropZoneRegistry.halfRect(of: rect, side: .trailing)
-            == CGRect(x: 400, y: 100, width: 300, height: 400))
-    }
-
     // MARK: - Screen-level hit-testing
 
     @Test func zoneDetectsHalvesAndMissesOutsideTheContentArea() {
@@ -363,6 +341,36 @@ struct SplitDropZoneTests {
             .leftMouseUp, windowPoint: CGPoint(x: start.x + 40, y: start.y)
         ))
         #expect(h.splitDrops.isEmpty)
+    }
+}
+
+/// The pure drop-side math: `SplitDropZoneRegistry.side` / `.halfRect` are
+/// static functions over plain rects — no NSWindow, no window server — so
+/// these run everywhere, including the headless CI `swift test` job. (Split
+/// out of `SplitDropZoneTests`, which is gated `.requiresWindowServer` for its
+/// real-window hit-testing and drag cases.)
+@Suite("Split drop geometry")
+@MainActor
+struct SplitDropGeometryTests {
+
+    @Test func sideIsDecidedByTheHalfHoldingThePointer() {
+        let rect = CGRect(x: 100, y: 100, width: 600, height: 400)
+        #expect(SplitDropZoneRegistry.side(
+            for: CGPoint(x: 101, y: 300), in: rect) == .leading)
+        #expect(SplitDropZoneRegistry.side(
+            for: CGPoint(x: 399, y: 300), in: rect) == .leading)
+        #expect(SplitDropZoneRegistry.side(
+            for: CGPoint(x: 400, y: 300), in: rect) == .trailing)
+        #expect(SplitDropZoneRegistry.side(
+            for: CGPoint(x: 699, y: 300), in: rect) == .trailing)
+    }
+
+    @Test func halfRectsCoverTheirHalves() {
+        let rect = CGRect(x: 100, y: 100, width: 600, height: 400)
+        #expect(SplitDropZoneRegistry.halfRect(of: rect, side: .leading)
+            == CGRect(x: 100, y: 100, width: 300, height: 400))
+        #expect(SplitDropZoneRegistry.halfRect(of: rect, side: .trailing)
+            == CGRect(x: 400, y: 100, width: 300, height: 400))
     }
 }
 #endif
