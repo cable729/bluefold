@@ -57,16 +57,21 @@ public struct ModeTransition: Equatable, Sendable {
     public var targetPageIndex: Int
     /// Where to park the reading position after relayout.
     public var scrollAnchor: ScrollAnchor
+    /// The destination's even/odd pairing, so the applier can set
+    /// `displaysAsBook` / `displaysRTL` when entering a two-up mode.
+    public var bookLayout: BookLayout
 
     public init(
         displayMode: Int, scaleFactor: CGFloat, pageBreakMarginInset: CGFloat,
-        targetPageIndex: Int, scrollAnchor: ScrollAnchor
+        targetPageIndex: Int, scrollAnchor: ScrollAnchor,
+        bookLayout: BookLayout = .default
     ) {
         self.displayMode = displayMode
         self.scaleFactor = scaleFactor
         self.pageBreakMarginInset = pageBreakMarginInset
         self.targetPageIndex = targetPageIndex
         self.scrollAnchor = scrollAnchor
+        self.bookLayout = bookLayout
     }
 }
 
@@ -166,11 +171,62 @@ public enum ViewModePlanner {
         )
     }
 
-    /// The pair's top-left (lower) page index under simple even/odd-agnostic
-    /// pairing: `(index / 2) * 2`. Phase 5 refines this for `displaysAsBook`
-    /// odd-first layouts; for now pages pair (0,1) (2,3) (4,5)….
-    static func leftIndex(of pageIndex: Int) -> Int {
-        (max(0, pageIndex) / 2) * 2
+    /// The spread that contains `index`, as its (left, right) page indices under
+    /// `layout` (docs/PDFKIT-FACTS.md §3, the Skim rule "index i starts a pair
+    /// when (i % 2 == 1) == displaysAsBook"). Either slot may be `nil`:
+    /// `displaysAsBook` leaves page 0 alone (one slot empty), and the returned
+    /// `right` for the last pair of an odd-length document is the CALLER's to
+    /// null out — this pure math has no page count. `rtl` swaps the slots.
+    ///
+    /// - `displaysAsBook == false`: pairs (0,1),(2,3)… — `start = (i/2)·2`,
+    ///   left = start, right = start+1.
+    /// - `displaysAsBook == true`: index 0 is a lone page on the RIGHT
+    ///   (left = nil, right = 0); for i ≥ 1, `start = ((i-1)/2)·2 + 1`,
+    ///   left = start, right = start+1.
+    static func pair(containing index: Int, layout: BookLayout) -> (left: Int?, right: Int?) {
+        let i = max(0, index)
+        // Slots in LTR reading order first, then swap for RTL.
+        var leftContent: Int?
+        var rightContent: Int?
+        if layout.displaysAsBook {
+            if i == 0 {
+                leftContent = nil                 // lone recto sits on the right
+                rightContent = 0
+            } else {
+                let start = ((i - 1) / 2) * 2 + 1
+                leftContent = start
+                rightContent = start + 1
+            }
+        } else {
+            let start = (i / 2) * 2
+            leftContent = start
+            rightContent = start + 1
+        }
+        if layout.rtl { swap(&leftContent, &rightContent) }
+        return (left: leftContent, right: rightContent)
+    }
+
+    /// The spread ANCHOR index the transitions land on: the top-left slot's
+    /// page, or the lone page when the left slot is empty (book index 0). Under
+    /// `.default` this equals the old `(i/2)·2` rule so phase-4 behavior holds.
+    static func spreadLeftIndex(of index: Int, layout: BookLayout) -> Int {
+        let p = pair(containing: index, layout: layout)
+        return p.left ?? p.right ?? max(0, index)
+    }
+
+    /// Maps a PDF catalog `/PageLayout` name to a `BookLayout`. The "…Right"
+    /// variants (`TwoColumnRight` / `TwoPageRight`) place 1-based odd pages on
+    /// the right — i.e. page index 0 stands alone — so they mean
+    /// `displaysAsBook = true`. Every other value (and a missing key) → the
+    /// default. `/PageLayout` carries no reading direction, so no RTL is
+    /// inferred here.
+    static func bookLayout(pageLayoutName name: String?) -> BookLayout {
+        switch name {
+        case "TwoColumnRight", "TwoPageRight":
+            return BookLayout(displaysAsBook: true, rtl: false)
+        default:
+            return .default
+        }
     }
 
     /// The decision table for a mode-button press or mode switch (VM-1..4,
@@ -195,7 +251,8 @@ public enum ViewModePlanner {
     public static func transition(
         from: ViewMode, to: ViewMode,
         currentPageIndex: Int, currentScale: CGFloat,
-        viewport: CGSize, pageSize: CGSize
+        viewport: CGSize, pageSize: CGSize,
+        layout: BookLayout = .default
     ) -> ModeTransition {
         _ = currentScale                       // SW-5: live zoom must not leak.
         let margin = ReaderLayout.margin
@@ -208,10 +265,11 @@ public enum ViewModePlanner {
 
         switch (from.isTwoUp, to.isTwoUp) {
         case (false, true):
-            // single → double (SW-3 / SW-4).
+            // single → double (SW-3 / SW-4). The current page takes its book
+            // pair's top-left slot (VM-5) — the pair anchor, not (i/2)·2.
             scale = standardPlan(mode: to, viewport: viewport, pageSize: pageSize)
                 .scaleFactor
-            targetPageIndex = leftIndex(of: currentPageIndex)
+            targetPageIndex = spreadLeftIndex(of: currentPageIndex, layout: layout)
             // Too wide to show a full page height → keep the reading position.
             anchor = (pageH * scale > viewport.height)
                 ? .preserveY
@@ -220,11 +278,12 @@ public enum ViewModePlanner {
         case (true, false):
             // double → single (SW-2): match the spread's FORMER on-screen width.
             // oldScale is the FROM mode's two-up STANDARD fit (SW-5: not the
-            // live zoom) — 2·oldScale·pageW + M == newScale·pageW.
+            // live zoom) — 2·oldScale·pageW + M == newScale·pageW. Lands on the
+            // former book pair's top-left page (VM-5).
             let oldScale = standardPlan(mode: from, viewport: viewport, pageSize: pageSize)
                 .scaleFactor
             scale = pageW > 0 ? 2 * oldScale + margin / pageW : 2 * oldScale
-            targetPageIndex = leftIndex(of: currentPageIndex)
+            targetPageIndex = spreadLeftIndex(of: currentPageIndex, layout: layout)
             anchor = .pageTopMargin(pageIndex: targetPageIndex)
 
         case (false, false), (true, true):
@@ -242,7 +301,10 @@ public enum ViewModePlanner {
             scaleFactor: scale,
             pageBreakMarginInset: marginInset(onScreenGap: margin, scale: scale),
             targetPageIndex: targetPageIndex,
-            scrollAnchor: anchor
+            scrollAnchor: anchor,
+            // Carry the destination pairing so the applier can set the live
+            // view's displaysAsBook/displaysRTL when it is a two-up mode.
+            bookLayout: to.isTwoUp ? layout : .default
         )
     }
 

@@ -311,10 +311,15 @@ struct ActivePDFView: NSViewRepresentable {
             }
             let currentIndex = document.index(for: page)
             let pageSize = page.bounds(for: view.displayBox).size
+            // The document's own even/odd pairing (from its /PageLayout
+            // catalog entry) drives the spread anchor and the live book/RTL
+            // flags (VM-5/VM-6).
+            let bookLayout = ViewModePlanner.bookLayout(of: document)
             let transition = ViewModePlanner.transition(
                 from: from, to: to,
                 currentPageIndex: currentIndex, currentScale: view.scaleFactor,
-                viewport: view.bounds.size, pageSize: pageSize)
+                viewport: view.bounds.size, pageSize: pageSize,
+                layout: bookLayout)
             log.debug(
                 .viewmode,
                 "apply displayMode \(before)→\(displayModeRaw) page=\(currentIndex) "

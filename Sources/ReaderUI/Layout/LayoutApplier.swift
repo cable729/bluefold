@@ -99,6 +99,13 @@ public enum LayoutApplier {
 
         view.displayMode = PDFDisplayMode(rawValue: transition.displayMode)
             ?? .singlePageContinuous
+        // Two-up modes honor the document's even/odd pairing (VM-5/VM-6): set
+        // the live view's book/RTL flags so PDFKit pairs pages the same way the
+        // pure planner did when it picked `targetPageIndex`.
+        if let mode = ViewMode(displayModeRaw: transition.displayMode), mode.isTwoUp {
+            view.displaysAsBook = transition.bookLayout.displaysAsBook
+            view.displaysRTL = transition.bookLayout.rtl
+        }
         let inset = transition.pageBreakMarginInset
         view.displaysPageBreaks = true
         view.pageBreakMargins = NSEdgeInsets(

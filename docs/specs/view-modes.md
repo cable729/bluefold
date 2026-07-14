@@ -36,6 +36,11 @@ single/double × fixed/continuous (PDFDisplayMode raw 0–3).
 - SW-4 single→double with viewport too wide for a full page: keep left page scrolled where the user was
 - SW-5 mode switches reset non-standard zoom/pan to the target standard; pan/zoom never persisted per-mode
 
+## Even/odd book layout
+
+- VM-5 book pairing: `displaysAsBook` OFF pairs (0,1),(2,3)…; ON leaves page 0 alone (pairs 1,2 | 3,4 …); `displaysRTL` swaps the pair's left/right slots — the transitions anchor on the pair's top-left page
+- VM-6 the PDF catalog `/PageLayout` is honored (read from CGPDF; not auto-applied by PDFKit): `TwoColumnRight`/`TwoPageRight` → `displaysAsBook`, others → default
+
 ## Fit buttons
 
 - FIT-1 fit width: centered, M left/right, y-scroll unchanged
