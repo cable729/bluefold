@@ -1,4 +1,5 @@
 #if os(macOS)
+import Dependencies
 import PDFKit
 import ReaderCore
 import SwiftUI
@@ -150,6 +151,7 @@ struct ActivePDFView: NSViewRepresentable {
         let tabID: UUID
         weak var model: ReaderWindowModel?
         weak var view: ReaderPDFView?
+        @Dependency(\.appLogger) private var log
         /// Strong: PDFView holds its overlay provider weakly.
         var anchorProvider: AnchorOverlayProvider?
         // nonisolated(unsafe): written on main; read in deinit.
@@ -274,11 +276,24 @@ struct ActivePDFView: NSViewRepresentable {
 
         func apply(displayModeRaw: Int) {
             guard let view else { return }
+            let before = view.displayMode.rawValue
             view.displayMode = PDFDisplayMode(rawValue: displayModeRaw) ?? .singlePageContinuous
+            log.debug(
+                .viewmode,
+                "apply displayMode \(before)→\(view.displayMode.rawValue) "
+                    + "vp=\(view.bounds.size) scale=\(view.scaleFactor) "
+                    + "autoScales=\(view.autoScales)"
+            )
         }
 
         func fitWidth() {
-            view?.autoScales = true
+            guard let view else { return }
+            view.autoScales = true
+            log.debug(
+                .layout,
+                "fitWidth(autoScales) vp=\(view.bounds.size) → scale=\(view.scaleFactor) "
+                    + "page=\(view.currentPage?.bounds(for: view.displayBox).size ?? .zero)"
+            )
         }
 
         func fitHeight() {
@@ -290,6 +305,11 @@ struct ActivePDFView: NSViewRepresentable {
             let pageHeight = page.bounds(for: view.displayBox).height
             guard pageHeight > 0 else { return }
             view.scaleFactor = view.bounds.height / pageHeight
+            log.debug(
+                .layout,
+                "fitHeight vp=\(view.bounds.size) pageH=\(pageHeight) "
+                    + "→ scale=\(view.scaleFactor)"
+            )
         }
 
         /// PDFView's own page turns respect the display mode (a "page" is a

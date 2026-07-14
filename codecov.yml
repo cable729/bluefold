@@ -1,0 +1,24 @@
+# Coverage policy (see docs/TESTING.md).
+#
+# The PATCH check is the merge gate: an agent PR must cover the lines it
+# changes (~80%). The PROJECT total is informational — it shows where the
+# untested code lives (weak modules get chore issues) without blocking
+# unrelated PRs on legacy gaps.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        target: 80%
+
+comment:
+  layout: "condensed_header, diff, files"
+  behavior: default
+  require_changes: true
+
+ignore:
+  - "Tests/**"
+  - "App/macOSUITests/**"
+  - "scripts/**"

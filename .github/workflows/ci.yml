@@ -1,11 +1,17 @@
 name: CI
 
-# FRUGAL MODE (owner decision 2026-07-08, after zombie runs drained the
-# month's included minutes): macOS minutes bill at 10x, so CI never runs on
-# plain pushes. It runs on PRs (the review moments that matter) and on
-# demand via workflow_dispatch — e.g. before tagging a release. The routine
-# gate is local: ./scripts/verify.sh.
+# The repo is public (2026-07): standard macOS runners are free, so CI runs
+# on every PR AND on pushes to main (main pushes also give Codecov the base
+# coverage that PR patch-coverage checks diff against). The old private-repo
+# frugal mode is retired. Remaining constraints are about hangs and queue
+# slots, not cost: per-module kill-timeouts, concurrency-cancel, and few jobs
+# per run (free-plan macOS concurrency caps at 5).
+#
+# CI is the merge gate for agent PRs — but not the ONLY gate: the CI-blind
+# test class (real display / TCC) runs locally via scripts/merge-pr.sh.
 on:
+  push:
+    branches: [main]
   pull_request:
     paths-ignore:
       - "docs/**"
@@ -44,27 +50,56 @@ jobs:
           key: spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.resolved', 'Package.swift') }}
           restore-keys: |
             spm-${{ runner.os }}-${{ runner.arch }}-
+      - name: Spec-ID sync check
+        # The tests are the spec; docs/specs/*.md are indexes. Drift fails.
+        run: ./scripts/check-spec-ids.sh
       - name: Build tests
-        run: swift build --build-tests
+        run: swift build --build-tests --enable-code-coverage
       - name: Run tests per module
         # PTY (`script`) keeps per-test output line-buffered; gtimeout KILLs
         # a deadlocked module after 5 min instead of eating the whole job.
+        # Each module run overwrites default.profdata, so it is squirreled
+        # away per module and merged for the coverage export below.
         run: |
           command -v gtimeout >/dev/null 2>&1 || brew install -q coreutils
+          PROFDIR="$(mktemp -d)"
+          echo "PROFDIR=$PROFDIR" >> "$GITHUB_ENV"
+          BIN="$(swift build --show-bin-path)"
           status=0
           for target in ReaderCoreTests CalibreKitTests ReaderPersistenceTests \
                         SearchIndexKitTests SyncKitTests ReaderUITests; do
             echo "::group::${target}"
             if gtimeout --signal=KILL 300 script -q /dev/null \
-                swift test --skip-build --filter "${target}"; then
+                swift test --skip-build --enable-code-coverage --filter "${target}"; then
               echo "${target}: OK"
             else
               echo "::error::${target}: FAILED or DEADLOCKED (killed at 300s)"
               status=1
             fi
+            [ -f "$BIN/codecov/default.profdata" ] && \
+              cp "$BIN/codecov/default.profdata" "$PROFDIR/${target}.profdata"
             echo "::endgroup::"
           done
           exit "${status}"
+      - name: Export coverage (lcov)
+        # Merged across the per-module runs; Tests/ and .build excluded so
+        # the report answers "which PRODUCTION code is untested".
+        run: |
+          BIN="$(swift build --show-bin-path)"
+          xcrun llvm-profdata merge -sparse "$PROFDIR"/*.profdata \
+            -o "$PROFDIR/merged.profdata"
+          XCTEST_BIN="$(find "$BIN" -name '*.xctest' -maxdepth 1 | head -1)"
+          XCTEST_BIN="$XCTEST_BIN/Contents/MacOS/$(basename "$XCTEST_BIN" .xctest)"
+          xcrun llvm-cov export -format=lcov \
+            -instr-profile "$PROFDIR/merged.profdata" \
+            -ignore-filename-regex="(Tests|\.build)/" \
+            "$XCTEST_BIN" > coverage.lcov
+          wc -l coverage.lcov
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.lcov
+          use_oidc: true
 
   # Job B (M17): the app built and driven for real — XCUITest smoke flows
   # (session restore, tab dragging) that unit tests cannot see. Runs in
@@ -92,7 +127,15 @@ jobs:
           set -o pipefail
           xcodebuild -project App/Bluefold.xcodeproj -scheme Bluefold \
             -configuration Debug -derivedDataPath DerivedData \
-            test BLUEFOLD_BUNDLE_ID_SUFFIX=.ci 2>&1 | tail -200
+            test BLUEFOLD_BUNDLE_ID_SUFFIX=.ci 2>&1 | tee uitest.log | tail -200
+      - name: Surface skipped-on-CI tests
+        # Tests XCTSkipIf'd on the headless runner must stay visible, or the
+        # skip list silently rots — they only really run via merge-pr.sh.
+        if: always()
+        run: |
+          grep -E "Test [Cc]ase .* skipped" uitest.log | sort -u | while read -r line; do
+            echo "::notice title=Skipped on CI (runs locally via merge-pr.sh)::${line}"
+          done || true
 
   # iOS still has to compile (shared ReaderCore changes routinely touch it).
   ios-build:

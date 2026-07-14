@@ -22,6 +22,10 @@ let package = Package(
         // Test-only: TestClock for deterministic testing of time-based code
         // (the autosave debounce). Production uses the stdlib `Clock` protocol.
         .package(url: "https://github.com/pointfreeco/swift-clocks", from: "1.0.0"),
+        // Dependency injection for the cross-cutting leaves (clock, date,
+        // logger, filesystem, PDF rendering) — see docs/TESTING.md. ReaderCore
+        // stays dependency-free; the DependencyValues keys live in ReaderUI.
+        .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.9.0"),
     ],
     targets: [
         // Pure data models: tabs, navigation history, session snapshots, themes.
@@ -63,6 +67,7 @@ let package = Package(
                 "CalibreKit",
                 "SearchIndexKit",
                 "SyncKit",
+                .product(name: "Dependencies", package: "swift-dependencies"),
             ]
         ),
 
@@ -80,6 +85,12 @@ let package = Package(
         .testTarget(name: "CalibreKitTests", dependencies: ["CalibreKit"]),
         .testTarget(name: "SearchIndexKitTests", dependencies: ["SearchIndexKit"]),
         .testTarget(name: "SyncKitTests", dependencies: ["SyncKit", "ReaderPersistence"]),
-        .testTarget(name: "ReaderUITests", dependencies: ["ReaderUI"]),
+        .testTarget(
+            name: "ReaderUITests",
+            dependencies: [
+                "ReaderUI",
+                .product(name: "Dependencies", package: "swift-dependencies"),
+            ]
+        ),
     ]
 )
