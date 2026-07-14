@@ -28,11 +28,16 @@ xcodebuild -project App/Bluefold.xcodeproj -scheme Bluefold \
 ## The four disciplines (each has teeth — hooks enforce 1 and 2)
 
 1. **TDD for geometry/layout/algorithmic code.** A failing test that encodes
-   the expected numbers comes FIRST; only then the implementation. The Probity
-   hook blocks production-code writes in the layout/geometry paths until it has
-   seen a failing test. Never tune constants against the running app.
+   the expected numbers comes FIRST; only then the implementation (rule:
+   `.claude/rules/tdd-geometry.md`). Never tune constants against the running
+   app. This ordering is discipline; it is backstopped deterministically by
+   (2) below, by Probity requiring `swift test` before every commit, and by
+   the Codecov patch gate. (An AI-validated write-blocker was tried and
+   removed — it fails closed in sub-agent/headless contexts; see
+   docs/TESTING.md.)
 2. **Tests must pass to finish.** A Stop hook runs the affected module's tests
-   when you try to end a turn; red tests block you.
+   when you try to end a turn; red tests block you. This is the real
+   env-independent guarantee.
 3. **Search first, don't guess.** On any mysterious bug or framework quirk
    (PDFKit especially), use the systematic-debugging skill and WebSearch the
    symptom verbatim + framework name (Apple Developer Forums, Stack Overflow,
