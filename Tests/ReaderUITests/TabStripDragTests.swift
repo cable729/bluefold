@@ -146,6 +146,10 @@ struct TabStripDragTests {
         #expect(h.reorders.isEmpty && h.moves.isEmpty)
     }
 
+    // Cross-window (source + target NSWindow): the CI runner places the second
+    // window unreliably, so this fails there even in a GUI session. Excluded
+    // from the windowserver-tests CI lane via -skip-testing; runs locally.
+    // Fix = extract the drop decision to a pure function (#49).
     @Test func dropOnAnotherStripMovesTab() {
         let source = Harness(
             frame: NSRect(x: 100, y: 300, width: 600, height: 400),

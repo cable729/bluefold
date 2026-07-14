@@ -168,6 +168,74 @@ jobs:
             echo "::notice title=Skipped on CI (runs locally via merge-pr.sh)::${line}"
           done || true
 
+  # Window-server lane (issue #25): the `.requiresWindowServer` ReaderUITests
+  # suites are skipped on the plain `swift test` job because a bare SPM test
+  # process has no window server. Here `xcodebuild test` launches the same xctest
+  # bundle in the runner's GUI session, where they run.
+  #
+  # NOTE: env vars (CI / BLUEFOLD_REAL_DISPLAY / TEST_RUNNER_*) do NOT reach a
+  # swift-testing UNIT bundle spawned by xcodebuild — verified locally — so the
+  # ConditionTrait gates are invisible here (every gated test is "enabled").
+  # That is why the three CROSS-window drags, which fail on the runner (it
+  # places the second window unreliably; tracked in #49), are excluded
+  # STRUCTURALLY with `-skip-testing` rather than by a trait. The
+  # swift-testing skip ID needs the `()` suffix.
+  #
+  # Expected GREEN (17 single-window drag / hit-test / layout tests). Stays
+  # `continue-on-error` for one confirming run before becoming a required check.
+  # SearchIndexKitTests (`.requiresPDFIndexing`) is deliberately NOT run here:
+  # it HANGS in the GUI session too (not a window-server problem) — tracked in
+  # #50; re-running would waste ~10 min/push.
+  windowserver-tests:
+    name: window-server UI tests (GUI session, #25)
+    runs-on: macos-26
+    continue-on-error: true
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select latest Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+      - name: Run window-server suites in a GUI session
+        run: |
+          command -v gtimeout >/dev/null 2>&1 || brew install -q coreutils
+          status=0
+          # Only the two window-server-gated suites (the rest of ReaderUITests
+          # runs on the plain `swift test` job), minus the 3 cross-window drags.
+          gtimeout --signal=KILL 300 xcodebuild test \
+              -scheme pdf-app-Package -destination 'platform=macOS' \
+              -only-testing:ReaderUITests/TabStripDragTests \
+              -only-testing:ReaderUITests/SplitDropZoneTests \
+              "-skip-testing:ReaderUITests/TabStripDragTests/dropOnAnotherStripMovesTab()" \
+              "-skip-testing:ReaderUITests/SplitDropZoneTests/dropOnAnotherWindowsLeftHalfSplitsLeading()" \
+              "-skip-testing:ReaderUITests/SplitDropZoneTests/stripDropStillWinsOverTheContentAreaBeneathIt()" \
+              > windowserver-tests.log 2>&1 || status=1
+          echo "::group::results"
+          grep -E "Test run with|Suite .* (failed|passed)|Killed" windowserver-tests.log | tail -20 || true
+          echo "::endgroup::"
+          # Guard against a FALSE GREEN: if the gates ever start skipping these
+          # under xcodebuild (0 tests run), the job must fail, not pass silently.
+          ran="$(grep -oE "Test run with [0-9]+ tests" windowserver-tests.log | grep -oE "[0-9]+" | tail -1)"
+          if [ "${ran:-0}" -lt 15 ]; then
+            echo "::error::expected ~17 window-server tests to run, saw ${ran:-0} — gate/skip drift?"
+            status=1
+          fi
+          if [ "$status" != 0 ]; then
+            echo "::group::failures"
+            grep -E "✘ Test .*(failed|recorded an issue)" windowserver-tests.log || true
+            echo "::endgroup::"
+            grep -oE "✘ Test [A-Za-z0-9_]+\(\)" windowserver-tests.log | sort -u | while read -r _x _t t; do
+              echo "::warning title=#25 window-server fail::${t}"
+            done || true
+          fi
+          exit "$status"
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windowserver-tests-log
+          path: windowserver-tests.log
+          if-no-files-found: warn
+
   # iOS still has to compile (shared ReaderCore changes routinely touch it).
   ios-build:
     name: iOS simulator build
