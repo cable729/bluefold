@@ -26,6 +26,10 @@ let package = Package(
         // logger, filesystem, PDF rendering) — see docs/TESTING.md. ReaderCore
         // stays dependency-free; the DependencyValues keys live in ReaderUI.
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.9.0"),
+        // Test-only: visual regression net for the view-mode layouts (Phase 9,
+        // issue #20). Used ONLY by ReaderUITests; references are composed from
+        // fixed-size, backing-scale-independent bitmaps (see docs/TESTING.md).
+        .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.17.0"),
     ],
     targets: [
         // Pure data models: tabs, navigation history, session snapshots, themes.
@@ -90,6 +94,7 @@ let package = Package(
             dependencies: [
                 "ReaderUI",
                 .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
             ]
         ),
     ]
