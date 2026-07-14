@@ -38,8 +38,8 @@ single/double × fixed/continuous (PDFDisplayMode raw 0–3).
 
 ## Fit buttons
 
-- FIT-1 (PENDING) fit width: centered, M left/right, y-scroll unchanged
-- FIT-2 (PENDING) fit height: no scroll; pageH·s + 2M == viewport height, centered
+- FIT-1 fit width: centered, M left/right, y-scroll unchanged
+- FIT-2 fit height: no scroll; pageH·s + 2M == viewport height, centered
 
 ## Different-size pages
 

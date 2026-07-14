@@ -60,5 +60,127 @@ import Testing
         #expect(abs(view.scaleFactor - plan.scaleFactor) <= 0.001)
         #expect(!box.messages(.layout).isEmpty, "applier did not instrument via .layout")
     }
+
+    /// FIT-1 — fit width leaves exactly M left/right AND preserves the vertical
+    /// reading position (the y-scroll must NOT jump).
+    ///
+    /// (a) PURE: single-page fit at viewport 800 wide, page 400 wide, M=8 →
+    ///   scale = (800 − 2·8)/400 = 784/400 = 1.96; leftover width
+    ///   viewportW − pageW·scale = 800 − 400·1.96 = 800 − 784 = 16 = 2·M.
+    ///   (two-up analog: viewportW − 2·pageW·scale = 3·M — asserted in the
+    ///   pure ViewModePlannerTests.m4 / fitPlanTwoUp checks.)
+    /// (b) INTEGRATION: a single-page-continuous PDFView scrolled to a known
+    ///   non-zero y, then fit-width applied AT A DIFFERENT SCALE (1.0 → 1.96).
+    ///   The clip-view bounds origin is page-space and scale-independent
+    ///   (docs/PDFKIT-FACTS.md), so preserving it keeps the reading position:
+    ///   the clip origin.y after apply must equal the origin.y before, ≤1pt.
+    @Test func fit1_fitWidth_leavesMarginLeftRight_and_preservesVerticalScroll() {
+        let m = ReaderLayout.margin
+
+        // (a) pure — single-page fit width leaves exactly M on each side.
+        let plan = ViewModePlanner.fitPlan(
+            mode: .singleContinuous, axis: .width,
+            viewport: CGSize(width: 800, height: 500),
+            pageSize: CGSize(width: 400, height: 600))
+        #expect(abs(plan.scaleFactor - 1.96) <= 1e-9)
+        #expect(plan.displayMode == ViewMode.singleContinuous.displayModeRaw)
+        #expect(800 - 400 * plan.scaleFactor == 2 * m)   // 800 − 784 == 16
+
+        // (b) integration — scroll to a known y, apply fit-width, assert the
+        // clip origin.y is unchanged (reading position preserved).
+        let doc = PDFKitProbe.makeDocument(
+            pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 5))
+        let (view, _) = PDFKitProbe.makeView(
+            document: doc, viewport: CGSize(width: 800, height: 500),
+            mode: .singlePageContinuous)
+        view.displaysPageBreaks = true
+        view.pageBreakMargins = NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
+        view.autoScales = false
+        view.scaleFactor = 1.0          // starting scale, DIFFERENT from 1.96
+        view.layoutDocumentView()
+        PDFKitProbe.settle()
+
+        let clip = PDFKitProbe.scrollView(in: view)!.contentView
+        // Scroll to a mid-document y that is valid at both scales (higher scale
+        // → smaller clip height → larger max origin, so a scale-1 valid y stays
+        // valid). docHeight ≈ 5×608 = 3040; clip.height(scale 1) = 500 → maxY
+        // ≈ 2540. 900 is comfortably inside.
+        clip.setBoundsOrigin(CGPoint(x: clip.bounds.origin.x, y: 900))
+        clip.enclosingScrollView?.reflectScrolledClipView(clip)
+        PDFKitProbe.settle()
+        let beforeY = clip.bounds.origin.y
+
+        let box = CapturedLogs()
+        withDependencies { $0.appLogger = .captured(into: box) } operation: {
+            LayoutApplier.apply(
+                plan, to: view, log: AppLogger.captured(into: box),
+                preserveVerticalScroll: true)
+        }
+        PDFKitProbe.settle(8)
+
+        let afterY = clip.bounds.origin.y
+        print("PROBE fitWidth preserveScroll: beforeY=\(beforeY) afterY=\(afterY) " +
+              "scale=\(view.scaleFactor)")
+
+        #expect(abs(view.scaleFactor - 1.96) <= 0.001, "fit-width did not set the fit scale")
+        #expect(abs(afterY - beforeY) <= 1.0,
+                "fit-width jumped the vertical scroll: \(beforeY) → \(afterY)")
+        #expect(!box.messages(.layout).isEmpty, "applier did not instrument via .layout")
+    }
+
+    /// FIT-2 — fit height: pageH·scale + 2M == viewport height, current page
+    /// re-fitted IN PLACE (no page jump), vertically centered.
+    ///
+    /// (a) PURE: viewport 1216 tall, page 600 tall, M=8 →
+    ///   scale = (1216 − 2·8)/600 = 1200/600 = 2.0; pageH·scale + 2M =
+    ///   600·2 + 16 = 1216 == viewportH.
+    /// (b) INTEGRATION: a single-page (fixed) view showing page 2; after
+    ///   fit-height the current page index is unchanged and the page is
+    ///   vertically fitted+centered (on-screen height ≈ 1200, equal top/bottom
+    ///   margins ≈ M).
+    @Test func fit2_fitHeight_pageHeightPlusTwiceMarginEqualsViewportHeight() {
+        let m = ReaderLayout.margin
+
+        // (a) pure — height fit: pageH·s + 2M == viewportH.
+        let plan = ViewModePlanner.fitPlan(
+            mode: .singleFixed, axis: .height,
+            viewport: CGSize(width: 800, height: 1216),
+            pageSize: CGSize(width: 400, height: 600))
+        #expect(plan.scaleFactor == 2.0)
+        #expect(600 * plan.scaleFactor + 2 * m == 1216)
+
+        // (b) integration — fit-height re-fits the CURRENT page without jumping.
+        let doc = PDFKitProbe.makeDocument(
+            pageSizes: Array(repeating: CGSize(width: 400, height: 600), count: 4))
+        let (view, _) = PDFKitProbe.makeView(
+            document: doc, viewport: CGSize(width: 800, height: 1216),
+            mode: .singlePage)
+        view.go(to: doc.page(at: 2)!)
+        PDFKitProbe.settle()
+        let beforeIndex = doc.index(for: view.currentPage!)
+        #expect(beforeIndex == 2)
+
+        let box = CapturedLogs()
+        withDependencies { $0.appLogger = .captured(into: box) } operation: {
+            LayoutApplier.apply(
+                plan, to: view, log: AppLogger.captured(into: box),
+                preserveVerticalScroll: false)
+        }
+        PDFKitProbe.settle(8)
+
+        let afterIndex = doc.index(for: view.currentPage!)
+        let page = view.currentPage!
+        let rect = view.convert(page.bounds(for: view.displayBox), from: page)
+        let onScreenH = rect.height
+        let topGap = view.bounds.height - rect.maxY
+        let bottomGap = rect.minY
+        print("PROBE fitHeight: beforeIndex=\(beforeIndex) afterIndex=\(afterIndex) " +
+              "onScreenH=\(onScreenH) topGap=\(topGap) bottomGap=\(bottomGap)")
+
+        #expect(afterIndex == beforeIndex, "fit-height jumped to a different page")
+        #expect(abs(onScreenH - (view.bounds.height - 2 * m)) <= 1.5,
+                "page not fitted to height: \(onScreenH)")
+        #expect(abs(topGap - bottomGap) <= 1.5, "page not vertically centered")
+    }
 }
 #endif

@@ -118,4 +118,41 @@ public enum ViewModePlanner {
             scaleFactor: scale
         )
     }
+
+    /// Which axis a fit button fills. `width` fills the viewport width leaving
+    /// M left/right (FIT-1); `height` fits `pageH·scale + 2M == viewportH`
+    /// (FIT-2).
+    public enum FitAxis: Sendable { case width, height }
+
+    /// The fit-button plan (FIT-1/FIT-2). A fit changes ONLY the scale (and the
+    /// derived margin inset) WITHIN the current `mode` — the `displayMode` is
+    /// carried through unchanged, and the scroll behavior (preserve y for
+    /// width; re-fit in place for height) is the applier's job, not the plan's.
+    ///
+    /// - `.width`: single → `widthFitScale`, two-up → `twoUpWidthFitScale`
+    ///   (fill the viewport width leaving M on each side / 3·M across a spread).
+    /// - `.height`: `heightFitScale` in every mode (`pageH·scale + 2M ==
+    ///   viewportH`).
+    public static func fitPlan(
+        mode: ViewMode, axis: FitAxis, viewport: CGSize, pageSize: CGSize
+    ) -> LayoutPlan {
+        let margin = ReaderLayout.margin
+        let scale: CGFloat
+        switch axis {
+        case .width:
+            scale = mode.isTwoUp
+                ? twoUpWidthFitScale(
+                    viewportWidth: viewport.width, pageWidth: pageSize.width, margin: margin)
+                : widthFitScale(
+                    viewportWidth: viewport.width, pageWidth: pageSize.width, margin: margin)
+        case .height:
+            scale = heightFitScale(
+                viewportHeight: viewport.height, pageHeight: pageSize.height, margin: margin)
+        }
+        return LayoutPlan(
+            displayMode: mode.displayModeRaw,
+            pageBreakMarginInset: marginInset(onScreenGap: margin, scale: scale),
+            scaleFactor: scale
+        )
+    }
 }

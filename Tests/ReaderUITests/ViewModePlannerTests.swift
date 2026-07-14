@@ -173,6 +173,51 @@ import Testing
         #expect(1216 - 600 * heightScale == 2 * m)
     }
 
+    // MARK: FIT-1 / FIT-2 — fitPlan descriptor (pure)
+
+    /// fitPlan(.width) for a single mode uses widthFitScale and leaves M on
+    /// each side; for a two-up mode uses twoUpWidthFitScale and leaves 3·M
+    /// across the spread (two outer + one gutter). Inset renders as M at scale.
+    /// Single: (816 − 2·8)/400 = 2.0 → 816 − 400·2 = 16 = 2·M.
+    /// Two-up: (824 − 3·8)/(2·400) = 1.0 → 824 − 2·400·1 = 24 = 3·M.
+    @Test func fitPlanWidthLeavesMarginSingleAndSpread() {
+        let m = ReaderLayout.margin
+
+        let single = ViewModePlanner.fitPlan(
+            mode: .singleContinuous, axis: .width,
+            viewport: CGSize(width: 816, height: 1000),
+            pageSize: CGSize(width: 400, height: 600))
+        #expect(single.displayMode == 1)
+        #expect(single.scaleFactor == 2.0)
+        #expect(816 - 400 * single.scaleFactor == 2 * m)
+        #expect(2 * single.pageBreakMarginInset * single.scaleFactor == m)
+
+        let twoUp = ViewModePlanner.fitPlan(
+            mode: .doubleContinuous, axis: .width,
+            viewport: CGSize(width: 824, height: 1000),
+            pageSize: CGSize(width: 400, height: 600))
+        #expect(twoUp.displayMode == 3)
+        #expect(twoUp.scaleFactor == 1.0)
+        #expect(824 - 2 * 400 * twoUp.scaleFactor == 3 * m)
+    }
+
+    /// fitPlan(.height) uses heightFitScale in every mode: pageH·s + 2M ==
+    /// viewportH, and the displayMode is unchanged (fits stay within the mode).
+    /// (1216 − 2·8)/600 = 2.0 → 600·2 + 16 = 1216.
+    @Test func fitPlanHeightFitsPageHeightPlusTwiceMargin() {
+        let m = ReaderLayout.margin
+        for mode in ViewMode.allCases {
+            let plan = ViewModePlanner.fitPlan(
+                mode: mode, axis: .height,
+                viewport: CGSize(width: 800, height: 1216),
+                pageSize: CGSize(width: 400, height: 600))
+            #expect(plan.displayMode == mode.displayModeRaw)
+            #expect(plan.scaleFactor == 2.0)
+            #expect(600 * plan.scaleFactor + 2 * m == 1216)
+            #expect(2 * plan.pageBreakMarginInset * plan.scaleFactor == m)
+        }
+    }
+
     // MARK: standardPlan scale selection per mode
 
     /// Each mode selects the documented fit; the displayMode is the raw value;

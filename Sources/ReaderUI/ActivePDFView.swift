@@ -295,30 +295,43 @@ struct ActivePDFView: NSViewRepresentable {
             )
         }
 
+        /// FIT-1 — fit the current page to the viewport width within the current
+        /// mode, leaving margin M left/right, WITHOUT jumping the vertical
+        /// reading position (the applier preserves the clip origin.y).
         func fitWidth() {
-            guard let view else { return }
-            view.autoScales = true
+            guard
+                let view,
+                let page = view.currentPage,
+                let mode = ViewMode(displayModeRaw: view.displayMode.rawValue)
+            else { return }
+            let pageSize = page.bounds(for: view.displayBox).size
+            let plan = ViewModePlanner.fitPlan(
+                mode: mode, axis: .width, viewport: view.bounds.size, pageSize: pageSize)
             log.debug(
                 .layout,
-                "fitWidth(autoScales) vp=\(view.bounds.size) → scale=\(view.scaleFactor) "
-                    + "page=\(view.currentPage?.bounds(for: view.displayBox).size ?? .zero)"
+                "fitWidth mode=\(mode.rawValue) vp=\(view.bounds.size) "
+                    + "page=\(pageSize) → scale=\(plan.scaleFactor)"
             )
+            LayoutApplier.apply(plan, to: view, log: log, preserveVerticalScroll: true)
         }
 
+        /// FIT-2 — re-fit the current page to the viewport height in place
+        /// (`pageH·scale + 2M == viewportH`), centered; no page jump.
         func fitHeight() {
             guard
                 let view,
-                let page = view.currentPage
+                let page = view.currentPage,
+                let mode = ViewMode(displayModeRaw: view.displayMode.rawValue)
             else { return }
-            view.autoScales = false
-            let pageHeight = page.bounds(for: view.displayBox).height
-            guard pageHeight > 0 else { return }
-            view.scaleFactor = view.bounds.height / pageHeight
+            let pageSize = page.bounds(for: view.displayBox).size
+            let plan = ViewModePlanner.fitPlan(
+                mode: mode, axis: .height, viewport: view.bounds.size, pageSize: pageSize)
             log.debug(
                 .layout,
-                "fitHeight vp=\(view.bounds.size) pageH=\(pageHeight) "
-                    + "→ scale=\(view.scaleFactor)"
+                "fitHeight mode=\(mode.rawValue) vp=\(view.bounds.size) "
+                    + "page=\(pageSize) → scale=\(plan.scaleFactor)"
             )
+            LayoutApplier.apply(plan, to: view, log: log, preserveVerticalScroll: false)
         }
 
         /// PDFView's own page turns respect the display mode (a "page" is a
