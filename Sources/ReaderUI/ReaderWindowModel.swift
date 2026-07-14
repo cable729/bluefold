@@ -593,6 +593,10 @@ public final class ReaderWindowModel {
         activeController?.fitHeight()
     }
 
+    /// Whether the active tab currently has trim margins on — the toolbar
+    /// toggle reads this for its on/off (blue) state.
+    public var trimMarginsActive: Bool { activeTab?.trimMargins ?? false }
+
     /// TRIM — flip the active tab's trim-margins state (persisted) and drive the
     /// live view to crop / uncrop. UI wiring (a toolbar button) can call this or
     /// `setTrimMargins(_:)`.

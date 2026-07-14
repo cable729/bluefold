@@ -395,6 +395,12 @@ public enum CommandRegistry {
             isAvailable: { $0.activeDocument != nil },
             run: { $0.model?.fitHeight() }
         ))
+        commands.append(ReaderCommand(
+            id: "view.trimMargins", title: "Trim Margins", category: .view,
+            isAvailable: { $0.activeDocument != nil },
+            isOn: { $0.model?.trimMarginsActive == true },
+            run: { $0.model?.toggleTrimMargins() }
+        ))
         // Split view. ⌘\ toggles, VS Code-style (owner spec, round 14): no
         // split → the active tab duplicates into a split on that side (same
         // book, independent position); any split open → it closes. Sides are
