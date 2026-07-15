@@ -18,27 +18,73 @@ import Testing
 
     // MARK: Pure fit math on cropped sizes (TRIM-1..4, TRIM-6)
 
-    /// TRIM-2 — single continuous: width-fit is recomputed from the CROPPED
-    /// content width, so the content fills the viewport width leaving M.
-    /// GIVEN page 400 wide, content 300 wide, viewport 800, M 8.
-    /// THEN scale == (800 − 2·8) / 300.
-    @Test func trim2_singleContinuous_widthFitFromCroppedContent() {
-        let scale = ViewModePlanner.widthFitScale(
-            viewportWidth: 800, pageWidth: 300, margin: ReaderLayout.margin)
-        #expect(abs(scale - (800 - 16) / 300) <= 1e-9)
-        // And it is strictly larger than the uncropped page's width-fit.
-        let uncropped = ViewModePlanner.widthFitScale(
-            viewportWidth: 800, pageWidth: 400, margin: ReaderLayout.margin)
-        #expect(scale > uncropped)
+    /// TRIM-2 (live) — single continuous is ORTHOGONAL TO ZOOM: cropping every
+    /// page must leave `scaleFactor` UNCHANGED (text same size) and keep the same
+    /// content under the viewport top (same page + fraction). No width-fit
+    /// recompute — that was the "trim only changes zoom" bug (#18).
+    @Test func trim2_singleContinuous_pureCrop_keepsScaleAndPosition() throws {
+        let size = CGSize(width: 480, height: 640)
+        let doc = try makeMarginPDF(pages: 12, size: size, margin: 90)
+        let vp = CGSize(width: 800, height: 700)
+        let (view, window) = PDFKitProbe.makeView(
+            document: doc, viewport: vp, mode: .singlePageContinuous)
+        defer { PDFKitProbe.teardown(view, window) }
+        let box = CapturedLogs()
+
+        let full = ViewModePlanner.standardPlan(
+            mode: .singleContinuous, viewport: vp, pageSize: size)
+        withDependencies { $0.appLogger = .captured(into: box) } operation: {
+            LayoutApplier.apply(full, to: view, log: AppLogger.captured(into: box))
+        }
+        PDFKitProbe.settle(6)
+
+        // Park a few pages in and capture the semantic position + scale.
+        let clip = try #require(PDFKitProbe.scrollView(in: view)?.contentView)
+        clip.setBoundsOrigin(CGPoint(x: clip.bounds.origin.x, y: 1800))
+        clip.enclosingScrollView?.reflectScrolledClipView(clip)
+        PDFKitProbe.settle(2)
+        let scale0 = view.scaleFactor
+        let pos0 = try #require(LayoutApplier.capturePagePosition(in: view))
+
+        // Trim = crop every page, then RE-ANCHOR (no scale change).
+        let store = PageBoxStore()
+        var overrides: [Int: CGRect] = [:]
+        for i in 0..<doc.pageCount {
+            if let c = PageContentDetector.contentBox(of: doc.page(at: i)!) { overrides[i] = c }
+        }
+        #expect(!overrides.isEmpty)
+        store.crop(overrides: overrides, to: doc)
+        withDependencies { $0.appLogger = .captured(into: box) } operation: {
+            LayoutApplier.reanchor(to: pos0, in: view, log: AppLogger.captured(into: box))
+        }
+        PDFKitProbe.settle(6)
+
+        let pos1 = try #require(LayoutApplier.capturePagePosition(in: view))
+        print("PROBE trim2 no-zoom: scale0=\(scale0) scale1=\(view.scaleFactor) " +
+              "pos0=\(pos0) pos1=\(pos1)")
+        #expect(view.scaleFactor == scale0, "trim changed zoom in continuous mode")
+        #expect(pos1.pageIndex == pos0.pageIndex, "trim drifted the page")
+        // Content anchored to its page-space coordinate stays put across the crop.
+        #expect(abs(pos1.pagePointY - pos0.pagePointY) <= 3, "content y drifted")
+        store.revert(document: doc)
     }
 
-    /// TRIM-4 — double continuous: the two-up width-fit is recomputed from the
-    /// CROPPED content width. GIVEN content 300 wide, viewport 824, M 8.
-    /// THEN scale == (824 − 3·8) / (2·300).
-    @Test func trim4_doubleContinuous_twoUpWidthFitFromCropped() {
-        let scale = ViewModePlanner.twoUpWidthFitScale(
-            viewportWidth: 824, pageWidth: 300, margin: ReaderLayout.margin)
-        #expect(abs(scale - (824 - 24) / 600) <= 1e-9)
+    /// TRIM-4 — double continuous is TRIM-2 behavior: pure crop, no zoom. The
+    /// two-up standard scale for a spread is orthogonal to the crop; cropping
+    /// does not recompute it (the applier keeps the live scale, re-anchoring
+    /// only). Pinned as the pure identity the live path relies on: the standard
+    /// two-up scale is a function of the CURRENT page size and viewport, not of
+    /// any trim state.
+    @Test func trim4_doubleContinuous_pureCrop_scaleIsTrimIndependent() {
+        let vp = CGSize(width: 824, height: 1000)
+        let size = CGSize(width: 480, height: 640)
+        let scale = ViewModePlanner.standardPlan(
+            mode: .doubleContinuous, viewport: vp, pageSize: size).scaleFactor
+        // The applier does NOT feed a cropped size here (continuous trim keeps
+        // the live scale), so the standard scale is whatever the uncropped page
+        // fits to — trim never enters this computation.
+        #expect(abs(scale - ViewModePlanner.twoUpWidthFitScale(
+            viewportWidth: 824, pageWidth: 480, margin: ReaderLayout.margin)) <= 1e-9)
     }
 
     /// TRIM-1 — single fixed: whole-page fit recomputed from the CROPPED page.
@@ -141,67 +187,7 @@ import Testing
         #expect(!store.isActive)
     }
 
-    // MARK: Live integration (PDFKitProbe) — TRIM-1/2/5
-
-    /// TRIM-2 (live) — single continuous: setting a known y-scroll, then trimming
-    /// (crop every page to its content box + re-apply width-fit from the cropped
-    /// size) must LEAVE the y-scroll unchanged and INCREASE the scale (the
-    /// content now fills the viewport width).
-    @Test func trim2_live_continuousPreservesYAndScalesUp() throws {
-        let size = CGSize(width: 480, height: 640)
-        let doc = try makeMarginPDF(pages: 12, size: size, margin: 90)
-        let vp = CGSize(width: 800, height: 1000)
-        let (view, window) = PDFKitProbe.makeView(
-            document: doc, viewport: vp, mode: .singlePageContinuous)
-        // Detach + drain before the offscreen view/window deallocate: mutating
-        // page boxes schedules a PDFKit async `layoutDocumentView`; letting it
-        // fire after teardown segfaults. Keep `window` alive to scope end.
-        defer { PDFKitProbe.teardown(view, window) }
-        let box = CapturedLogs()
-
-        // Standard single-continuous fit on the FULL page first.
-        let full = ViewModePlanner.standardPlan(
-            mode: .singleContinuous, viewport: vp, pageSize: size)
-        withDependencies { $0.appLogger = .captured(into: box) } operation: {
-            LayoutApplier.apply(full, to: view, log: AppLogger.captured(into: box))
-        }
-        PDFKitProbe.settle(6)
-
-        // Park the reading position at a known y (page points).
-        let clip = try #require(PDFKitProbe.scrollView(in: view)?.contentView)
-        clip.setBoundsOrigin(CGPoint(x: clip.bounds.origin.x, y: 1500))
-        clip.enclosingScrollView?.reflectScrolledClipView(clip)
-        PDFKitProbe.settle(2)
-        let y0 = clip.bounds.origin.y
-        let scale0 = view.scaleFactor
-
-        // Detect + crop EVERY page, then re-apply width-fit from the cropped
-        // page size, preserving the vertical scroll (Phase-3 mechanism).
-        let store = PageBoxStore()
-        var overrides: [Int: CGRect] = [:]
-        for i in 0..<doc.pageCount {
-            if let c = PageContentDetector.contentBox(of: doc.page(at: i)!) { overrides[i] = c }
-        }
-        #expect(!overrides.isEmpty, "detector found nothing to trim")
-        store.crop(overrides: overrides, to: doc)
-        let croppedSize = doc.page(at: 0)!.bounds(for: view.displayBox).size
-        let trimmed = ViewModePlanner.standardPlan(
-            mode: .singleContinuous, viewport: vp, pageSize: croppedSize)
-        withDependencies { $0.appLogger = .captured(into: box) } operation: {
-            LayoutApplier.apply(
-                trimmed, to: view, log: AppLogger.captured(into: box),
-                preserveVerticalScroll: true)
-        }
-        PDFKitProbe.settle(6)
-
-        let y1 = clip.bounds.origin.y
-        let scale1 = view.scaleFactor
-        print("PROBE trim2 live: y0=\(y0) y1=\(y1) scale0=\(scale0) scale1=\(scale1) " +
-              "croppedW=\(croppedSize.width)")
-        #expect(abs(y1 - y0) <= 1.5, "trim moved the y-scroll: \(y0) → \(y1)")
-        #expect(scale1 > scale0 + 0.01, "trim did not scale up: \(scale0) → \(scale1)")
-        store.revert(document: doc)
-    }
+    // MARK: Live integration (PDFKitProbe) — TRIM-1/5 (TRIM-2/4 above)
 
     /// TRIM-5 (live) — round trip: trim then untrim returns the page to its
     /// ORIGINAL cropBox, scale, and y-scroll. Single fixed.

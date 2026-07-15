@@ -106,20 +106,26 @@ struct ReaderStatusBar: View {
     }
 
     private var fitButtons: some View {
-        HStack(spacing: 8) {
+        // Fit is meaningless in two-page-fixed (the spread already fills the
+        // viewport) — gray out both fit buttons there (#59 bug 6).
+        let fitEnabled = FitAvailability.isEnabled(
+            displayModeRaw: model.activeTab?.displayModeRaw)
+        return HStack(spacing: 8) {
             Button {
                 model.fitWidth()
             } label: {
                 layoutIcon("arrow.left.and.right.square")
-                    .foregroundStyle(palette.inkColor.opacity(0.5))
+                    .foregroundStyle(palette.inkColor.opacity(fitEnabled ? 0.5 : 0.2))
             }
+            .disabled(!fitEnabled)
             .instantHint("Fit width")
             Button {
                 model.fitHeight()
             } label: {
                 layoutIcon("arrow.up.and.down.square")
-                    .foregroundStyle(palette.inkColor.opacity(0.5))
+                    .foregroundStyle(palette.inkColor.opacity(fitEnabled ? 0.5 : 0.2))
             }
+            .disabled(!fitEnabled)
             .instantHint("Fit height")
             // Trim margins: a persistent per-tab toggle, blue when active.
             // Crops each page to its detected text column (Phase 7 / #18).
@@ -241,5 +247,17 @@ public enum PageArrows {
     public static func canGoForward(pageIndex: Int?, pageCount: Int) -> Bool {
         guard let pageIndex, pageCount > 0 else { return false }
         return pageIndex < pageCount - 1
+    }
+}
+
+/// Enablement for the fit-width / fit-height controls (#59 bug 6). In
+/// two-page-FIXED mode the whole spread is already fit to the viewport, so a
+/// width/height fit is meaningless — the buttons and the `view.fitWidth`/
+/// `view.fitHeight` commands disable there and stay enabled everywhere else.
+/// `displayModeRaw` is nil when no tab is active (fit stays enabled so the
+/// controls aren't dead in an empty window).
+public enum FitAvailability {
+    public static func isEnabled(displayModeRaw: Int?) -> Bool {
+        displayModeRaw != ViewMode.doubleFixed.rawValue
     }
 }

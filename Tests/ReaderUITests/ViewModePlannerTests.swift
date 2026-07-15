@@ -269,9 +269,11 @@ import Testing
     //
     // A mode button pressed WITHIN the same column count (single↔single or
     // double↔double) is a fixed/continuous flip: the destination's standard fit
-    // with the SAME current page. Continuous destinations preserve the reading
-    // y (VM-2/VM-4); fixed destinations anchor the (single/spread) page top at
-    // margin M (VM-1/VM-3) — which PDFKit renders centered when the page fits.
+    // with the SAME current page. BOTH directions anchor the current (single/
+    // spread) page top at margin M — which PDFKit renders centered when the page
+    // fits. Raw preserveY is wrong across a fixed↔continuous flip: the fixed
+    // clip.y ≈ 0 maps to the BOTTOM (last page) of the non-flipped continuous
+    // docView, jumping to the end of the book (#59).
 
     /// VM-1 — single fixed entry (from single continuous): standard fixed fit,
     /// SAME page, page-top anchored at M (centered when it fits).
@@ -291,11 +293,13 @@ import Testing
         #expect(t.scrollAnchor == .pageTopMargin(pageIndex: 2))
     }
 
-    /// VM-2 — single continuous entry (from single fixed): width fit, centered,
-    /// y-scroll UNCHANGED (preserveY).
+    /// VM-2 — single continuous entry (from single fixed): width fit, and land the
+    /// CURRENT page's top at M. A fixed→continuous flip must NOT preserve the raw
+    /// clip.y — in fixed mode y≈0, and in the non-flipped continuous docView y=0 is
+    /// the BOTTOM (last page), so preserveY jumped to the end of the book (#59).
     /// GIVEN viewport 816×1000, page 400×600, current page 2, → singleContinuous.
     ///   widthFit = (816-16)/400 = 2.0; inset = 8/(2·2) = 2.
-    @Test func vm2_singleContinuousEntry_widthFit_preservesY() {
+    @Test func vm2_singleContinuousEntry_widthFit_landsCurrentPageTop() {
         let t = ViewModePlanner.transition(
             from: .singleFixed, to: .singleContinuous,
             currentPageIndex: 2, currentScale: 1.0,
@@ -305,7 +309,7 @@ import Testing
         #expect(t.scaleFactor == 2.0)
         #expect(t.pageBreakMarginInset == 2)
         #expect(t.targetPageIndex == 2)
-        #expect(t.scrollAnchor == .preserveY)
+        #expect(t.scrollAnchor == .pageTopMargin(pageIndex: 2))
     }
 
     /// VM-3 — double fixed entry (from double continuous): two-up standard fit,
@@ -326,11 +330,12 @@ import Testing
         #expect(t.scrollAnchor == .pageTopMargin(pageIndex: 3))
     }
 
-    /// VM-4 — double continuous entry (from double fixed): two-up width fit,
-    /// y-scroll UNCHANGED (preserveY).
+    /// VM-4 — double continuous entry (from double fixed): two-up width fit, and
+    /// land the CURRENT row's top at M (NOT raw preserveY, which from a fixed mode
+    /// jumps to the end of the book — #59).
     /// GIVEN viewport 824×1000, page 400×600, current page 3, → doubleContinuous.
     ///   twoUpWidthFit = (824-24)/800 = 1.0; inset = 4.
-    @Test func vm4_doubleContinuousEntry_twoUpWidthFit_preservesY() {
+    @Test func vm4_doubleContinuousEntry_twoUpWidthFit_landsCurrentRowTop() {
         let t = ViewModePlanner.transition(
             from: .doubleFixed, to: .doubleContinuous,
             currentPageIndex: 3, currentScale: 1.0,
@@ -340,7 +345,7 @@ import Testing
         #expect(t.scaleFactor == 1.0)
         #expect(t.pageBreakMarginInset == 4)
         #expect(t.targetPageIndex == 3)
-        #expect(t.scrollAnchor == .preserveY)
+        #expect(t.scrollAnchor == .pageTopMargin(pageIndex: 3))
     }
 
     // MARK: SW-1 .. SW-5 — cross-family mode switches

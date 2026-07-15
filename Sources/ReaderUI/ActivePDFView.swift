@@ -137,8 +137,10 @@ struct ActivePDFView: NSViewRepresentable {
     static func dismantleNSView(_ view: ReaderPDFView, coordinator: Coordinator) {
         view.cancelLinkHover()
         coordinator.captureNow()
-        // Revert any two-up box overrides so the shared in-memory document is
-        // restored to its original page boxes (never persisted).
+        // Revert any two-up / trim box overrides so the shared in-memory document
+        // is restored to its original page boxes (never persisted) — otherwise a
+        // theme rebuild (this view is `.id`'d on theme) would lay out a mutated
+        // document.
         coordinator.revertPageBoxes()
         if coordinator.model?.primaryController === coordinator {
             coordinator.model?.primaryController = nil
@@ -168,9 +170,14 @@ struct ActivePDFView: NSViewRepresentable {
         /// leaving it or on teardown — never writes the file (Calibre read-only).
         private let pageBoxStore = PageBoxStore()
         /// TRIM state for this tab's live view (seeded from the tab, persisted
-        /// back through the model). Drives whether `rebuildBoxState` crops each
-        /// page to its content box or leaves the publisher's page.
+        /// back through the model). Drives whether the box state crops each page
+        /// to its content box or leaves the publisher's page.
         private var trimMargins = false
+        /// Page indices trim has already tried to crop (nil-safe: a page the
+        /// detector left as-is is recorded too, so it isn't re-rendered). Trim
+        /// crops the visible window on toggle and extends lazily as pages scroll
+        /// in — never a whole-document pass on the main thread. Cleared on revert.
+        private var croppedPages: Set<Int> = []
         // nonisolated(unsafe): written on main; read in deinit.
         private nonisolated(unsafe) var pageObserver: NSObjectProtocol?
         private nonisolated(unsafe) var scrollObserver: NSObjectProtocol?
@@ -211,10 +218,26 @@ struct ActivePDFView: NSViewRepresentable {
                         tabID: self.tabID,
                         pageIndex: document.index(for: page)
                     )
+                    // TRIM: crop the pages around the new current page as they
+                    // scroll in — the lazy other half of the visible-first toggle
+                    // (no whole-document pass). Fixed modes then re-fit below.
+                    if self.trimMargins,
+                       let mode = ViewMode(displayModeRaw: view.displayMode.rawValue) {
+                        self.cropVisibleWindow(document: document, mode: mode)
+                        // Two-up fixed: re-fit the newly cropped spread (single
+                        // fixed is handled by refitSingleFixed just below).
+                        if mode == .doubleFixed {
+                            let pageSize = page.bounds(for: view.displayBox).size
+                            let plan = ViewModePlanner.standardPlan(
+                                mode: mode, viewport: view.bounds.size, pageSize: pageSize)
+                            LayoutApplier.apply(plan, to: view, log: self.log)
+                        }
+                    }
                     // SIZE-1: single fixed applies ONE scaleFactor, but pages
                     // differ in size — re-fit the page that just became current
                     // so it stays centered with margins ≥ M (no-op in other
-                    // modes).
+                    // modes). With trim on, the page is now cropped, so this
+                    // re-fits the CROPPED page (crop + re-fit in fixed modes).
                     LayoutApplier.refitSingleFixed(view, log: self.log)
                 }
             }
@@ -358,16 +381,17 @@ struct ActivePDFView: NSViewRepresentable {
             LayoutApplier.apply(transition, to: view, log: log)
         }
 
-        /// TRIM-1..7 — crop every page to its printed content box, or revert.
-        /// Recomputes the current mode's standard plan from the resulting
-        /// (cropped/original) page sizes and re-applies it, preserving the
-        /// vertical scroll in continuous modes (TRIM-2/4) and re-fitting in place
-        /// for fixed modes (TRIM-1/3). Toggling never moves scroll/pan.
+        /// TRIM (TRIM-1..7) — crop each page to its printed content box, or revert.
+        /// FIXED modes crop **and re-fit** the visible page/spread to standard (the
+        /// cropped content fills the window). CONTINUOUS modes are **orthogonal to
+        /// zoom**: the crop leaves `scaleFactor` and `pageBreakMargins` untouched —
+        /// the text keeps its exact size and screen position; only the margins go
+        /// away and (as pages crop) the stack packs tighter. The semantic reading
+        /// position is restored so the same content stays under the viewport top.
         ///
-        /// TRIM-7: the current page is detected synchronously so trim appears at
-        /// once; whole-document detection is cached and was measured at
-        /// ~1.4 ms/page (0.857 s for a 593-page book, one-time). See `setTrim`'s
-        /// deferred sweep note.
+        /// Only the VISIBLE window is cropped synchronously; the rest crop lazily
+        /// as they scroll in (`observePageChanges`) — never a whole-document pass
+        /// on the main thread.
         func setTrim(_ on: Bool) {
             guard
                 let view,
@@ -377,75 +401,131 @@ struct ActivePDFView: NSViewRepresentable {
             else { return }
             trimMargins = on
             let layout = ViewModePlanner.bookLayout(of: document)
-            let beforeY = Self.firstScrollView(in: view)?.contentView.bounds.origin.y ?? 0
+            // Capture the reading position SEMANTICALLY before cropping — the crop
+            // changes page heights, so a raw clip.y would land on a different page.
+            let position = mode.isContinuous ? LayoutApplier.capturePagePosition(in: view) : nil
+            // Pin the CURRENT scale BEFORE cropping (continuous only). If
+            // `autoScales` is on (the fresh-open default), the `setBounds` in the
+            // crop makes PDFKit auto-refit width to the narrower page — i.e. zoom
+            // in. Turning autoScales off first keeps trim orthogonal to zoom.
+            let liveScale = view.scaleFactor
+            if mode.isContinuous {
+                view.autoScales = false
+                view.scaleFactor = liveScale
+            }
             rebuildBoxState(mode: mode, document: document, layout: layout)
-            let pageSize = page.bounds(for: view.displayBox).size
-            let plan = ViewModePlanner.standardPlan(
-                mode: mode, viewport: view.bounds.size, pageSize: pageSize)
             log.debug(
                 .trim,
-                "setTrim=\(on) mode=\(mode.rawValue) pages=\(document.pageCount) "
-                    + "page=\(document.index(for: page)) beforeY=\(beforeY) "
-                    + "pageSize=\(pageSize) → scale=\(plan.scaleFactor)"
+                "setTrim=\(on) mode=\(mode.rawValue) page=\(document.index(for: page)) "
+                    + "position=\(position.map { "\($0)" } ?? "nil") liveScale=\(liveScale)"
             )
-            LayoutApplier.apply(
-                plan, to: view, log: log, preserveVerticalScroll: mode.isContinuous)
+            if mode.isContinuous {
+                // Pure crop, no zoom: keep the current scale/insets, just re-anchor
+                // to the same content after the crop re-lays out the stack.
+                view.scaleFactor = liveScale
+                if let position {
+                    LayoutApplier.reanchor(to: position, in: view, log: log)
+                } else {
+                    view.layoutDocumentView()
+                }
+            } else {
+                // Fixed: crop + re-fit the visible page/spread to standard.
+                let pageSize = page.bounds(for: view.displayBox).size
+                let plan = ViewModePlanner.standardPlan(
+                    mode: mode, viewport: view.bounds.size, pageSize: pageSize)
+                LayoutApplier.apply(plan, to: view, log: log)
+            }
         }
 
-        /// Reverts any in-memory box overrides and re-applies the composition for
-        /// `mode` + the current `trimMargins`: two-up enlarges each page to the
-        /// document's uniform cell (SIZE-3/4, blank padding, content spine-ward);
-        /// trim crops each page to its detected content box (TRIM); two-up + trim
-        /// composes — the CROPPED content boxes feed `twoUpBoxOverrides` so the
-        /// spread still abuts the gutter (TRIM-3/4/6). All overrides are in-memory
+        /// Rebuilds the in-memory box overrides for `mode` + the current
+        /// `trimMargins`: TRIM crops the VISIBLE window to detected content boxes
+        /// (the rest follow lazily on scroll); non-trim two-up enlarges every page
+        /// to the document's uniform cell (SIZE-3/4). All overrides are in-memory
         /// only (`PageBoxStore` never writes the file — Calibre read-only).
         private func rebuildBoxState(
             mode: ViewMode, document: PDFDocument, layout: BookLayout
         ) {
             pageBoxStore.revert(document: document)
-            let count = document.pageCount
-            func detectedBox(_ i: Int) -> CGRect? {
-                document.page(at: i).flatMap { PageContentDetector.contentBox(of: $0) }
-            }
-
-            if mode.isTwoUp && trimMargins {
-                // Crop each page to its content box, THEN pad the CROPPED boxes to
-                // a uniform cell so the mixed-size spread abuts the gutter.
-                let cropped = (0..<count).map { i -> CGRect in
-                    detectedBox(i)
-                        ?? document.page(at: i)?.bounds(for: .cropBox) ?? .zero
-                }
-                let overrides = ViewModePlanner.twoUpBoxOverrides(
-                    pageContents: cropped, layout: layout, vAlign: .center)
-                pageBoxStore.crop(overrides: overrides, to: document)
+            croppedPages.removeAll()
+            if trimMargins {
+                cropVisibleWindow(document: document, mode: mode)
             } else if mode.isTwoUp {
-                let contents = (0..<count).map {
+                let contents = (0..<document.pageCount).map {
                     document.page(at: $0)?.bounds(for: .cropBox) ?? .zero
                 }
                 let overrides = ViewModePlanner.twoUpBoxOverrides(
                     pageContents: contents, layout: layout, vAlign: .center)
                 pageBoxStore.apply(overrides: overrides, to: document)
-            } else if trimMargins {
-                var overrides: [Int: CGRect] = [:]
-                for i in 0..<count where detectedBox(i) != nil {
-                    overrides[i] = detectedBox(i)
-                }
-                pageBoxStore.crop(overrides: overrides, to: document)
             }
             // single + no-trim: reverted to originals, nothing to apply.
             log.debug(
                 .trim,
                 "rebuildBoxState mode=\(mode.rawValue) trim=\(trimMargins) "
-                    + "pages=\(count) active=\(pageBoxStore.isActive)"
+                    + "cropped=\(croppedPages.count) active=\(pageBoxStore.isActive)"
             )
         }
 
-        /// Reverts any two-up box overrides — called when leaving two-up and on
-        /// teardown so the shared in-memory document is left in its original box
+        /// Crops the pages in a forward-biased window around the current page to
+        /// their detected content boxes — the visible-first + lazy trim (no
+        /// whole-document render). Single modes crop each page to its own content
+        /// box; two-up modes pad each visible spread's cropped pages to that
+        /// spread's uniform cell (`twoUpTrimOverrides`) so it still abuts the
+        /// gutter. Already-attempted pages are skipped (cached, `croppedPages`).
+        private func cropVisibleWindow(document: PDFDocument, mode: ViewMode) {
+            guard trimMargins, let page = view?.currentPage else { return }
+            let count = document.pageCount
+            let current = document.index(for: page)
+            // Backward 1 (already-cropped when read forward → no-op), forward a
+            // screen's worth so pages are cropped before they scroll into view.
+            let lo = max(0, current - 1)
+            let hi = min(count - 1, current + (mode.isContinuous ? 6 : 2))
+            let window = (lo...hi).filter { !croppedPages.contains($0) }
+            guard !window.isEmpty else { return }
+            window.forEach { croppedPages.insert($0) }
+
+            var overrides: [Int: CGRect] = [:]
+            if mode.isTwoUp {
+                let layout = ViewModePlanner.bookLayout(of: document)
+                var spreads = Set<Int>()
+                for i in window {
+                    let start = ViewModePlanner.rowStart(of: i, layout: layout)
+                    guard spreads.insert(start).inserted else { continue }
+                    let pair = ViewModePlanner.pair(containing: start, layout: layout)
+                    var detected: [Int: CGRect] = [:]
+                    for slot in [pair.left, pair.right] {
+                        guard let idx = slot, (0..<count).contains(idx),
+                              let box = contentBox(idx, in: document) else { continue }
+                        detected[idx] = box
+                        croppedPages.insert(idx)
+                    }
+                    overrides.merge(
+                        ViewModePlanner.twoUpTrimOverrides(
+                            detected: detected, layout: layout, vAlign: .center)
+                    ) { a, _ in a }
+                }
+            } else {
+                for i in window {
+                    if let box = contentBox(i, in: document) { overrides[i] = box }
+                }
+            }
+            guard !overrides.isEmpty else { return }
+            pageBoxStore.crop(overrides: overrides, to: document)
+        }
+
+        /// The detected content box for page `i` (cached per page; one CG render
+        /// on first access, ~1.4 ms). `nil` when the detector leaves the page
+        /// as-is (blank / already tight / cover).
+        private func contentBox(_ i: Int, in document: PDFDocument) -> CGRect? {
+            document.page(at: i).flatMap { PageContentDetector.contentBox(of: $0) }
+        }
+
+        /// Reverts any two-up / trim box overrides — called when leaving two-up and
+        /// on teardown so the shared in-memory document is left in its original box
         /// state.
         func revertPageBoxes() {
             guard let document = view?.document, pageBoxStore.isActive else { return }
             pageBoxStore.revert(document: document)
+            croppedPages.removeAll()
         }
 
         /// FIT-1 — fit the current page to the viewport width within the current

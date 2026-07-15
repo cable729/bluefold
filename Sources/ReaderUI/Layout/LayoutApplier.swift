@@ -13,6 +13,110 @@ import ReaderCore
 /// `autoScales` off) realizes the standard fit. `layoutDocumentView()` is
 /// deferred one runloop so PDFKit re-centers content narrower than the pane.
 public enum LayoutApplier {
+    /// A reading position anchored to the CONTENT: the page and the page-space
+    /// (PDF content) y-coordinate currently at the viewport top. Cropping a page
+    /// changes its media/crop BOX but NOT where the content draws, so a content
+    /// coordinate is invariant to the crop — restoring it keeps the exact same
+    /// text under the viewport top (a box-fraction anchor drifts because the box
+    /// top moves when the margin is cropped away).
+    public struct PagePosition: Equatable, Sendable {
+        public var pageIndex: Int
+        /// Page-space y of the content at the viewport top (PDF content coords).
+        public var pagePointY: CGFloat
+        public init(pageIndex: Int, pagePointY: CGFloat) {
+            self.pageIndex = pageIndex
+            self.pagePointY = pagePointY
+        }
+    }
+
+    /// Captures the content coordinate at the viewport top (see `PagePosition`).
+    /// Non-flipped documentView; `pageRectDoc` is the page box scaled into
+    /// documentView space, so `scaleFactor` doc-units per page point. `nil` when
+    /// there is no page/geometry to read.
+    @MainActor
+    public static func capturePagePosition(in view: PDFView) -> PagePosition? {
+        guard
+            let document = view.document,
+            let current = view.currentPage,
+            let clip = firstScrollView(in: view)?.contentView,
+            let docView = clip.documentView
+        else { return nil }
+        let viewportTopDoc = clip.bounds.origin.y + clip.bounds.height
+        // The page at the viewport TOP — not necessarily PDFKit's currentPage
+        // (which tracks the center/most-visible page and can lag a scroll).
+        // Search outward from currentPage until a page's box brackets the
+        // viewport top; fall back to currentPage if none does (viewport in a gap).
+        let curIdx = document.index(for: current)
+        func anchor(on idx: Int) -> PagePosition? {
+            guard let page = document.page(at: idx) else { return nil }
+            let box = page.bounds(for: view.displayBox)
+            let rectDoc = docView.convert(view.convert(box, from: page), from: view)
+            guard box.height > 0, rectDoc.height > 0 else { return nil }
+            let scaleY = rectDoc.height / box.height
+            let pagePointY = box.minY + (viewportTopDoc - rectDoc.minY) / scaleY
+            return PagePosition(pageIndex: idx, pagePointY: pagePointY)
+        }
+        for delta in 0..<document.pageCount {
+            for idx in Set([curIdx - delta, curIdx + delta]) where (0..<document.pageCount).contains(idx) {
+                guard let page = document.page(at: idx) else { continue }
+                let rectDoc = docView.convert(
+                    view.convert(page.bounds(for: view.displayBox), from: page), from: view)
+                if rectDoc.minY - 1 <= viewportTopDoc, viewportTopDoc <= rectDoc.maxY + 1 {
+                    return anchor(on: idx)
+                }
+            }
+        }
+        return anchor(on: curIdx)
+    }
+
+    /// Re-lays out and restores `position` (sync + one deferred pass, to survive
+    /// PDFKit's late layout) WITHOUT changing scale — the no-zoom continuous trim:
+    /// the crop repacks the page stack, this keeps the same content under the
+    /// viewport top.
+    @MainActor
+    public static func reanchor(to position: PagePosition, in view: PDFView, log: AppLogger) {
+        view.layoutDocumentView()
+        restorePagePosition(position, in: view, log: log)
+        DispatchQueue.main.async { [weak view] in
+            guard let view else { return }
+            view.layoutDocumentView()
+            restorePagePosition(position, in: view, log: log)
+        }
+    }
+
+    /// The inverse of `capturePagePosition`: scrolls so `position`'s content
+    /// coordinate sits at the viewport top under the CURRENT (post-crop) box.
+    /// Clamped to the scrollable range.
+    @MainActor
+    private static func restorePagePosition(
+        _ position: PagePosition, in view: PDFView, log: AppLogger
+    ) {
+        guard
+            let document = view.document,
+            let page = document.page(at: min(max(0, position.pageIndex), max(0, document.pageCount - 1))),
+            let clip = firstScrollView(in: view)?.contentView,
+            let docView = clip.documentView
+        else { return }
+        let box = page.bounds(for: view.displayBox)
+        let pageRectDoc = docView.convert(view.convert(box, from: page), from: view)
+        guard box.height > 0 else { return }
+        let scaleY = pageRectDoc.height / box.height
+        let clipHeight = clip.bounds.height
+        // Content coord y_p is at docViewY = pageRectDoc.minY + (y_p − box.minY)·scaleY.
+        let targetDocY = pageRectDoc.minY + (position.pagePointY - box.minY) * scaleY
+        let targetY = targetDocY - clipHeight
+        let maxOriginY = max(0, docView.frame.height - clipHeight)
+        var origin = clip.bounds.origin           // keep PDFKit's centered x
+        origin.y = min(max(0, targetY), maxOriginY)
+        clip.setBoundsOrigin(origin)
+        clip.enclosingScrollView?.reflectScrolledClipView(clip)
+        log.debug(
+            .trim,
+            "restorePagePosition page=\(position.pageIndex) y_p=\(position.pagePointY) "
+                + "pageRectDoc=\(pageRectDoc) clipH=\(clipHeight) → origin.y=\(origin.y)"
+        )
+    }
+
     /// - Parameter preserveVerticalScroll: for FIT-1 (fit width) the reading
     ///   position must NOT jump. The clip-view bounds origin is in PAGE POINTS
     ///   and is scale-independent (the documentView frame doesn't change with
