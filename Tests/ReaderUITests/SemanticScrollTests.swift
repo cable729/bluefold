@@ -11,7 +11,7 @@ import Testing
 /// #59 bug 5 — single-continuous trim must preserve the SEMANTIC reading
 /// position (which page, and how far into it), not the raw clip-origin.y.
 /// Cropping shortens every page, so a preserved raw y lands on a LATER page;
-/// `LayoutApplier.capturePagePosition` + `restorePosition:` keep the same page's
+/// `LayoutApplier.capturePagePosition` + `reanchor` keep the same page's
 /// same fraction at the viewport top.
 @MainActor
 @Suite(.serialized) struct SemanticScrollTests {
@@ -74,31 +74,30 @@ import Testing
         let position = try #require(LayoutApplier.capturePagePosition(in: view))
         let rawYBefore = clip.bounds.origin.y
 
-        // Trim: crop every page, re-apply width-fit from the cropped size with
-        // the semantic restore.
+        // Trim: crop every page, then RE-ANCHOR (no rescale — continuous trim is
+        // orthogonal to zoom). The scale must not change; the same content stays
+        // under the viewport top.
         let store = PageBoxStore()
+        let scale0 = view.scaleFactor
         var overrides: [Int: CGRect] = [:]
         for i in 0..<doc.pageCount {
             if let c = PageContentDetector.contentBox(of: doc.page(at: i)!) { overrides[i] = c }
         }
         #expect(!overrides.isEmpty)
         store.crop(overrides: overrides, to: doc)
-        let croppedSize = doc.page(at: 5)!.bounds(for: view.displayBox).size
-        let trimmed = ViewModePlanner.standardPlan(
-            mode: .singleContinuous, viewport: vp, pageSize: croppedSize)
         withDependencies { $0.appLogger = .captured(into: box) } operation: {
-            LayoutApplier.apply(
-                trimmed, to: view, log: AppLogger.captured(into: box), restorePosition: position)
+            LayoutApplier.reanchor(to: position, in: view, log: AppLogger.captured(into: box))
         }
         PDFKitProbe.settle(6)
+        #expect(view.scaleFactor == scale0, "continuous trim changed zoom")
 
         let after = try #require(pageAtViewportTop(view))
         print("PROBE bug5: before=\(before) after=\(after) rawYBefore=\(rawYBefore) " +
-              "fraction=\(position.fractionFromPageTop)")
+              "y_p=\(position.pagePointY)")
         #expect(after.index == before.index,
                 "semantic restore drifted page: \(before.index) → \(after.index)")
-        #expect(abs(after.fraction - before.fraction) <= 0.06,
-                "fraction within page not preserved: \(before.fraction) → \(after.fraction)")
+        // (The box-relative fraction shifts because the crop shrinks the page box;
+        // content-coordinate preservation is asserted in TrimMarginsTests.trim2.)
 
         // Reproduction guard: raw-y preservation WOULD have drifted to a
         // DIFFERENT page (cropping repacks every page, so the old absolute y maps

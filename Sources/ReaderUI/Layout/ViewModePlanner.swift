@@ -237,9 +237,9 @@ public enum ViewModePlanner {
     ///
     /// Three branches:
     /// - **same single/double family** (fixed↔continuous flip): the
-    ///   destination's `standardPlan` scale, the SAME page; continuous
-    ///   destinations preserve y (VM-2/VM-4), fixed destinations anchor the
-    ///   page top at M (VM-1/VM-3, centered when it fits).
+    ///   destination's `standardPlan` scale, the SAME page; BOTH directions
+    ///   anchor the page top at M (VM-1..4, centered when it fits). (Raw
+    ///   preserveY across a fixed↔continuous flip jumps to the book end — #59.)
     /// - **double→single** (SW-2): `newScale = 2·oldScale + M/pageW`, where
     ///   `oldScale` is the FROM mode's two-up STANDARD fit (not the live zoom),
     ///   so the single page's on-screen width equals the spread's former width.
@@ -287,13 +287,15 @@ public enum ViewModePlanner {
             anchor = .pageTopMargin(pageIndex: targetPageIndex)
 
         case (false, false), (true, true):
-            // Same single/double family — a fixed↔continuous flip (VM-1..4).
+            // Same single/double family — a fixed↔continuous flip (VM-1..4). BOTH
+            // directions anchor the current page top at M. Raw preserveY is wrong
+            // for fixed→continuous: the fixed clip.y ≈ 0 lands at the BOTTOM (last
+            // page) of the non-flipped continuous docView, jumping to the end of
+            // the book (#59).
             scale = standardPlan(mode: to, viewport: viewport, pageSize: pageSize)
                 .scaleFactor
             targetPageIndex = currentPageIndex
-            anchor = to.isContinuous
-                ? .preserveY
-                : .pageTopMargin(pageIndex: currentPageIndex)
+            anchor = .pageTopMargin(pageIndex: currentPageIndex)
         }
 
         return ModeTransition(

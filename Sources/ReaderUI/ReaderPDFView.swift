@@ -41,10 +41,12 @@ final class ReaderPDFView: PDFView {
            let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first {
             switch Int(scalar.value) {
             case NSRightArrowFunctionKey:
-                stepForward()
+                if let onStepForward { onStepForward() }
+                else if canGoToNextPage { goToNextPage(nil) }
                 return  // consume even at the last page (no beep/side-scroll)
             case NSLeftArrowFunctionKey:
-                stepBackward()
+                if let onStepBackward { onStepBackward() }
+                else if canGoToPreviousPage { goToPreviousPage(nil) }
                 return
             default:
                 break
@@ -185,58 +187,9 @@ final class ReaderPDFView: PDFView {
         hoverTarget = nil
     }
 
-    /// True once the current swipe gesture has already turned a page, so one
-    /// continuous two-finger swipe advances exactly one page (its momentum tail
-    /// and the rest of the gesture are swallowed).
-    private var swipeTurnedPage = false
-
-    /// Minimum accumulated swipe delta (points) before a fixed-mode swipe turns
-    /// the page — filters out tiny incidental scrolls.
-    private static let swipeTurnThreshold: CGFloat = 12
-
     override func scrollWheel(with event: NSEvent) {
         cancelLinkHover()
-        // FIXED modes: the page/spread already fits, so panning it "a little"
-        // instead of turning is just noise — lock panning and let a decisive
-        // swipe (either axis) turn the page cleanly (#59 bug 7). Continuous
-        // modes scroll normally.
-        guard
-            let mode = ViewMode(displayModeRaw: displayMode.rawValue),
-            !mode.isContinuous
-        else {
-            super.scrollWheel(with: event)
-            return
-        }
-        // A trackpad gesture reports a phase (.began/.changed/.ended) or a
-        // momentum phase; a mouse wheel reports neither (discrete events).
-        let isGesture = !event.phase.isEmpty || !event.momentumPhase.isEmpty
-        if event.phase.contains(.began) { swipeTurnedPage = false }
-        // Within ONE trackpad gesture, turn a single page and swallow the rest
-        // (including the inertial tail). Discrete mouse-wheel notches are
-        // independent, so each may turn a page.
-        if isGesture {
-            guard event.momentumPhase.isEmpty, !swipeTurnedPage else { return }
-        }
-        let dx = event.scrollingDeltaX
-        let dy = event.scrollingDeltaY
-        // Dominant axis decides; natural-scroll sign: swipe up / left → forward.
-        let delta = abs(dx) > abs(dy) ? dx : dy
-        guard abs(delta) >= Self.swipeTurnThreshold else { return }
-        if isGesture { swipeTurnedPage = true }
-        if delta < 0 { stepForward() } else { stepBackward() }
-        // Deliberately NOT calling super → the internal scroll view never pans.
-    }
-
-    /// One page/spread forward via the Coordinator's step (falls back to
-    /// PDFView paging when unwired, e.g. previews/tests).
-    private func stepForward() {
-        if let onStepForward { onStepForward() }
-        else if canGoToNextPage { goToNextPage(nil) }
-    }
-
-    private func stepBackward() {
-        if let onStepBackward { onStepBackward() }
-        else if canGoToPreviousPage { goToPreviousPage(nil) }
+        super.scrollWheel(with: event)
     }
 
     private func showLinkHover() {

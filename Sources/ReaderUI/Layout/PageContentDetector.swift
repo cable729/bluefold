@@ -22,25 +22,23 @@ public enum PageContentDetector {
     /// side keeps a wider gutter so content never sits under a margin-anchor
     /// glyph (glyph at x∈[5,20] from the crop edge — see `AnchorOverlay`); the
     /// other sides trim close for a genuinely tight column.
-    /// `nonisolated` (like the rest of the detection constants): the pure
-    /// `computeContentBox` path runs off the main thread in `ContentBoxService`.
-    public nonisolated static let leftPadding: CGFloat = 20
-    public nonisolated static let rightPadding: CGFloat = 10
-    public nonisolated static let verticalPadding: CGFloat = 12
+    public static let leftPadding: CGFloat = 20
+    public static let rightPadding: CGFloat = 10
+    public static let verticalPadding: CGFloat = 12
 
     /// Target width in pixels for the detection render (cheap; content geometry
     /// doesn't need fine resolution).
-    nonisolated static let renderWidth: CGFloat = 320
+    static let renderWidth: CGFloat = 320
 
     /// A pixel counts as content when it's darker than this on 0...255 white.
     /// Anti-aliased text edges and faint rules still cross it; JPEG noise in
     /// scans mostly doesn't.
-    nonisolated static let inkThreshold: UInt8 = 245
+    static let inkThreshold: UInt8 = 245
 
     /// Only trim when the padded content leaves at least this fraction of the
     /// page to reclaim — below it there's nothing to gain and we'd risk shaving
     /// real content, so the page is left exactly as the publisher set it.
-    nonisolated static let minReclaimFraction: CGFloat = 0.04
+    static let minReclaimFraction: CGFloat = 0.04
 
     /// Cover / mis-detection guard: never accept an ink box narrower or shorter
     /// than this fraction of the page in either axis. A near-blank page, a lone
@@ -51,7 +49,7 @@ public enum PageContentDetector {
     /// (Dummit & Foote ships ~22% side margins ⇒ ~56% content width), defeating
     /// the feature on exactly its target. 0.4 rejects covers/folios while still
     /// trimming dense-margin textbooks.
-    nonisolated static let minContentFraction: CGFloat = 0.4
+    static let minContentFraction: CGFloat = 0.4
 
     private static var contentBoxKey: UInt8 = 0
 
@@ -61,43 +59,17 @@ public enum PageContentDetector {
     /// already tight (little to reclaim), or a cover/mis-detection (ink too small
     /// in either axis). Computed once (renders the page) and cached on the page.
     public static func contentBox(of page: PDFPage) -> CGRect? {
-        if let cached = cachedContentBox(of: page) { return cached.box }
-        let result = computeContentBox(of: page)
-        seedCache(result, on: page)
+        if let boxed = objc_getAssociatedObject(page, &contentBoxKey) as? NSValue {
+            let rect = boxed.rectValue
+            return rect.isNull ? nil : rect
+        }
+        let result = compute(page)
+        objc_setAssociatedObject(
+            page, &contentBoxKey, NSValue(rect: result ?? .null), .OBJC_ASSOCIATION_RETAIN)
         return result
     }
 
-    /// A cached detection result: `box == nil` means detection ran and found
-    /// nothing to trim (blank / already tight / cover). Distinguishing "cached
-    /// as nil" from "never detected" (below) is what lets the applier check
-    /// readiness without triggering a main-thread render.
-    struct Cached { let box: CGRect? }
-
-    /// The cached detection for this page, or `nil` if it was never detected.
-    static func cachedContentBox(of page: PDFPage) -> Cached? {
-        guard let boxed = objc_getAssociatedObject(page, &contentBoxKey) as? NSValue
-        else { return nil }
-        let rect = boxed.rectValue
-        return Cached(box: rect.isNull ? nil : rect)
-    }
-
-    /// Seeds the per-page cache with a pre-computed result (e.g. from the
-    /// background `ContentBoxService`), so the live document's pages read the
-    /// same box the preloader found WITHOUT re-rendering on the main thread.
-    static func seedCache(_ box: CGRect?, on page: PDFPage) {
-        objc_setAssociatedObject(
-            page, &contentBoxKey, NSValue(rect: box ?? .null), .OBJC_ASSOCIATION_RETAIN)
-    }
-
-    /// Pure detection (renders the page, no caching) — safe to call OFF the main
-    /// thread on a `PDFDocument` owned entirely by a background actor (the
-    /// `ContentBoxService` preloader). `contentBox(of:)` wraps this with the
-    /// on-page cache for the synchronous main-thread path.
-    nonisolated static func computeContentBox(of page: PDFPage) -> CGRect? {
-        compute(page)
-    }
-
-    nonisolated private static func compute(_ page: PDFPage) -> CGRect? {
+    private static func compute(_ page: PDFPage) -> CGRect? {
         let media = page.bounds(for: .mediaBox)
         guard media.width > 0, media.height > 0 else { return nil }
         guard let ink = inkBox(of: page, media: media) else { return nil }
@@ -123,7 +95,7 @@ public enum PageContentDetector {
     /// Renders one page from Core Graphics into a grayscale bitmap and returns
     /// the bounding box of its ink in page coordinates. Renders the raw page (no
     /// theme filter), on a white ground, so "not white" means content.
-    nonisolated static func inkBox(of page: PDFPage, media: CGRect) -> CGRect? {
+    static func inkBox(of page: PDFPage, media: CGRect) -> CGRect? {
         guard let cgPage = page.pageRef, media.width > 0, media.height > 0 else { return nil }
         let scale = renderWidth / media.width
         let pxW = Int((media.width * scale).rounded())

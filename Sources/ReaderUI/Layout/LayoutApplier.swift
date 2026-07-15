@@ -13,46 +13,80 @@ import ReaderCore
 /// `autoScales` off) realizes the standard fit. `layoutDocumentView()` is
 /// deferred one runloop so PDFKit re-centers content narrower than the pane.
 public enum LayoutApplier {
-    /// A reading position expressed SEMANTICALLY — the page it is in and how far
-    /// (0 = page top at the viewport top, 1 = page bottom at the viewport top)
-    /// the viewport top has scrolled into that page — rather than as a raw
-    /// clip-origin.y. Trim changes every page's height, so a preserved raw y
-    /// lands on a DIFFERENT page after the crop (#59 bug 5); the fraction is
-    /// invariant to that height change, so restoring it keeps the same content
-    /// at the top of the view.
+    /// A reading position anchored to the CONTENT: the page and the page-space
+    /// (PDF content) y-coordinate currently at the viewport top. Cropping a page
+    /// changes its media/crop BOX but NOT where the content draws, so a content
+    /// coordinate is invariant to the crop — restoring it keeps the exact same
+    /// text under the viewport top (a box-fraction anchor drifts because the box
+    /// top moves when the margin is cropped away).
     public struct PagePosition: Equatable, Sendable {
         public var pageIndex: Int
-        public var fractionFromPageTop: CGFloat
-        public init(pageIndex: Int, fractionFromPageTop: CGFloat) {
+        /// Page-space y of the content at the viewport top (PDF content coords).
+        public var pagePointY: CGFloat
+        public init(pageIndex: Int, pagePointY: CGFloat) {
             self.pageIndex = pageIndex
-            self.fractionFromPageTop = fractionFromPageTop
+            self.pagePointY = pagePointY
         }
     }
 
-    /// Captures the live reading position semantically (see `PagePosition`) from
-    /// the current page + documentView geometry. Non-flipped documentView: the
-    /// viewport TOP maps to doc-y `origin.y + clipHeight` (content top = max y).
-    /// `nil` when there is no page/geometry to read.
+    /// Captures the content coordinate at the viewport top (see `PagePosition`).
+    /// Non-flipped documentView; `pageRectDoc` is the page box scaled into
+    /// documentView space, so `scaleFactor` doc-units per page point. `nil` when
+    /// there is no page/geometry to read.
     @MainActor
     public static func capturePagePosition(in view: PDFView) -> PagePosition? {
         guard
             let document = view.document,
-            let page = view.currentPage,
+            let current = view.currentPage,
             let clip = firstScrollView(in: view)?.contentView,
             let docView = clip.documentView
         else { return nil }
-        let pageRectView = view.convert(page.bounds(for: view.displayBox), from: page)
-        let pageRectDoc = docView.convert(pageRectView, from: view)
-        guard pageRectDoc.height > 0 else { return nil }
         let viewportTopDoc = clip.bounds.origin.y + clip.bounds.height
-        let fraction = (pageRectDoc.maxY - viewportTopDoc) / pageRectDoc.height
-        return PagePosition(
-            pageIndex: document.index(for: page), fractionFromPageTop: fraction)
+        // The page at the viewport TOP — not necessarily PDFKit's currentPage
+        // (which tracks the center/most-visible page and can lag a scroll).
+        // Search outward from currentPage until a page's box brackets the
+        // viewport top; fall back to currentPage if none does (viewport in a gap).
+        let curIdx = document.index(for: current)
+        func anchor(on idx: Int) -> PagePosition? {
+            guard let page = document.page(at: idx) else { return nil }
+            let box = page.bounds(for: view.displayBox)
+            let rectDoc = docView.convert(view.convert(box, from: page), from: view)
+            guard box.height > 0, rectDoc.height > 0 else { return nil }
+            let scaleY = rectDoc.height / box.height
+            let pagePointY = box.minY + (viewportTopDoc - rectDoc.minY) / scaleY
+            return PagePosition(pageIndex: idx, pagePointY: pagePointY)
+        }
+        for delta in 0..<document.pageCount {
+            for idx in Set([curIdx - delta, curIdx + delta]) where (0..<document.pageCount).contains(idx) {
+                guard let page = document.page(at: idx) else { continue }
+                let rectDoc = docView.convert(
+                    view.convert(page.bounds(for: view.displayBox), from: page), from: view)
+                if rectDoc.minY - 1 <= viewportTopDoc, viewportTopDoc <= rectDoc.maxY + 1 {
+                    return anchor(on: idx)
+                }
+            }
+        }
+        return anchor(on: curIdx)
     }
 
-    /// The inverse of `capturePagePosition`: sets the clip origin.y so `position`'s
-    /// fraction of ITS page sits at the viewport top under the CURRENT (post-crop,
-    /// post-rescale) geometry. Clamped to the scrollable range.
+    /// Re-lays out and restores `position` (sync + one deferred pass, to survive
+    /// PDFKit's late layout) WITHOUT changing scale — the no-zoom continuous trim:
+    /// the crop repacks the page stack, this keeps the same content under the
+    /// viewport top.
+    @MainActor
+    public static func reanchor(to position: PagePosition, in view: PDFView, log: AppLogger) {
+        view.layoutDocumentView()
+        restorePagePosition(position, in: view, log: log)
+        DispatchQueue.main.async { [weak view] in
+            guard let view else { return }
+            view.layoutDocumentView()
+            restorePagePosition(position, in: view, log: log)
+        }
+    }
+
+    /// The inverse of `capturePagePosition`: scrolls so `position`'s content
+    /// coordinate sits at the viewport top under the CURRENT (post-crop) box.
+    /// Clamped to the scrollable range.
     @MainActor
     private static func restorePagePosition(
         _ position: PagePosition, in view: PDFView, log: AppLogger
@@ -63,12 +97,14 @@ public enum LayoutApplier {
             let clip = firstScrollView(in: view)?.contentView,
             let docView = clip.documentView
         else { return }
-        let pageRectView = view.convert(page.bounds(for: view.displayBox), from: page)
-        let pageRectDoc = docView.convert(pageRectView, from: view)
+        let box = page.bounds(for: view.displayBox)
+        let pageRectDoc = docView.convert(view.convert(box, from: page), from: view)
+        guard box.height > 0 else { return }
+        let scaleY = pageRectDoc.height / box.height
         let clipHeight = clip.bounds.height
-        // viewportTopDoc = pageTopDoc − fraction·pageH; origin.y = viewportTopDoc − clipHeight.
-        let viewportTopDoc = pageRectDoc.maxY - position.fractionFromPageTop * pageRectDoc.height
-        let targetY = viewportTopDoc - clipHeight
+        // Content coord y_p is at docViewY = pageRectDoc.minY + (y_p − box.minY)·scaleY.
+        let targetDocY = pageRectDoc.minY + (position.pagePointY - box.minY) * scaleY
+        let targetY = targetDocY - clipHeight
         let maxOriginY = max(0, docView.frame.height - clipHeight)
         var origin = clip.bounds.origin           // keep PDFKit's centered x
         origin.y = min(max(0, targetY), maxOriginY)
@@ -76,7 +112,7 @@ public enum LayoutApplier {
         clip.enclosingScrollView?.reflectScrolledClipView(clip)
         log.debug(
             .trim,
-            "restorePagePosition page=\(position.pageIndex) frac=\(position.fractionFromPageTop) "
+            "restorePagePosition page=\(position.pageIndex) y_p=\(position.pagePointY) "
                 + "pageRectDoc=\(pageRectDoc) clipH=\(clipHeight) → origin.y=\(origin.y)"
         )
     }
@@ -96,14 +132,11 @@ public enum LayoutApplier {
     @MainActor
     public static func apply(
         _ plan: LayoutPlan, to view: PDFView, log: AppLogger,
-        preserveVerticalScroll: Bool = false,
-        restorePosition: PagePosition? = nil
+        preserveVerticalScroll: Bool = false
     ) {
-        // Capture the reading position before the scale change. A semantic
-        // `restorePosition` (trim — page height changes, so raw y would jump the
-        // page, #59 bug 5) takes precedence; otherwise fit-width's raw
-        // clip-origin.y preservation.
-        let savedOriginY: CGFloat? = (restorePosition == nil && preserveVerticalScroll)
+        // Capture the reading position (page-space clip origin.y) before the
+        // scale change so fit-width can restore it.
+        let savedOriginY: CGFloat? = preserveVerticalScroll
             ? firstScrollView(in: view)?.contentView.bounds.origin.y
             : nil
 
@@ -114,15 +147,11 @@ public enum LayoutApplier {
         view.autoScales = false
         view.scaleFactor = plan.scaleFactor
 
-        // Restore the reading position on the SAME turn as the scale change's own
+        // Restore the vertical scroll on the SAME turn as the scale change's own
         // re-centering, before the runloop yields (deferring it loses the race).
-        if restorePosition != nil || savedOriginY != nil {
+        if let savedOriginY {
             view.layoutDocumentView()
-            if let restorePosition {
-                restorePagePosition(restorePosition, in: view, log: log)
-            } else if let savedOriginY {
-                restoreVerticalScroll(in: view, to: savedOriginY)
-            }
+            restoreVerticalScroll(in: view, to: savedOriginY)
         }
 
         let savedYText: String = savedOriginY.map { "\($0)" } ?? "nil"
@@ -131,20 +160,17 @@ public enum LayoutApplier {
             "applyLayoutPlan mode=\(plan.displayMode) inset=\(inset) "
                 + "scale=\(plan.scaleFactor) vp=\(view.bounds.size) "
                 + "preserveY=\(preserveVerticalScroll) savedY=\(savedYText) "
-                + "restorePos=\(restorePosition.map { "\($0)" } ?? "nil") "
                 + "→ liveScale=\(view.scaleFactor) autoScales=\(view.autoScales)"
         )
 
         // Defer one runloop: PDFKit centers content narrower than the pane on
         // the next layout pass, so forcing it here (before the scale settles)
-        // leaves narrow pages pinned left. Re-restore after that pass, which
+        // leaves narrow pages pinned left. Re-restore y after that pass, which
         // re-centers on the viewport midpoint and would otherwise undo it.
         DispatchQueue.main.async { [weak view] in
             guard let view else { return }
             view.layoutDocumentView()
-            if let restorePosition {
-                restorePagePosition(restorePosition, in: view, log: log)
-            } else if let savedOriginY {
+            if let savedOriginY {
                 restoreVerticalScroll(in: view, to: savedOriginY)
                 log.debug(
                     .layout,
