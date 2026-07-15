@@ -378,6 +378,31 @@ public enum ViewModePlanner {
         return map
     }
 
+    /// #59 bug 3 — the two-up + TRIM box overrides. UNLIKE `twoUpBoxOverrides`
+    /// (which pads EVERY page to a cell sized from ALL pages), the uniform cell
+    /// here is the max over only the DETECTED (trimmed) content boxes, and only
+    /// those pages are overridden. Pages the detector left as-is (front matter,
+    /// figures, covers — absent from `detected`) keep their own full box rather
+    /// than inflating the cell: on a real book a few untrimmed full-page
+    /// fallbacks otherwise ballooned the cell to full-page size, so two-up+trim
+    /// showed the whole book uncropped while single+trim cropped tightly. With
+    /// the cell built from trimmed content, the widest trimmed page is cropped to
+    /// the SAME width in both modes and the rest abut the gutter in a tight,
+    /// content-sized column. PURE — applied through `PageBoxStore.crop`.
+    public static func twoUpTrimOverrides(
+        detected: [Int: CGRect], layout: BookLayout, vAlign: CellVAlign
+    ) -> [Int: CGRect] {
+        guard !detected.isEmpty else { return [:] }
+        let cell = spreadCell(contents: Array(detected.values))
+        var map: [Int: CGRect] = [:]
+        for (index, content) in detected {
+            let p = pair(containing: index, layout: layout)
+            let side: SpreadSide = (p.left == index) ? .left : .right
+            map[index] = cellBox(content: content, cell: cell, side: side, vAlign: vAlign)
+        }
+        return map
+    }
+
     /// The uniform cell size for a set of pages: the max content width and height
     /// (enlarge-only — the cell is never smaller than any page in either axis).
     public static func spreadCell(contents: [CGRect]) -> CGSize {

@@ -137,8 +137,12 @@ struct ActivePDFView: NSViewRepresentable {
     static func dismantleNSView(_ view: ReaderPDFView, coordinator: Coordinator) {
         view.cancelLinkHover()
         coordinator.captureNow()
-        // Revert any two-up box overrides so the shared in-memory document is
-        // restored to its original page boxes (never persisted).
+        // Stop any in-flight content-box preload — the view is going away.
+        coordinator.cancelContentBoxPrefetch()
+        // Revert any two-up / trim box overrides so the shared in-memory document
+        // is restored to its original page boxes (never persisted) — otherwise a
+        // theme rebuild (this view is `.id`'d on theme) would lay out a mutated
+        // document (#59 bug 2).
         coordinator.revertPageBoxes()
         if coordinator.model?.primaryController === coordinator {
             coordinator.model?.primaryController = nil
@@ -171,6 +175,16 @@ struct ActivePDFView: NSViewRepresentable {
         /// back through the model). Drives whether `rebuildBoxState` crops each
         /// page to its content box or leaves the publisher's page.
         private var trimMargins = false
+        /// Background content-box preloader (#59 bug 1): detects every page's
+        /// content box OFF the main thread so trim never renders the whole
+        /// document synchronously (the white-flash root cause). The visible
+        /// page is detected synchronously for instant feedback; this fills in
+        /// the rest and seeds the on-page cache.
+        private let contentBoxService = ContentBoxService()
+        private var contentBoxPrefetch: Task<Void, Never>?
+        /// True once the whole document's content boxes are cached — subsequent
+        /// trim toggles are then a pure `setBounds` with no render.
+        private var contentBoxesReady = false
         // nonisolated(unsafe): written on main; read in deinit.
         private nonisolated(unsafe) var pageObserver: NSObjectProtocol?
         private nonisolated(unsafe) var scrollObserver: NSObjectProtocol?
@@ -186,6 +200,7 @@ struct ActivePDFView: NSViewRepresentable {
         }
 
         deinit {
+            contentBoxPrefetch?.cancel()
             if let pageObserver {
                 NotificationCenter.default.removeObserver(pageObserver)
             }
@@ -377,7 +392,14 @@ struct ActivePDFView: NSViewRepresentable {
             else { return }
             trimMargins = on
             let layout = ViewModePlanner.bookLayout(of: document)
-            let beforeY = Self.firstScrollView(in: view)?.contentView.bounds.origin.y ?? 0
+            // Capture the reading position SEMANTICALLY before cropping — the
+            // crop changes every page's height, so a raw clip.y would land on a
+            // different page (#59 bug 5). Continuous modes restore it after the
+            // refit; fixed modes re-fit the page in place.
+            let position = mode.isContinuous ? LayoutApplier.capturePagePosition(in: view) : nil
+            // `rebuildBoxState` kicks off the whole-document detection off the
+            // main thread (#59 bug 1); the visible page(s) are detected
+            // synchronously so the toggle shows at once.
             rebuildBoxState(mode: mode, document: document, layout: layout)
             let pageSize = page.bounds(for: view.displayBox).size
             let plan = ViewModePlanner.standardPlan(
@@ -385,11 +407,60 @@ struct ActivePDFView: NSViewRepresentable {
             log.debug(
                 .trim,
                 "setTrim=\(on) mode=\(mode.rawValue) pages=\(document.pageCount) "
-                    + "page=\(document.index(for: page)) beforeY=\(beforeY) "
+                    + "page=\(document.index(for: page)) position=\(position.map { "\($0)" } ?? "nil") "
                     + "pageSize=\(pageSize) → scale=\(plan.scaleFactor)"
             )
-            LayoutApplier.apply(
-                plan, to: view, log: log, preserveVerticalScroll: mode.isContinuous)
+            LayoutApplier.apply(plan, to: view, log: log, restorePosition: position)
+        }
+
+        /// Detects every page's content box on the background `ContentBoxService`
+        /// (once per document), seeds the on-page cache, then re-applies the box
+        /// state + standard plan so the WHOLE document is trimmed — cheaply (no
+        /// render) and off the toggle's critical path (#59 bug 1). No-op if
+        /// already prefetched or in flight.
+        private func prefetchContentBoxes(document: PDFDocument) {
+            guard
+                !contentBoxesReady, contentBoxPrefetch == nil,
+                let tab = model?.tabs.first(where: { $0.id == tabID }),
+                let url = model?.url(for: tab)
+            else { return }
+            contentBoxPrefetch = Task { [weak self] in
+                guard let service = self?.contentBoxService else { return }
+                let boxes = try? await service.detectContentBoxes(at: url)
+                guard let self, !Task.isCancelled, let boxes else { return }
+                self.applyPrefetchedBoxes(boxes, document: document)
+            }
+        }
+
+        /// Main-thread completion of the background preload: seed every page's
+        /// cache (so `rebuildBoxState` becomes a pure `setBounds`), then re-apply
+        /// the current mode's trim if it is still on.
+        private func applyPrefetchedBoxes(_ boxes: [Int: CGRect], document: PDFDocument) {
+            for i in 0..<document.pageCount {
+                if let page = document.page(at: i) {
+                    PageContentDetector.seedCache(boxes[i], on: page)
+                }
+            }
+            contentBoxesReady = true
+            contentBoxPrefetch = nil
+            guard
+                trimMargins,
+                let view,
+                let doc = view.document,
+                let mode = ViewMode(displayModeRaw: view.displayMode.rawValue),
+                let page = view.currentPage
+            else { return }
+            let position = mode.isContinuous ? LayoutApplier.capturePagePosition(in: view) : nil
+            let layout = ViewModePlanner.bookLayout(of: doc)
+            rebuildBoxState(mode: mode, document: doc, layout: layout)
+            let pageSize = page.bounds(for: view.displayBox).size
+            let plan = ViewModePlanner.standardPlan(
+                mode: mode, viewport: view.bounds.size, pageSize: pageSize)
+            log.debug(
+                .trim,
+                "applyPrefetchedBoxes seeded=\(boxes.count) mode=\(mode.rawValue) "
+                    + "→ scale=\(plan.scaleFactor)")
+            LayoutApplier.apply(plan, to: view, log: log, restorePosition: position)
         }
 
         /// Reverts any in-memory box overrides and re-applies the composition for
@@ -403,20 +474,38 @@ struct ActivePDFView: NSViewRepresentable {
             mode: ViewMode, document: PDFDocument, layout: BookLayout
         ) {
             pageBoxStore.revert(document: document)
+            // Ensure the whole document's content boxes are being detected in the
+            // background whenever trim is on — covers toggles, mode switches, and
+            // trim restored from a session (#59 bug 1).
+            if trimMargins { prefetchContentBoxes(document: document) }
             let count = document.pageCount
+            // Detect the VISIBLE page(s) synchronously (one render — trim shows
+            // at once); every other page uses only its CACHED box, never a
+            // synchronous render, so a whole-document toggle can't blank the view
+            // white (#59 bug 1). The background `ContentBoxService` fills the
+            // cache; until it does, off-screen pages stay uncropped, then snap in.
+            let visible = trimMargins ? currentVisibleIndices(mode: mode, document: document) : []
             func detectedBox(_ i: Int) -> CGRect? {
-                document.page(at: i).flatMap { PageContentDetector.contentBox(of: $0) }
+                guard let page = document.page(at: i) else { return nil }
+                if visible.contains(i) { return PageContentDetector.contentBox(of: page) }
+                return PageContentDetector.cachedContentBox(of: page)?.box
             }
 
-            if mode.isTwoUp && trimMargins {
-                // Crop each page to its content box, THEN pad the CROPPED boxes to
-                // a uniform cell so the mixed-size spread abuts the gutter.
-                let cropped = (0..<count).map { i -> CGRect in
-                    detectedBox(i)
-                        ?? document.page(at: i)?.bounds(for: .cropBox) ?? .zero
+            if mode.isTwoUp && trimMargins && contentBoxesReady {
+                // Compose crop→pad into ONE final rect per page (#59 bug 4) and
+                // build the uniform cell from the TRIMMED content only (#59 bug
+                // 3): untrimmed pages (absent from `detected`) keep their own box
+                // rather than ballooning the cell to full-page size. Gated on the
+                // whole document being detected (`contentBoxesReady`) because the
+                // cell is the document-wide max of the trimmed boxes; until the
+                // background preload lands we fall through to the normal two-up
+                // enlarge below (#59 bug 1 — no synchronous whole-doc render).
+                var detected: [Int: CGRect] = [:]
+                for i in 0..<count {
+                    if let box = detectedBox(i) { detected[i] = box }
                 }
-                let overrides = ViewModePlanner.twoUpBoxOverrides(
-                    pageContents: cropped, layout: layout, vAlign: .center)
+                let overrides = ViewModePlanner.twoUpTrimOverrides(
+                    detected: detected, layout: layout, vAlign: .center)
                 pageBoxStore.crop(overrides: overrides, to: document)
             } else if mode.isTwoUp {
                 let contents = (0..<count).map {
@@ -426,9 +515,11 @@ struct ActivePDFView: NSViewRepresentable {
                     pageContents: contents, layout: layout, vAlign: .center)
                 pageBoxStore.apply(overrides: overrides, to: document)
             } else if trimMargins {
+                // Single call to `detectedBox` per page (was called twice — #59
+                // bug 1).
                 var overrides: [Int: CGRect] = [:]
-                for i in 0..<count where detectedBox(i) != nil {
-                    overrides[i] = detectedBox(i)
+                for i in 0..<count {
+                    if let box = detectedBox(i) { overrides[i] = box }
                 }
                 pageBoxStore.crop(overrides: overrides, to: document)
             }
@@ -436,8 +527,26 @@ struct ActivePDFView: NSViewRepresentable {
             log.debug(
                 .trim,
                 "rebuildBoxState mode=\(mode.rawValue) trim=\(trimMargins) "
-                    + "pages=\(count) active=\(pageBoxStore.isActive)"
+                    + "pages=\(count) visible=\(visible.sorted()) active=\(pageBoxStore.isActive)"
             )
+        }
+
+        /// The page indices currently on screen: the current page, plus its
+        /// spread partner in a two-up mode. Only these are detected synchronously
+        /// on a trim toggle so the visible result appears immediately without a
+        /// whole-document render (#59 bug 1).
+        private func currentVisibleIndices(
+            mode: ViewMode, document: PDFDocument
+        ) -> Set<Int> {
+            guard let page = view?.currentPage else { return [] }
+            let current = document.index(for: page)
+            var set: Set<Int> = [current]
+            if mode.isTwoUp {
+                let pr = ViewModePlanner.pair(
+                    containing: current, layout: ViewModePlanner.bookLayout(of: document))
+                for slot in [pr.left, pr.right] { if let i = slot { set.insert(i) } }
+            }
+            return set.filter { (0..<document.pageCount).contains($0) }
         }
 
         /// Reverts any two-up box overrides — called when leaving two-up and on
@@ -446,6 +555,12 @@ struct ActivePDFView: NSViewRepresentable {
         func revertPageBoxes() {
             guard let document = view?.document, pageBoxStore.isActive else { return }
             pageBoxStore.revert(document: document)
+        }
+
+        /// Cancels an in-flight background content-box preload (teardown).
+        func cancelContentBoxPrefetch() {
+            contentBoxPrefetch?.cancel()
+            contentBoxPrefetch = nil
         }
 
         /// FIT-1 — fit the current page to the viewport width within the current

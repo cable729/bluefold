@@ -387,12 +387,18 @@ public enum CommandRegistry {
         }
         commands.append(ReaderCommand(
             id: "view.fitWidth", title: "Fit Width", category: .view,
-            isAvailable: { $0.activeDocument != nil },
+            isAvailable: {
+                $0.activeDocument != nil
+                    && FitAvailability.isEnabled(displayModeRaw: $0.model?.activeTab?.displayModeRaw)
+            },
             run: { $0.model?.fitWidth() }
         ))
         commands.append(ReaderCommand(
             id: "view.fitHeight", title: "Fit Height", category: .view,
-            isAvailable: { $0.activeDocument != nil },
+            isAvailable: {
+                $0.activeDocument != nil
+                    && FitAvailability.isEnabled(displayModeRaw: $0.model?.activeTab?.displayModeRaw)
+            },
             run: { $0.model?.fitHeight() }
         ))
         commands.append(ReaderCommand(
