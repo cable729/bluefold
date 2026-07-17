@@ -35,10 +35,6 @@ public protocol ActivePDFControlling: AnyObject {
     func apply(displayModeRaw: Int)
     func fitWidth()
     func fitHeight()
-    /// TRIM-1..7 — crop every page to its printed content box (a real crop,
-    /// orthogonal to zoom) or revert; recomputes the current mode's plan from
-    /// the cropped/original sizes, preserving scroll.
-    func setTrim(_ on: Bool)
     /// Turn one "step" back/forward without a history push (status-bar
     /// arrows, arrow keys, palette commands) — the view decides what a step
     /// is for its display mode (e.g. a spread in two-up).
@@ -56,7 +52,6 @@ public extension ActivePDFControlling {
     func apply(displayModeRaw: Int) {}
     func fitWidth() {}
     func fitHeight() {}
-    func setTrim(_ on: Bool) {}
     func goToPreviousPage() {}
     func goToNextPage() {}
 }
@@ -591,20 +586,6 @@ public final class ReaderWindowModel {
         guard let activeTab else { return }
         updateTab(id: activeTab.id) { $0.autoScales = false }
         activeController?.fitHeight()
-    }
-
-    /// TRIM — flip the active tab's trim-margins state (persisted) and drive the
-    /// live view to crop / uncrop. UI wiring (a toolbar button) can call this or
-    /// `setTrimMargins(_:)`.
-    public func toggleTrimMargins() {
-        guard let activeTab else { return }
-        setTrimMargins(!activeTab.trimMargins)
-    }
-
-    public func setTrimMargins(_ on: Bool) {
-        guard let activeTab else { return }
-        updateTab(id: activeTab.id) { $0.trimMargins = on }
-        activeController?.setTrim(on)
     }
 
     /// Page-turn arrows (status bar). Not a history event: the resulting

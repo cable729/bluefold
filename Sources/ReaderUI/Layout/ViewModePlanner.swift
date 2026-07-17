@@ -57,21 +57,16 @@ public struct ModeTransition: Equatable, Sendable {
     public var targetPageIndex: Int
     /// Where to park the reading position after relayout.
     public var scrollAnchor: ScrollAnchor
-    /// The destination's even/odd pairing, so the applier can set
-    /// `displaysAsBook` / `displaysRTL` when entering a two-up mode.
-    public var bookLayout: BookLayout
 
     public init(
         displayMode: Int, scaleFactor: CGFloat, pageBreakMarginInset: CGFloat,
-        targetPageIndex: Int, scrollAnchor: ScrollAnchor,
-        bookLayout: BookLayout = .default
+        targetPageIndex: Int, scrollAnchor: ScrollAnchor
     ) {
         self.displayMode = displayMode
         self.scaleFactor = scaleFactor
         self.pageBreakMarginInset = pageBreakMarginInset
         self.targetPageIndex = targetPageIndex
         self.scrollAnchor = scrollAnchor
-        self.bookLayout = bookLayout
     }
 }
 
@@ -171,62 +166,11 @@ public enum ViewModePlanner {
         )
     }
 
-    /// The spread that contains `index`, as its (left, right) page indices under
-    /// `layout` (docs/PDFKIT-FACTS.md §3, the Skim rule "index i starts a pair
-    /// when (i % 2 == 1) == displaysAsBook"). Either slot may be `nil`:
-    /// `displaysAsBook` leaves page 0 alone (one slot empty), and the returned
-    /// `right` for the last pair of an odd-length document is the CALLER's to
-    /// null out — this pure math has no page count. `rtl` swaps the slots.
-    ///
-    /// - `displaysAsBook == false`: pairs (0,1),(2,3)… — `start = (i/2)·2`,
-    ///   left = start, right = start+1.
-    /// - `displaysAsBook == true`: index 0 is a lone page on the RIGHT
-    ///   (left = nil, right = 0); for i ≥ 1, `start = ((i-1)/2)·2 + 1`,
-    ///   left = start, right = start+1.
-    static func pair(containing index: Int, layout: BookLayout) -> (left: Int?, right: Int?) {
-        let i = max(0, index)
-        // Slots in LTR reading order first, then swap for RTL.
-        var leftContent: Int?
-        var rightContent: Int?
-        if layout.displaysAsBook {
-            if i == 0 {
-                leftContent = nil                 // lone recto sits on the right
-                rightContent = 0
-            } else {
-                let start = ((i - 1) / 2) * 2 + 1
-                leftContent = start
-                rightContent = start + 1
-            }
-        } else {
-            let start = (i / 2) * 2
-            leftContent = start
-            rightContent = start + 1
-        }
-        if layout.rtl { swap(&leftContent, &rightContent) }
-        return (left: leftContent, right: rightContent)
-    }
-
-    /// The spread ANCHOR index the transitions land on: the top-left slot's
-    /// page, or the lone page when the left slot is empty (book index 0). Under
-    /// `.default` this equals the old `(i/2)·2` rule so phase-4 behavior holds.
-    static func spreadLeftIndex(of index: Int, layout: BookLayout) -> Int {
-        let p = pair(containing: index, layout: layout)
-        return p.left ?? p.right ?? max(0, index)
-    }
-
-    /// Maps a PDF catalog `/PageLayout` name to a `BookLayout`. The "…Right"
-    /// variants (`TwoColumnRight` / `TwoPageRight`) place 1-based odd pages on
-    /// the right — i.e. page index 0 stands alone — so they mean
-    /// `displaysAsBook = true`. Every other value (and a missing key) → the
-    /// default. `/PageLayout` carries no reading direction, so no RTL is
-    /// inferred here.
-    static func bookLayout(pageLayoutName name: String?) -> BookLayout {
-        switch name {
-        case "TwoColumnRight", "TwoPageRight":
-            return BookLayout(displaysAsBook: true, rtl: false)
-        default:
-            return .default
-        }
+    /// The pair's top-left (lower) page index under simple even/odd-agnostic
+    /// pairing: `(index / 2) * 2`. Phase 5 refines this for `displaysAsBook`
+    /// odd-first layouts; for now pages pair (0,1) (2,3) (4,5)….
+    static func leftIndex(of pageIndex: Int) -> Int {
+        (max(0, pageIndex) / 2) * 2
     }
 
     /// The decision table for a mode-button press or mode switch (VM-1..4,
@@ -251,8 +195,7 @@ public enum ViewModePlanner {
     public static func transition(
         from: ViewMode, to: ViewMode,
         currentPageIndex: Int, currentScale: CGFloat,
-        viewport: CGSize, pageSize: CGSize,
-        layout: BookLayout = .default
+        viewport: CGSize, pageSize: CGSize
     ) -> ModeTransition {
         _ = currentScale                       // SW-5: live zoom must not leak.
         let margin = ReaderLayout.margin
@@ -265,11 +208,10 @@ public enum ViewModePlanner {
 
         switch (from.isTwoUp, to.isTwoUp) {
         case (false, true):
-            // single → double (SW-3 / SW-4). The current page takes its book
-            // pair's top-left slot (VM-5) — the pair anchor, not (i/2)·2.
+            // single → double (SW-3 / SW-4).
             scale = standardPlan(mode: to, viewport: viewport, pageSize: pageSize)
                 .scaleFactor
-            targetPageIndex = spreadLeftIndex(of: currentPageIndex, layout: layout)
+            targetPageIndex = leftIndex(of: currentPageIndex)
             // Too wide to show a full page height → keep the reading position.
             anchor = (pageH * scale > viewport.height)
                 ? .preserveY
@@ -278,12 +220,11 @@ public enum ViewModePlanner {
         case (true, false):
             // double → single (SW-2): match the spread's FORMER on-screen width.
             // oldScale is the FROM mode's two-up STANDARD fit (SW-5: not the
-            // live zoom) — 2·oldScale·pageW + M == newScale·pageW. Lands on the
-            // former book pair's top-left page (VM-5).
+            // live zoom) — 2·oldScale·pageW + M == newScale·pageW.
             let oldScale = standardPlan(mode: from, viewport: viewport, pageSize: pageSize)
                 .scaleFactor
             scale = pageW > 0 ? 2 * oldScale + margin / pageW : 2 * oldScale
-            targetPageIndex = spreadLeftIndex(of: currentPageIndex, layout: layout)
+            targetPageIndex = leftIndex(of: currentPageIndex)
             anchor = .pageTopMargin(pageIndex: targetPageIndex)
 
         case (false, false), (true, true):
@@ -301,208 +242,8 @@ public enum ViewModePlanner {
             scaleFactor: scale,
             pageBreakMarginInset: marginInset(onScreenGap: margin, scale: scale),
             targetPageIndex: targetPageIndex,
-            scrollAnchor: anchor,
-            // Carry the destination pairing so the applier can set the live
-            // view's displaysAsBook/displaysRTL when it is a two-up mode.
-            bookLayout: to.isTwoUp ? layout : .default
+            scrollAnchor: anchor
         )
-    }
-
-    // MARK: SIZE-1..SIZE-5 — different-size pages
-
-    /// Which slot of a two-up spread a page occupies. The GEOMETRIC side is what
-    /// matters for alignment (independent of `rtl`, which only swaps which
-    /// content page lands in which slot): the `.left` slot's spine is on its
-    /// RIGHT, the `.right` slot's spine on its LEFT.
-    public enum SpreadSide: Sendable { case left, right }
-
-    /// Vertical alignment of a page's content within its uniform two-up cell.
-    ///
-    /// OWNER-CONFIRM: SIZE-3 and SIZE-4 both use `.center` for now — the safe,
-    /// symmetric reading of "aligned toward the middle". The vertical choice is
-    /// ISOLATED here so switching SIZE-3 (double fixed) to `.bottom`/`.top`
-    /// later, once the owner confirms the exact alignment against a diagram, is a
-    /// one-line change at the `twoUpBoxOverrides` / applier call site.
-    public enum CellVAlign: Sendable { case center, bottom, top }
-
-    /// SIZE-3/4/5 — the enlarged page box that makes a mixed-size page fill a
-    /// uniform two-up `cell` by BLANK PADDING (docs/PDFKIT-FACTS.md Fact 3),
-    /// keeping the content at natural size (never scaled — SIZE-5), flush toward
-    /// the spine horizontally and per `vAlign` vertically. PURE rect arithmetic.
-    ///
-    /// Horizontal (spine-ward): `.left` slot ⇒ content flush RIGHT
-    /// (`box.minX = content.maxX − cell.w`); `.right` slot ⇒ content flush LEFT
-    /// (`box.minX = content.minX`). Vertical: `.center` splits the slack;
-    /// `.bottom` pins the content's bottom edge; `.top` pins its top edge. The
-    /// box keeps `cell`'s size; the content sits inside as an off-center sub-rect.
-    ///
-    /// Enlarge-only: callers pass `cell` ≥ `content` (the spread/document max),
-    /// so the box always CONTAINS the content — nothing is clipped. `PageBoxStore`
-    /// enforces this again as a cover guard.
-    public static func cellBox(
-        content: CGRect, cell: CGSize, side: SpreadSide, vAlign: CellVAlign
-    ) -> CGRect {
-        let minX: CGFloat
-        switch side {
-        case .left:  minX = content.maxX - cell.width      // content flush right
-        case .right: minX = content.minX                   // content flush left
-        }
-        let minY: CGFloat
-        switch vAlign {
-        case .center: minY = content.minY - (cell.height - content.height) / 2
-        case .bottom: minY = content.minY                  // content flush bottom
-        case .top:    minY = content.maxY - cell.height    // content flush top
-        }
-        return CGRect(x: minX, y: minY, width: cell.width, height: cell.height)
-    }
-
-    /// SIZE-3/4 — the in-memory box overrides that align an entire document's
-    /// pages for two-up. Every cell is the DOCUMENT-wide max content size
-    /// (`spreadCell`) so every column is identical and every spread abuts its
-    /// central gutter regardless of per-page size; each page's content is placed
-    /// spine-ward + per `vAlign`. `pageContents[i]` is page i's ORIGINAL box (page
-    /// space); `layout` decides each page's slot (which side of its spread).
-    /// PURE — the caller applies the result through `PageBoxStore`.
-    public static func twoUpBoxOverrides(
-        pageContents: [CGRect], layout: BookLayout, vAlign: CellVAlign
-    ) -> [Int: CGRect] {
-        guard !pageContents.isEmpty else { return [:] }
-        let cell = spreadCell(contents: pageContents)
-        var map: [Int: CGRect] = [:]
-        for index in pageContents.indices {
-            let p = pair(containing: index, layout: layout)
-            let side: SpreadSide = (p.left == index) ? .left : .right
-            map[index] = cellBox(
-                content: pageContents[index], cell: cell, side: side, vAlign: vAlign)
-        }
-        return map
-    }
-
-    /// The uniform cell size for a set of pages: the max content width and height
-    /// (enlarge-only — the cell is never smaller than any page in either axis).
-    public static func spreadCell(contents: [CGRect]) -> CGSize {
-        var w: CGFloat = 0
-        var h: CGFloat = 0
-        for c in contents {
-            w = max(w, c.width)
-            h = max(h, c.height)
-        }
-        return CGSize(width: w, height: h)
-    }
-
-    /// SIZE-1/2 — the fit scale for a SINGLE mode comes from the CURRENT page
-    /// only, NEVER the document-widest page (regression against the autoScales
-    /// "fit the widest page" bug): `.singleFixed` → whole-page fit;
-    /// `.singleContinuous` → width fit. Two-up modes don't use this (they fit the
-    /// uniform cell, not a single page).
-    public static func singlePageScale(
-        mode: ViewMode, viewport: CGSize, currentPageSize: CGSize
-    ) -> CGFloat {
-        switch mode {
-        case .singleFixed:
-            return fixedFitScale(
-                viewport: viewport, pageSize: currentPageSize, margin: ReaderLayout.margin)
-        case .singleContinuous:
-            return widthFitScale(
-                viewportWidth: viewport.width, pageWidth: currentPageSize.width,
-                margin: ReaderLayout.margin)
-        case .doubleFixed, .doubleContinuous:
-            // Two-up fit uses the uniform cell width, not a lone page.
-            return twoUpWidthFitScale(
-                viewportWidth: viewport.width, pageWidth: currentPageSize.width,
-                margin: ReaderLayout.margin)
-        }
-    }
-
-    // MARK: NAV-1 / NAV-2 — arrow-key stepping in continuous modes
-
-    /// The content top of the page/row at `stackIndex` in the NON-FLIPPED
-    /// documentView (page-point coords, docs/PDFKIT-FACTS.md): content top =
-    /// maximum y, so `docHeight − stackIndex·pitch − topInset`. In a uniform
-    /// continuous layout `pitch = pageH + top + bottom` (a two-up row is one
-    /// page tall, so its pitch is the same) and `topInset` is the outer/per-page
-    /// top inset. `stackIndex` is the page index in single modes, the ROW index
-    /// in two-up modes.
-    public static func stackTopDoc(
-        stackIndex: Int, pitch: CGFloat, topInset: CGFloat, docHeight: CGFloat
-    ) -> CGFloat {
-        docHeight - CGFloat(max(0, stackIndex)) * pitch - topInset
-    }
-
-    /// The clip-origin.y (page points) that positions a page/row whose content
-    /// top sits at `pageTopDoc` so that top is `topGap` (view points) below the
-    /// viewport top. The visible-region top (doc coords) maps to the viewport
-    /// top, and the clip is `viewportHeight / scale` page-points tall, so
-    /// `targetY = pageTopDoc − viewportH/scale + topGap/scale`. Clamped to
-    /// `[0, docHeight − clipHeight]` (can't scroll past either end). A
-    /// non-positive scale yields 0.
-    public static func clipOriginY(
-        pageTopDoc: CGFloat, docHeight: CGFloat, viewportHeight: CGFloat,
-        topGap: CGFloat, scale: CGFloat
-    ) -> CGFloat {
-        guard scale > 0 else { return 0 }
-        let clipHeight = viewportHeight / scale
-        let targetY = pageTopDoc - clipHeight + topGap / scale
-        let maxOriginY = max(0, docHeight - clipHeight)
-        return min(max(0, targetY), maxOriginY)
-    }
-
-    /// NAV-1/NAV-2 — the clip-origin.y that lands the page/row at `stackIndex`
-    /// with its top exactly `margin` (view points) below the viewport top, in a
-    /// uniform continuous layout. (For NAV-1's fit-height "equal margins" case,
-    /// resolve the gap with `stepTopGap` and call `clipOriginY` directly.)
-    public static func pageTopScrollY(
-        stackIndex: Int, pitch: CGFloat, topInset: CGFloat, docHeight: CGFloat,
-        viewportHeight: CGFloat, margin: CGFloat, scale: CGFloat
-    ) -> CGFloat {
-        clipOriginY(
-            pageTopDoc: stackTopDoc(
-                stackIndex: stackIndex, pitch: pitch, topInset: topInset, docHeight: docHeight),
-            docHeight: docHeight, viewportHeight: viewportHeight,
-            topGap: margin, scale: scale)
-    }
-
-    /// NAV-1 — the top gap (view points) a single-continuous step lands the page
-    /// top at: when the page is FULLY VISIBLE (its on-screen height ≤ the
-    /// viewport) center it with EQUAL top/bottom margins `(viewportH − pageH·s)/2`
-    /// (the fit-height case — equals M exactly when `pageH·s + 2M == viewportH`);
-    /// otherwise pin the top at `margin`. NAV-2 rows always use `margin`.
-    public static func stepTopGap(
-        onScreenPageHeight: CGFloat, viewportHeight: CGFloat, margin: CGFloat
-    ) -> CGFloat {
-        onScreenPageHeight <= viewportHeight
-            ? (viewportHeight - onScreenPageHeight) / 2
-            : margin
-    }
-
-    /// The first CONTENT index of the two-up row (spread) containing `index`
-    /// under `layout` — the row's canonical anchor. `displaysAsBook` leaves page
-    /// 0 in a row of its own; `rtl` does not change which pages share a row (only
-    /// their left/right placement), so it is irrelevant to row identity.
-    static func rowStart(of index: Int, layout: BookLayout) -> Int {
-        let i = max(0, index)
-        if layout.displaysAsBook {
-            return i == 0 ? 0 : ((i - 1) / 2) * 2 + 1
-        }
-        return (i / 2) * 2
-    }
-
-    /// NAV-2 — the anchor (first content index) of the NEXT two-up row, one full
-    /// spread forward from a page currently in some row. The caller clamps to the
-    /// page count (this pure math has none) and relies on `canGoToNextPage`.
-    public static func nextRowLeftIndex(currentIndex: Int, layout: BookLayout) -> Int {
-        let start = rowStart(of: currentIndex, layout: layout)
-        if layout.displaysAsBook && start == 0 { return 1 }   // {0} → {1,2}
-        return start + 2
-    }
-
-    /// NAV-2 — the anchor (first content index) of the PREVIOUS two-up row.
-    public static func previousRowLeftIndex(currentIndex: Int, layout: BookLayout) -> Int {
-        let start = rowStart(of: currentIndex, layout: layout)
-        if layout.displaysAsBook {
-            return start <= 1 ? 0 : start - 2                 // {1,2} → {0}
-        }
-        return max(0, start - 2)
     }
 
     /// Which axis a fit button fills. `width` fills the viewport width leaving

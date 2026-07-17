@@ -31,26 +31,6 @@ public enum ViewMode: Int, Sendable, CaseIterable {
     }
 }
 
-/// How a two-up mode pairs pages into spreads. `displaysAsBook` ON makes page
-/// index 0 sit ALONE (a book's odd-numbered first recto), so pairs become
-/// (1,2),(3,4)…; OFF pairs (0,1),(2,3)…. `rtl` swaps which page of a pair is on
-/// the left. Maps 1:1 onto PDFView's `displaysAsBook` / `displaysRTL`
-/// (docs/PDFKIT-FACTS.md §3). The default is a plain LTR non-book layout.
-public struct BookLayout: Equatable, Sendable {
-    /// Odd-numbered first page: index 0 stands alone, pairs are (1,2),(3,4)….
-    public var displaysAsBook: Bool
-    /// Right-to-left reading: the pair's left/right slots are swapped.
-    public var rtl: Bool
-
-    public init(displaysAsBook: Bool = false, rtl: Bool = false) {
-        self.displaysAsBook = displaysAsBook
-        self.rtl = rtl
-    }
-
-    /// Plain left-to-right, non-book layout (pairs 0,1 | 2,3 | …).
-    public static let `default` = BookLayout(displaysAsBook: false, rtl: false)
-}
-
 /// Layout constants shared by every mode.
 ///
 /// `margin` is the single uniform ON-SCREEN margin (in VIEW POINTS) from which
