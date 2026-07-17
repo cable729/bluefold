@@ -274,94 +274,42 @@ struct ActivePDFView: NSViewRepresentable {
             }
         }
 
-        /// Realizes a standard-fit `LayoutPlan` (from `ViewModePlanner`) on the
-        /// live view: page-break insets, explicit scale, deferred re-centering.
-        /// Toolbar/button wiring stays in a later phase — this is the applier
-        /// those callers will route through.
-        func applyLayoutPlan(_ plan: LayoutPlan) {
-            guard let view else { return }
-            LayoutApplier.apply(plan, to: view, log: log)
-        }
-
-        /// Applies a view-mode button / mode switch (VM-1..4, SW-1..5): builds
-        /// a pure `ModeTransition` from the LIVE state (current mode, page,
-        /// scale, viewport, page size) and hands it to the applier, which
-        /// realizes the destination fit + margins and lands the reading
-        /// position with the rewind pattern. Non-standard zoom/pan is not
-        /// persisted per mode (SW-5) — the transition targets are standard.
         func apply(displayModeRaw: Int) {
             guard let view else { return }
             let before = view.displayMode.rawValue
-            guard
-                let document = view.document,
-                let from = ViewMode(displayModeRaw: before),
-                let to = ViewMode(displayModeRaw: displayModeRaw),
-                let page = view.currentPage
-            else {
-                // No live geometry yet (no document/page): fall back to a plain
-                // display-mode set so the mode still changes.
-                view.displayMode = PDFDisplayMode(rawValue: displayModeRaw)
-                    ?? .singlePageContinuous
-                log.debug(
-                    .viewmode,
-                    "apply displayMode \(before)→\(view.displayMode.rawValue) "
-                        + "(no live geometry; plain set)"
-                )
-                return
-            }
-            let currentIndex = document.index(for: page)
-            let pageSize = page.bounds(for: view.displayBox).size
-            let transition = ViewModePlanner.transition(
-                from: from, to: to,
-                currentPageIndex: currentIndex, currentScale: view.scaleFactor,
-                viewport: view.bounds.size, pageSize: pageSize)
+            view.displayMode = PDFDisplayMode(rawValue: displayModeRaw) ?? .singlePageContinuous
             log.debug(
                 .viewmode,
-                "apply displayMode \(before)→\(displayModeRaw) page=\(currentIndex) "
-                    + "vp=\(view.bounds.size) pageSize=\(pageSize) "
-                    + "liveScale=\(view.scaleFactor) → transition scale=\(transition.scaleFactor) "
-                    + "target=\(transition.targetPageIndex) anchor=\(transition.scrollAnchor)"
+                "apply displayMode \(before)→\(view.displayMode.rawValue) "
+                    + "vp=\(view.bounds.size) scale=\(view.scaleFactor) "
+                    + "autoScales=\(view.autoScales)"
             )
-            LayoutApplier.apply(transition, to: view, log: log)
         }
 
-        /// FIT-1 — fit the current page to the viewport width within the current
-        /// mode, leaving margin M left/right, WITHOUT jumping the vertical
-        /// reading position (the applier preserves the clip origin.y).
         func fitWidth() {
-            guard
-                let view,
-                let page = view.currentPage,
-                let mode = ViewMode(displayModeRaw: view.displayMode.rawValue)
-            else { return }
-            let pageSize = page.bounds(for: view.displayBox).size
-            let plan = ViewModePlanner.fitPlan(
-                mode: mode, axis: .width, viewport: view.bounds.size, pageSize: pageSize)
+            guard let view else { return }
+            view.autoScales = true
             log.debug(
                 .layout,
-                "fitWidth mode=\(mode.rawValue) vp=\(view.bounds.size) "
-                    + "page=\(pageSize) → scale=\(plan.scaleFactor)"
+                "fitWidth(autoScales) vp=\(view.bounds.size) → scale=\(view.scaleFactor) "
+                    + "page=\(view.currentPage?.bounds(for: view.displayBox).size ?? .zero)"
             )
-            LayoutApplier.apply(plan, to: view, log: log, preserveVerticalScroll: true)
         }
 
-        /// FIT-2 — re-fit the current page to the viewport height in place
-        /// (`pageH·scale + 2M == viewportH`), centered; no page jump.
         func fitHeight() {
             guard
                 let view,
-                let page = view.currentPage,
-                let mode = ViewMode(displayModeRaw: view.displayMode.rawValue)
+                let page = view.currentPage
             else { return }
-            let pageSize = page.bounds(for: view.displayBox).size
-            let plan = ViewModePlanner.fitPlan(
-                mode: mode, axis: .height, viewport: view.bounds.size, pageSize: pageSize)
+            view.autoScales = false
+            let pageHeight = page.bounds(for: view.displayBox).height
+            guard pageHeight > 0 else { return }
+            view.scaleFactor = view.bounds.height / pageHeight
             log.debug(
                 .layout,
-                "fitHeight mode=\(mode.rawValue) vp=\(view.bounds.size) "
-                    + "page=\(pageSize) → scale=\(plan.scaleFactor)"
+                "fitHeight vp=\(view.bounds.size) pageH=\(pageHeight) "
+                    + "→ scale=\(view.scaleFactor)"
             )
-            LayoutApplier.apply(plan, to: view, log: log, preserveVerticalScroll: false)
         }
 
         /// PDFView's own page turns respect the display mode (a "page" is a
