@@ -1,5 +1,5 @@
 {
-  "originHash" : "555e9ad0d99d9d39dc31f3f40e2a158ead5b2f0e8282e986ceb9131782d9450d",
+  "originHash" : "32c58e5c242bc1543adff1cc3bfc0613e3c86365a0c69cd256aad5ed5ba53b7c",
   "pins" : [
     {
       "identity" : "combine-schedulers",
@@ -38,30 +38,12 @@
       }
     },
     {
-      "identity" : "swift-custom-dump",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/pointfreeco/swift-custom-dump",
-      "state" : {
-        "revision" : "a8cd6c976f335ed361dcecddb0dc39ebda51bc3e",
-        "version" : "1.6.1"
-      }
-    },
-    {
       "identity" : "swift-dependencies",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-dependencies",
       "state" : {
         "revision" : "8dc1fbf2f6255a73dec53b4648164884898db4c5",
         "version" : "1.14.1"
-      }
-    },
-    {
-      "identity" : "swift-snapshot-testing",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/pointfreeco/swift-snapshot-testing",
-      "state" : {
-        "revision" : "1bc16f430d8410e7f087d4c787767b26fd32fe30",
-        "version" : "1.19.3"
       }
     },
     {
