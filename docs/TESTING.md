@@ -110,42 +110,5 @@ Coverage: `swift test --enable-code-coverage`; Codecov reports untested lines
 on every PR and blocks when patch coverage of changed lines is too low. If a
 module shows weak coverage, file a `chore` issue rather than ignoring it.
 
-## Snapshot lane (view-mode layouts)
-
-`ViewModeLayoutSnapshotTests` (Tests/ReaderUITests, issue #20) is a visual
-regression net for the four view modes × {normal, trimmed} × {uniform, mixed
-pages} — the cases where "margins look wrong". It uses
-[pointfreeco/swift-snapshot-testing](https://github.com/pointfreeco/swift-snapshot-testing)
-(test-only dep, `SnapshotTesting` on the `ReaderUITests` target). References
-live in `Tests/ReaderUITests/__Snapshots__/`.
-
-**These run on CI as a full gate** (not local-only), because the references are
-**backing-scale-independent**. The determinism approach — the one thing that
-makes snapshots viable here:
-
-- A reference is **composed into a bitmap we own**: a `CGContext` at an EXPLICIT
-  pixel size (viewport points == pixels, 1×) into which each page is drawn with
-  raw `CGContext.drawPDFPage` — the same raw-CG path `PageContentDetector` uses.
-  We **never** screenshot a live `PDFView`'s backing store, so the
-  backing-scale sub-pixel term (docs/PDFKIT-FACTS.md Fact 2) never enters, and a
-  1× CI runner produces the same pixels as a 2× Retina Mac. A determinism pin
-  (`LayoutSnapshotDeterminismTest`) renders twice and `memcmp`s the PNG bytes.
-- The bitmap is a pure function of the **real** planner/detector output
-  (`ViewModePlanner.standardPlan` scale + margin inset, `PageContentDetector`
-  trim boxes, `ViewModePlanner.twoUpBoxOverrides` alignment), so any margin/fit
-  regression changes pixels and fails the diff. It is deliberately NOT a
-  pixel-replica of PDFKit's live scroll position (which the applier derives from
-  live geometry and is not a pure function of the plan) — it regression-tests
-  the margins/gaps/fit/crop the planner dictates.
-
-Config: `assertSnapshot(of:as:.image(precision: 0.995, perceptualPrecision:
-0.98))`. `record: true` (or `SNAPSHOT_TESTING_RECORD=all`) must NEVER be
-committed — `recordModeIsOff()` fails the suite if record mode is on. To
-regenerate references after an INTENDED layout change, run
-`SNAPSHOT_TESTING_RECORD=missing swift test --filter ViewModeLayoutSnapshotTests`
-(deletes+re-records only the touched ones after you remove them) and eyeball the
-new PNGs before committing. CI sets `SNAPSHOT_ARTIFACTS` and uploads the
-reference/failure/difference PNGs as the `snapshot-diffs` artifact on failure.
-
 Reference material for agents: pointfreeco/isowords (real-dependency testing at
 scale), swift-dependencies docs ("Designing dependencies", "Testing").

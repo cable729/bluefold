@@ -85,10 +85,6 @@ struct ActivePDFView: NSViewRepresentable {
                 axis: axis
             )
         }
-        // Bare arrow keys step through this pane's Coordinator (NAV-1/NAV-2),
-        // matching the status-bar arrows and palette commands.
-        view.onStepForward = { [weak coordinator] in coordinator?.goToNextPage() }
-        view.onStepBackward = { [weak coordinator] in coordinator?.goToPreviousPage() }
 
         // Defer until after the view has a size, or the point lands wrong.
         DispatchQueue.main.async { [weak view] in
@@ -137,9 +133,6 @@ struct ActivePDFView: NSViewRepresentable {
     static func dismantleNSView(_ view: ReaderPDFView, coordinator: Coordinator) {
         view.cancelLinkHover()
         coordinator.captureNow()
-        // Revert any two-up box overrides so the shared in-memory document is
-        // restored to its original page boxes (never persisted).
-        coordinator.revertPageBoxes()
         if coordinator.model?.primaryController === coordinator {
             coordinator.model?.primaryController = nil
         }
@@ -148,8 +141,6 @@ struct ActivePDFView: NSViewRepresentable {
         }
         view.onLinkActivated = nil
         view.onLinkSplit = nil
-        view.onStepForward = nil
-        view.onStepBackward = nil
         view.onInteract = nil
         view.pageOverlayViewProvider = nil
         view.document = nil
@@ -163,14 +154,6 @@ struct ActivePDFView: NSViewRepresentable {
         @Dependency(\.appLogger) private var log
         /// Strong: PDFView holds its overlay provider weakly.
         var anchorProvider: AnchorOverlayProvider?
-        /// In-memory page-box overrides for two-up alignment of different-size
-        /// pages (SIZE-3/4). Applied on entering a two-up mode, reverted on
-        /// leaving it or on teardown — never writes the file (Calibre read-only).
-        private let pageBoxStore = PageBoxStore()
-        /// TRIM state for this tab's live view (seeded from the tab, persisted
-        /// back through the model). Drives whether `rebuildBoxState` crops each
-        /// page to its content box or leaves the publisher's page.
-        private var trimMargins = false
         // nonisolated(unsafe): written on main; read in deinit.
         private nonisolated(unsafe) var pageObserver: NSObjectProtocol?
         private nonisolated(unsafe) var scrollObserver: NSObjectProtocol?
@@ -182,7 +165,6 @@ struct ActivePDFView: NSViewRepresentable {
         init(tabID: UUID, model: ReaderWindowModel) {
             self.tabID = tabID
             self.model = model
-            self.trimMargins = model.tabs.first { $0.id == tabID }?.trimMargins ?? false
         }
 
         deinit {
@@ -211,11 +193,6 @@ struct ActivePDFView: NSViewRepresentable {
                         tabID: self.tabID,
                         pageIndex: document.index(for: page)
                     )
-                    // SIZE-1: single fixed applies ONE scaleFactor, but pages
-                    // differ in size — re-fit the page that just became current
-                    // so it stays centered with margins ≥ M (no-op in other
-                    // modes).
-                    LayoutApplier.refitSingleFixed(view, log: self.log)
                 }
             }
         }
@@ -297,258 +274,54 @@ struct ActivePDFView: NSViewRepresentable {
             }
         }
 
-        /// Realizes a standard-fit `LayoutPlan` (from `ViewModePlanner`) on the
-        /// live view: page-break insets, explicit scale, deferred re-centering.
-        /// Toolbar/button wiring stays in a later phase — this is the applier
-        /// those callers will route through.
-        func applyLayoutPlan(_ plan: LayoutPlan) {
-            guard let view else { return }
-            LayoutApplier.apply(plan, to: view, log: log)
-        }
-
-        /// Applies a view-mode button / mode switch (VM-1..4, SW-1..5): builds
-        /// a pure `ModeTransition` from the LIVE state (current mode, page,
-        /// scale, viewport, page size) and hands it to the applier, which
-        /// realizes the destination fit + margins and lands the reading
-        /// position with the rewind pattern. Non-standard zoom/pan is not
-        /// persisted per mode (SW-5) — the transition targets are standard.
         func apply(displayModeRaw: Int) {
             guard let view else { return }
             let before = view.displayMode.rawValue
-            guard
-                let document = view.document,
-                let from = ViewMode(displayModeRaw: before),
-                let to = ViewMode(displayModeRaw: displayModeRaw),
-                let page = view.currentPage
-            else {
-                // No live geometry yet (no document/page): fall back to a plain
-                // display-mode set so the mode still changes.
-                view.displayMode = PDFDisplayMode(rawValue: displayModeRaw)
-                    ?? .singlePageContinuous
-                log.debug(
-                    .viewmode,
-                    "apply displayMode \(before)→\(view.displayMode.rawValue) "
-                        + "(no live geometry; plain set)"
-                )
-                return
-            }
-            let currentIndex = document.index(for: page)
-            // The document's own even/odd pairing (from its /PageLayout
-            // catalog entry) drives the spread anchor and the live book/RTL
-            // flags (VM-5/VM-6).
-            let bookLayout = ViewModePlanner.bookLayout(of: document)
-            // Rebuild the in-memory box overrides for the DESTINATION mode and the
-            // current trim state (SIZE-3/4 two-up enlarge, TRIM crop, or the
-            // composition of both) BEFORE reading pageSize, so the transition's
-            // fit is computed from the resulting box (== currentPage box).
-            rebuildBoxState(mode: to, document: document, layout: bookLayout)
-            let pageSize = page.bounds(for: view.displayBox).size
-            let transition = ViewModePlanner.transition(
-                from: from, to: to,
-                currentPageIndex: currentIndex, currentScale: view.scaleFactor,
-                viewport: view.bounds.size, pageSize: pageSize,
-                layout: bookLayout)
+            view.displayMode = PDFDisplayMode(rawValue: displayModeRaw) ?? .singlePageContinuous
             log.debug(
                 .viewmode,
-                "apply displayMode \(before)→\(displayModeRaw) page=\(currentIndex) "
-                    + "vp=\(view.bounds.size) pageSize=\(pageSize) "
-                    + "liveScale=\(view.scaleFactor) → transition scale=\(transition.scaleFactor) "
-                    + "target=\(transition.targetPageIndex) anchor=\(transition.scrollAnchor)"
-            )
-            LayoutApplier.apply(transition, to: view, log: log)
-        }
-
-        /// TRIM-1..7 — crop every page to its printed content box, or revert.
-        /// Recomputes the current mode's standard plan from the resulting
-        /// (cropped/original) page sizes and re-applies it, preserving the
-        /// vertical scroll in continuous modes (TRIM-2/4) and re-fitting in place
-        /// for fixed modes (TRIM-1/3). Toggling never moves scroll/pan.
-        ///
-        /// TRIM-7: the current page is detected synchronously so trim appears at
-        /// once; whole-document detection is cached and was measured at
-        /// ~1.4 ms/page (0.857 s for a 593-page book, one-time). See `setTrim`'s
-        /// deferred sweep note.
-        func setTrim(_ on: Bool) {
-            guard
-                let view,
-                let document = view.document,
-                let mode = ViewMode(displayModeRaw: view.displayMode.rawValue),
-                let page = view.currentPage
-            else { return }
-            trimMargins = on
-            let layout = ViewModePlanner.bookLayout(of: document)
-            let beforeY = Self.firstScrollView(in: view)?.contentView.bounds.origin.y ?? 0
-            rebuildBoxState(mode: mode, document: document, layout: layout)
-            let pageSize = page.bounds(for: view.displayBox).size
-            let plan = ViewModePlanner.standardPlan(
-                mode: mode, viewport: view.bounds.size, pageSize: pageSize)
-            log.debug(
-                .trim,
-                "setTrim=\(on) mode=\(mode.rawValue) pages=\(document.pageCount) "
-                    + "page=\(document.index(for: page)) beforeY=\(beforeY) "
-                    + "pageSize=\(pageSize) → scale=\(plan.scaleFactor)"
-            )
-            LayoutApplier.apply(
-                plan, to: view, log: log, preserveVerticalScroll: mode.isContinuous)
-        }
-
-        /// Reverts any in-memory box overrides and re-applies the composition for
-        /// `mode` + the current `trimMargins`: two-up enlarges each page to the
-        /// document's uniform cell (SIZE-3/4, blank padding, content spine-ward);
-        /// trim crops each page to its detected content box (TRIM); two-up + trim
-        /// composes — the CROPPED content boxes feed `twoUpBoxOverrides` so the
-        /// spread still abuts the gutter (TRIM-3/4/6). All overrides are in-memory
-        /// only (`PageBoxStore` never writes the file — Calibre read-only).
-        private func rebuildBoxState(
-            mode: ViewMode, document: PDFDocument, layout: BookLayout
-        ) {
-            pageBoxStore.revert(document: document)
-            let count = document.pageCount
-            func detectedBox(_ i: Int) -> CGRect? {
-                document.page(at: i).flatMap { PageContentDetector.contentBox(of: $0) }
-            }
-
-            if mode.isTwoUp && trimMargins {
-                // Crop each page to its content box, THEN pad the CROPPED boxes to
-                // a uniform cell so the mixed-size spread abuts the gutter.
-                let cropped = (0..<count).map { i -> CGRect in
-                    detectedBox(i)
-                        ?? document.page(at: i)?.bounds(for: .cropBox) ?? .zero
-                }
-                let overrides = ViewModePlanner.twoUpBoxOverrides(
-                    pageContents: cropped, layout: layout, vAlign: .center)
-                pageBoxStore.crop(overrides: overrides, to: document)
-            } else if mode.isTwoUp {
-                let contents = (0..<count).map {
-                    document.page(at: $0)?.bounds(for: .cropBox) ?? .zero
-                }
-                let overrides = ViewModePlanner.twoUpBoxOverrides(
-                    pageContents: contents, layout: layout, vAlign: .center)
-                pageBoxStore.apply(overrides: overrides, to: document)
-            } else if trimMargins {
-                var overrides: [Int: CGRect] = [:]
-                for i in 0..<count where detectedBox(i) != nil {
-                    overrides[i] = detectedBox(i)
-                }
-                pageBoxStore.crop(overrides: overrides, to: document)
-            }
-            // single + no-trim: reverted to originals, nothing to apply.
-            log.debug(
-                .trim,
-                "rebuildBoxState mode=\(mode.rawValue) trim=\(trimMargins) "
-                    + "pages=\(count) active=\(pageBoxStore.isActive)"
+                "apply displayMode \(before)→\(view.displayMode.rawValue) "
+                    + "vp=\(view.bounds.size) scale=\(view.scaleFactor) "
+                    + "autoScales=\(view.autoScales)"
             )
         }
 
-        /// Reverts any two-up box overrides — called when leaving two-up and on
-        /// teardown so the shared in-memory document is left in its original box
-        /// state.
-        func revertPageBoxes() {
-            guard let document = view?.document, pageBoxStore.isActive else { return }
-            pageBoxStore.revert(document: document)
-        }
-
-        /// FIT-1 — fit the current page to the viewport width within the current
-        /// mode, leaving margin M left/right, WITHOUT jumping the vertical
-        /// reading position (the applier preserves the clip origin.y).
         func fitWidth() {
-            guard
-                let view,
-                let page = view.currentPage,
-                let mode = ViewMode(displayModeRaw: view.displayMode.rawValue)
-            else { return }
-            let pageSize = page.bounds(for: view.displayBox).size
-            let plan = ViewModePlanner.fitPlan(
-                mode: mode, axis: .width, viewport: view.bounds.size, pageSize: pageSize)
+            guard let view else { return }
+            view.autoScales = true
             log.debug(
                 .layout,
-                "fitWidth mode=\(mode.rawValue) vp=\(view.bounds.size) "
-                    + "page=\(pageSize) → scale=\(plan.scaleFactor)"
+                "fitWidth(autoScales) vp=\(view.bounds.size) → scale=\(view.scaleFactor) "
+                    + "page=\(view.currentPage?.bounds(for: view.displayBox).size ?? .zero)"
             )
-            LayoutApplier.apply(plan, to: view, log: log, preserveVerticalScroll: true)
         }
 
-        /// FIT-2 — re-fit the current page to the viewport height in place
-        /// (`pageH·scale + 2M == viewportH`), centered; no page jump.
         func fitHeight() {
             guard
                 let view,
-                let page = view.currentPage,
-                let mode = ViewMode(displayModeRaw: view.displayMode.rawValue)
+                let page = view.currentPage
             else { return }
-            let pageSize = page.bounds(for: view.displayBox).size
-            let plan = ViewModePlanner.fitPlan(
-                mode: mode, axis: .height, viewport: view.bounds.size, pageSize: pageSize)
+            view.autoScales = false
+            let pageHeight = page.bounds(for: view.displayBox).height
+            guard pageHeight > 0 else { return }
+            view.scaleFactor = view.bounds.height / pageHeight
             log.debug(
                 .layout,
-                "fitHeight mode=\(mode.rawValue) vp=\(view.bounds.size) "
-                    + "page=\(pageSize) → scale=\(plan.scaleFactor)"
+                "fitHeight vp=\(view.bounds.size) pageH=\(pageHeight) "
+                    + "→ scale=\(view.scaleFactor)"
             )
-            LayoutApplier.apply(plan, to: view, log: log, preserveVerticalScroll: false)
         }
 
-        /// A "step" back/forward (arrow keys, status-bar arrows, palette). In
-        /// FIXED modes we defer to PDFView's own paging (a "page" is a spread in
-        /// two-up). In CONTINUOUS modes PDFKit's paging lands the page top one
-        /// inset down (Fact 4) — NAV-1/NAV-2 instead land the target page/row's
-        /// top at margin M (single) or, when the page fully fits, centered — so
-        /// stepping matches FIXED mode. The target index is computed here (next/
-        /// prev page for single; the next/prev ROW's anchor for double, honoring
-        /// the book pairing), then handed to the applier's rewind-pattern scroll.
+        /// PDFView's own page turns respect the display mode (a "page" is a
+        /// spread in two-up modes) and scroll position in continuous modes.
         func goToPreviousPage() {
             guard let view, view.canGoToPreviousPage else { return }
-            guard
-                let mode = ViewMode(displayModeRaw: view.displayMode.rawValue),
-                mode.isContinuous
-            else {
-                view.goToPreviousPage(nil)
-                return
-            }
-            stepContinuous(mode: mode, forward: false)
+            view.goToPreviousPage(nil)
         }
 
         func goToNextPage() {
             guard let view, view.canGoToNextPage else { return }
-            guard
-                let mode = ViewMode(displayModeRaw: view.displayMode.rawValue),
-                mode.isContinuous
-            else {
-                view.goToNextPage(nil)
-                return
-            }
-            stepContinuous(mode: mode, forward: true)
-        }
-
-        /// Computes the continuous-mode step target and drives the applier.
-        /// Single: next/prev PAGE, landing top at M (or centered if fit-height).
-        /// Double: next/prev ROW anchor via the Phase-5 pairing, top at M.
-        private func stepContinuous(mode: ViewMode, forward: Bool) {
-            guard
-                let view,
-                let document = view.document,
-                let page = view.currentPage
-            else { return }
-            let currentIndex = document.index(for: page)
-            let targetIndex: Int
-            let centeredIfFits: Bool
-            if mode == .doubleContinuous {
-                let layout = ViewModePlanner.bookLayout(of: document)
-                targetIndex = forward
-                    ? ViewModePlanner.nextRowLeftIndex(currentIndex: currentIndex, layout: layout)
-                    : ViewModePlanner.previousRowLeftIndex(currentIndex: currentIndex, layout: layout)
-                centeredIfFits = false          // NAV-2 rows always land top at M
-            } else {
-                targetIndex = forward ? currentIndex + 1 : currentIndex - 1
-                centeredIfFits = true           // NAV-1 fit-height ⇒ equal margins
-            }
-            let clamped = min(max(0, targetIndex), max(0, document.pageCount - 1))
-            log.debug(
-                .nav,
-                "step \(forward ? "next" : "prev") mode=\(mode.rawValue) "
-                    + "from=\(currentIndex) → target=\(clamped) centeredIfFits=\(centeredIfFits)"
-            )
-            LayoutApplier.stepContinuous(
-                toPageIndex: clamped, centeredIfFits: centeredIfFits, in: view, log: log)
+            view.goToNextPage(nil)
         }
 
         /// Persists the exact reading position back into the tab.

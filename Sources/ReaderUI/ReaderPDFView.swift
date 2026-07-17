@@ -18,22 +18,12 @@ final class ReaderPDFView: PDFView {
     /// a split pane along the given axis.
     var onLinkSplit: ((_ target: LinkTarget, _ axis: SplitAxis) -> Void)?
 
-    /// A "step" back/forward from a bare arrow key. Wired by the Coordinator to
-    /// its `goToPreviousPage`/`goToNextPage` so arrow keys take the SAME path as
-    /// the status-bar arrows and palette commands — in continuous modes that
-    /// lands the target page/row's top at margin M (NAV-1/NAV-2) instead of
-    /// PDFKit's own one-inset paging (Fact 4). Nil in previews/tests → fall back
-    /// to PDFView's default paging.
-    var onStepBackward: (() -> Void)?
-    var onStepForward: (() -> Void)?
-
     /// Left/right arrows page-turn in every display mode. PDFView pages on
     /// arrows in single-page mode but scrolls (or beeps) in the continuous
     /// modes; intercepting here makes the behavior uniform, matching Preview.
     /// Only bare arrows are taken — modified arrows (⇧ selection, ⌘ etc.)
     /// keep PDFView's behavior, and text fields are their own responder so
-    /// typing is unaffected. Routed through the Coordinator's step (NAV-1/NAV-2)
-    /// when wired; PDFView's own paging is the fallback.
+    /// typing is unaffected.
     override func keyDown(with event: NSEvent) {
         cancelLinkHover()
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
@@ -41,12 +31,10 @@ final class ReaderPDFView: PDFView {
            let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first {
             switch Int(scalar.value) {
             case NSRightArrowFunctionKey:
-                if let onStepForward { onStepForward() }
-                else if canGoToNextPage { goToNextPage(nil) }
+                if canGoToNextPage { goToNextPage(nil) }
                 return  // consume even at the last page (no beep/side-scroll)
             case NSLeftArrowFunctionKey:
-                if let onStepBackward { onStepBackward() }
-                else if canGoToPreviousPage { goToPreviousPage(nil) }
+                if canGoToPreviousPage { goToPreviousPage(nil) }
                 return
             default:
                 break
